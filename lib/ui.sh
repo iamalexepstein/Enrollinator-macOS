@@ -505,6 +505,7 @@ ui_dialog_popup() {
             [ -n "$title_fontsize" ]  && ss_args+=( --titlefont "size=${title_fontsize}" )
             [ -n "$ss_resolved" ]     && ss_args+=( --image "$ss_resolved" )
             [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && ss_args+=( --ontop )
+            [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && ss_args+=( --blurscreen )
             _ui_user_exec "$DIALOG_BIN" "${ss_args[@]}"
             local ss_rc=$?
             # Any non-zero exit (user force-quit, timeout, etc.) aborts the slideshow.
