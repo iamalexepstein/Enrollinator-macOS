@@ -337,8 +337,13 @@ ui_stop() {
 # ---------------------------------------------------------------------------
 
 # ui_wait_open <title> <message> <slideshow_pipe_delim> <video> <width> <height>
-#   slideshow_pipe_delim: "/a.png|/b.png|/c.png" — empty means no slideshow
-#   video: path or URL, empty means none
+#   slideshow_pipe_delim: "/a.png|/b.png|/c.png"
+#     Multiple frames → user clicks "Next →" through each one synchronously
+#     before the persistent wait window (last frame) launches.  Condition
+#     polling in run_step doesn't start until ui_wait_open returns, so the
+#     user finishes reading all instruction slides before Enrollinator begins
+#     checking.  Single frame → shown as --image in the wait window.
+#   video: path or URL, empty means none — wins over slideshow when both set
 # If slideshow and video are both set, video wins.
 ui_wait_open() {
     local title="$1" message="$2" slideshow="$3" video="$4" width="$5" height="$6"
@@ -347,6 +352,46 @@ ui_wait_open() {
     [ -z "$height" ] && height=420
 
     ui_wait_close   # clean up any prior wait window
+
+    # ── User-clicked instruction slides ────────────────────────────────────
+    # Same pattern as ui_dialog_popup: show all but the last frame as
+    # individual dialogs the user must click through, then fall through to
+    # launch the persistent (button-disabled) wait window for the last frame.
+    if [ -z "$video" ] && [[ "$slideshow" == *"|"* ]]; then
+        local -a ww_frames
+        local IFS='|'
+        # shellcheck disable=SC2206
+        ww_frames=( $slideshow )
+        unset IFS
+        local ww_total=${#ww_frames[@]}
+        local ww_i
+        for (( ww_i=0; ww_i < ww_total - 1; ww_i++ )); do
+            local ww_frame ww_resolved
+            ww_frame="${ww_frames[$ww_i]}"
+            ww_resolved="$(_ui_normalize_icon "$ww_frame")"
+            local ww_slide_args=(
+                --title "$title"
+                --message "$message"
+                --messagefont "size=${msg_fontsize}"
+                --position "center"
+                --width "$width"
+                --height "$height"
+                --moveable
+                --ignorednd
+                --hideicon
+                --button1text "Next →  ($(( ww_i + 1 )) of ${ww_total})"
+            )
+            [ -n "$title_fontsize" ] && ww_slide_args+=( --titlefont "size=${title_fontsize}" )
+            [ -n "$ww_resolved" ]    && ww_slide_args+=( --image "$ww_resolved" )
+            [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && ww_slide_args+=( --ontop )
+            [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && ww_slide_args+=( --blurscreen )
+            _ui_user_exec "$DIALOG_BIN" "${ww_slide_args[@]}"
+            local ww_rc=$?
+            [ "$ww_rc" -ne 0 ] && return "$ww_rc"
+        done
+        # Reduce slideshow to the last frame for the persistent wait window below.
+        slideshow="${ww_frames[$(( ww_total - 1 ))]}"
+    fi
 
     : > "$WAIT_COMMAND_FILE"
     /bin/chmod 0666 "$WAIT_COMMAND_FILE" 2>/dev/null || true
@@ -372,10 +417,9 @@ ui_wait_open() {
     if [ -n "$video" ]; then
         args+=( --video "$video" )
     elif [ -n "$slideshow" ]; then
-        local first="${slideshow%%|*}"
-        local first_resolved
-        first_resolved="$(_ui_normalize_icon "$first")"
-        [ -n "$first_resolved" ] && args+=( --bannerimage "$first_resolved" )
+        local single_resolved
+        single_resolved="$(_ui_normalize_icon "$slideshow")"
+        [ -n "$single_resolved" ] && args+=( --image "$single_resolved" )
     fi
 
     [ -n "$title_fontsize" ] && args+=( --titlefont "size=${title_fontsize}" )
@@ -384,12 +428,6 @@ ui_wait_open() {
 
     _ui_user_exec "$DIALOG_BIN" "${args[@]}" &
     echo $! > "$WAIT_PID_FILE"
-
-    # If this is a multi-image slideshow, start a background rotator.
-    if [ -z "$video" ] && [ -n "$slideshow" ] && [[ "$slideshow" == *"|"* ]]; then
-        ( ui_wait_slideshow_loop "$slideshow" ) &
-        echo $! > "$WAIT_SLIDESHOW_PID_FILE"
-    fi
 
     /bin/sleep 0.3
 }
