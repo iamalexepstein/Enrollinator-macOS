@@ -13,8 +13,8 @@ does the rest. No Jamf policies, no custom agents per vendor, no forks.
 
 ## Profile Builder
 
-**[`tools/profile-builder.html`](tools/profile-builder.html)** — open it in
-any browser. No server, no install, no build step.
+**[`Enrollinator Profile Builder`]([tools/profile-builder.html](https://iamalexepstein.github.io/Enrollinator-macOS/tools/profile-builder.html))** — open it in
+any browser (tested in Chrome). No server, no install, no build step.
 
 The Profile Builder is the primary way to create and maintain Enrollinator
 configs. It gives you a full visual editor for every key in the schema:
