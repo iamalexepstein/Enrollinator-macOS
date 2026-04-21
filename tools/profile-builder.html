@@ -391,6 +391,8 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 .btn.danger:hover { background: #fff2f0; border-color: #e09a92; }
 .btn.primary { background: #0a84ff; color: #fff; border-color: transparent; box-shadow: 0 1px 3px rgba(10,132,255,0.3); }
 .btn.primary:hover { background: #0070e0; }
+.btn--active { background: #e8f0fe; color: #0a84ff; border-color: #9ec3ff; font-weight: 600; }
+.btn--active:hover { background: #dbe8fd; border-color: #7aadff; }
 
 .empty-state {
     text-align: center; padding: 14px; color: #8e8e93;
@@ -1481,6 +1483,7 @@ function blankWaitWindow(name) {
         MessageFontSize: null,
         Slideshow: [],
         Video: "",
+        VideoAutoplay: null,
         Width: null,
         Height: null,
         Blur: null,
@@ -1506,7 +1509,7 @@ function blankAction(type) {
                                  TitleFontSize: null, MessageFontSize: null,
                                  Width: null, Height: null,
                                  Buttons: ["OK"], ExpectedButton: "OK",
-                                 Video: "", Slideshow: [],
+                                 Video: "", VideoAutoplay: null, Slideshow: [],
                                  Blur: null, AlwaysOnTop: null };
         case "noop":    return { Type: "noop" };
     }
@@ -1736,13 +1739,14 @@ function buildAction(a) {
         case "shell":   return clean({ Type: "shell", Command: a.Command, RunAsUser: a.RunAsUser, TimeoutSeconds: a.TimeoutSeconds });
         case "package": return clean({ Type: "package", Path: a.Path, Target: a.Target, TimeoutSeconds: a.TimeoutSeconds });
         case "wait":    return clean({ Type: "wait", DurationSeconds: a.DurationSeconds });
-        case "dialog":  { const dlgSlides = (a.Slideshow || []).filter(Boolean);
+        case "dialog":  { const dlgSlides = (a.Slideshow || []).map(buildSlide).filter(s => s != null);
                           return clean({ Type: "dialog", Title: a.Title, Message: a.Message,
                                        TitleFontSize:   Number.isFinite(a.TitleFontSize)   ? a.TitleFontSize   : undefined,
                                        MessageFontSize: Number.isFinite(a.MessageFontSize) ? a.MessageFontSize : undefined,
                                        Width: a.Width, Height: a.Height,
                                        Buttons: a.Buttons, ExpectedButton: a.ExpectedButton,
                                        Video: a.Video || undefined,
+                                       VideoAutoplay: typeof a.VideoAutoplay === "boolean" ? a.VideoAutoplay : undefined,
                                        Slideshow: dlgSlides.length ? dlgSlides : undefined,
                                        Blur: typeof a.Blur === "boolean" ? a.Blur : undefined,
                                        AlwaysOnTop: typeof a.AlwaysOnTop === "boolean" ? a.AlwaysOnTop : undefined }); }
@@ -1771,16 +1775,73 @@ function buildStep(st) {
     };
     return clean(out);
 }
+// ─── Slide helpers ───────────────────────────────────────────────────────────
+// A slide can be stored as a plain string (legacy / image-only) or as an
+// object { Image, Title, Message } for per-slide text overrides.
+// normalizeSlide() always returns an object; buildSlide() serializes back to
+// the most compact form (plain string when only Image is set).
+
+function normalizeSlide(s) {
+    if (!s && s !== 0) return { Image: "", Title: "", Message: "" };
+    if (typeof s === "string") return { Image: s, Title: "", Message: "" };
+    return {
+        Image:   (s.Image   || ""),
+        Title:   (s.Title   || ""),
+        Message: (s.Message || "")
+    };
+}
+
+function buildSlide(s) {
+    const n = normalizeSlide(s);
+    const { Image: img, Title: title, Message: msg } = n;
+    if (!img && !title && !msg) return undefined;
+    // Plain string when only the image is set (backward-compatible with old plists).
+    if (!title && !msg) return img || undefined;
+    // Full dict when title or message is present.
+    const out = {};
+    if (img)   out.Image   = img;
+    if (title) out.Title   = title;
+    if (msg)   out.Message = msg;
+    return out;
+}
+
+// YouTube URL → embed URL (or null if not a YouTube URL).
+function youTubeId(url) {
+    if (!url) return null;
+    let m = url.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+    if (m) return m[1];
+    m = url.match(/youtu\.be\/([A-Za-z0-9_-]{11})/);
+    if (m) return m[1];
+    return null;
+}
+
+// Returns an array of DOM nodes to append under a Video input.
+// Shows a live embed preview when the URL is a YouTube URL.
+function youTubePreviewNodes(url) {
+    const id = youTubeId(url);
+    if (!id) return [];
+    const iframe = h("iframe", {
+        src: `https://www.youtube.com/embed/${id}?autoplay=0&rel=0`,
+        style: "width:100%;height:180px;border:1px solid rgba(0,0,0,0.1);border-radius:6px;margin-top:4px;display:block",
+        frameborder: "0",
+        allowfullscreen: "true",
+        allow: "autoplay; encrypted-media"
+    });
+    const note = hint("YouTube URL detected — swiftDialog plays it natively via --video.");
+    return [iframe, note];
+}
+
 function buildWaitWindow(ww) {
     if (!ww) return undefined;
-    const slides = (ww.Slideshow || []).filter(Boolean);
+    const slides = (ww.Slideshow || []).map(buildSlide).filter(s => s != null);
     const out = {
         Title:           ww.Title   || undefined,
         Message:         ww.Message || undefined,
         TitleFontSize:   Number.isFinite(ww.TitleFontSize)   ? ww.TitleFontSize   : undefined,
         MessageFontSize: Number.isFinite(ww.MessageFontSize) ? ww.MessageFontSize : undefined,
-        Slideshow: slides.length ? slides : undefined,
-        Video:  ww.Video  || undefined,
+        Slideshow:     slides.length ? slides : undefined,
+        Video:         ww.Video  || undefined,
+        VideoAutoplay: typeof ww.VideoAutoplay === "boolean" ? ww.VideoAutoplay : undefined,
         Width:  Number.isFinite(ww.Width)  ? ww.Width  : undefined,
         Height: Number.isFinite(ww.Height) ? ww.Height : undefined,
         Blur:        typeof ww.Blur        === "boolean" ? ww.Blur        : undefined,
@@ -1993,15 +2054,25 @@ function importStep(s) {
     out.Conditions = s.Conditions || [];
     if (s.WaitWindow) {
         out.WaitWindow = {
-            Title: s.WaitWindow.Title || "",
-            Message: s.WaitWindow.Message || "",
-            Slideshow: Array.isArray(s.WaitWindow.Slideshow) ? s.WaitWindow.Slideshow.slice() : [],
-            Video: s.WaitWindow.Video || "",
-            Width: Number.isFinite(s.WaitWindow.Width) ? s.WaitWindow.Width : null,
-            Height: Number.isFinite(s.WaitWindow.Height) ? s.WaitWindow.Height : null,
+            Title:           s.WaitWindow.Title   || "",
+            Message:         s.WaitWindow.Message || "",
+            TitleFontSize:   Number.isFinite(s.WaitWindow.TitleFontSize)   ? s.WaitWindow.TitleFontSize   : null,
+            MessageFontSize: Number.isFinite(s.WaitWindow.MessageFontSize) ? s.WaitWindow.MessageFontSize : null,
+            // Normalize plain-string entries to {Image,Title,Message} objects
+            Slideshow: Array.isArray(s.WaitWindow.Slideshow)
+                ? s.WaitWindow.Slideshow.map(normalizeSlide)
+                : [],
+            Video:         s.WaitWindow.Video || "",
+            VideoAutoplay: typeof s.WaitWindow.VideoAutoplay === "boolean" ? s.WaitWindow.VideoAutoplay : null,
+            Width:         Number.isFinite(s.WaitWindow.Width)  ? s.WaitWindow.Width  : null,
+            Height:      Number.isFinite(s.WaitWindow.Height) ? s.WaitWindow.Height : null,
             Blur:        typeof s.WaitWindow.Blur        === "boolean" ? s.WaitWindow.Blur        : null,
             AlwaysOnTop: typeof s.WaitWindow.AlwaysOnTop === "boolean" ? s.WaitWindow.AlwaysOnTop : null
         };
+    }
+    // Normalize dialog action Slideshow entries too
+    if (s.Action && s.Action.Type === "dialog" && Array.isArray(s.Action.Slideshow)) {
+        s.Action.Slideshow = s.Action.Slideshow.map(normalizeSlide);
     }
     return out;
 }
@@ -3572,19 +3643,56 @@ function renderWaitWindowFields(st) {
         return [hint("A secondary swiftDialog window shown while polling. Recommended for blocking steps with a multi-step user workflow.")];
     }
     const ww = st.WaitWindow;
-    const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:4px" });
+    // Normalize any legacy plain-string entries in-place before rendering
+    ww.Slideshow = ww.Slideshow.map(normalizeSlide);
+    const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:8px" });
     if (ww.Slideshow.length === 0)
-        slidesWrap.appendChild(hint("No frames. Add one for a still image; 2+ for a 6-second cycle."));
-    ww.Slideshow.forEach((src, i) => {
-        slidesWrap.appendChild(h("div", { style: "display:flex;gap:6px;align-items:center" },
-            h("input", { type: "text", value: src, placeholder: "/path/img.png or https://…",
-                oninput: e => { ww.Slideshow[i] = e.target.value; updatePreview(); }, style: "flex:1" }),
-            btn("↑", () => { move(ww.Slideshow, i, -1); reopenStep(); }, "icon"),
-            btn("↓", () => { move(ww.Slideshow, i,  1); reopenStep(); }, "icon"),
-            btn("✕", () => { ww.Slideshow.splice(i, 1); reopenStep(); updatePreview(); }, "danger")
-        ));
+        slidesWrap.appendChild(hint("No frames. Add one for a still image; 2+ for a user-clicked slideshow."));
+    ww.Slideshow.forEach((slide, i) => {
+        const frameCard = h("div", {
+            style: "display:flex;flex-direction:column;gap:6px;padding:10px 10px 8px;background:rgba(0,0,0,0.03);border-radius:7px;border:1px solid rgba(0,0,0,0.07)"
+        },
+            h("div", { style: "display:flex;align-items:center;gap:6px;margin-bottom:2px" },
+                h("span", { style: "font-size:10px;font-weight:700;text-transform:uppercase;color:#aeaeb2;letter-spacing:0.08em;flex:1" },
+                    `Frame ${i + 1}`),
+                btn("↑", () => { move(ww.Slideshow, i, -1); reopenStep(); }, "icon"),
+                btn("↓", () => { move(ww.Slideshow, i,  1); reopenStep(); }, "icon"),
+                btn("✕", () => { ww.Slideshow.splice(i, 1); reopenStep(); updatePreview(); }, "danger")
+            ),
+            row("Image", h("input", { type: "text", value: slide.Image || "",
+                placeholder: "/path/img.png or https://…", style: "flex:1",
+                oninput: e => { slide.Image = e.target.value; updatePreview(); } })),
+            row("Title", h("input", { type: "text", value: slide.Title || "",
+                placeholder: "Overrides window title for this slide (optional)",
+                oninput: e => { slide.Title = e.target.value; } })),
+            row("Message", h("textarea", {
+                placeholder: "Overrides message for this slide (Markdown, optional)",
+                oninput: e => { slide.Message = e.target.value; }
+            }, slide.Message || ""))
+        );
+        slidesWrap.appendChild(frameCard);
     });
-    slidesWrap.appendChild(btn("+ Add frame", () => { ww.Slideshow.push(""); reopenStep(); }));
+    slidesWrap.appendChild(btn("+ Add frame", () => {
+        ww.Slideshow.push({ Image: "", Title: "", Message: "" }); reopenStep();
+    }));
+
+    // Video field with autoplay toggle and live YouTube embed preview
+    const wwVideoInput = h("input", { type: "text", value: ww.Video || "",
+        placeholder: "/path/video.mp4, https://… or YouTube URL", style: "flex:1",
+        oninput: e => { ww.Video = e.target.value; updatePreview(); reopenStep(); } });
+    const wwAutoplayBtn = h("button", {
+        class: "btn" + (ww.VideoAutoplay === true ? " btn--active" : ""),
+        style: "white-space:nowrap;flex-shrink:0",
+        onclick: () => {
+            ww.VideoAutoplay = ww.VideoAutoplay === true ? null : true;
+            updatePreview(); reopenStep();
+        }
+    }, "▶ Autoplay");
+    const wwVideoInputRow = h("div", { style: "display:flex;gap:6px;align-items:center" },
+        wwVideoInput, wwAutoplayBtn);
+    const wwVideoWrap = h("div", { style: "display:flex;flex-direction:column;gap:4px;flex:1" },
+        wwVideoInputRow, ...youTubePreviewNodes(ww.Video || ""));
+
     return [
         row("Title",   textInput(ww.Title, v => ww.Title = v, "Defaults to step name")),
         row("Message", h("textarea", {
@@ -3595,8 +3703,8 @@ function renderWaitWindowFields(st) {
             row("Title font size",   intInput(ww.TitleFontSize,   v => { ww.TitleFontSize   = v; updatePreview(); }, "default")),
             row("Message font size", intInput(ww.MessageFontSize, v => { ww.MessageFontSize = v; updatePreview(); }, "14"))
         ),
-        row("Video",   textInput(ww.Video, v => ww.Video = v, "/path/video.mp4 or https://…"),
-            hint("Optional. Wins over Slideshow when both are set.")),
+        row("Video", wwVideoWrap,
+            hint("Optional. YouTube URLs/IDs supported natively via --video. Wins over slideshow when set.")),
         h("div", { class: "pair-row" },
             row("Width",  intInput(ww.Width,  v => ww.Width  = v, "520")),
             row("Height", intInput(ww.Height, v => ww.Height = v, "420"))
@@ -3792,22 +3900,58 @@ function actionFields(a) {
                 hint("Step passes only if the user clicks this button.")),
             ...(() => {
                 if (!Array.isArray(a.Slideshow)) a.Slideshow = [];
-                const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:4px" });
+                // Normalize any legacy plain-string entries in-place before rendering
+                a.Slideshow = a.Slideshow.map(normalizeSlide);
+                const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:8px" });
                 if (a.Slideshow.length === 0)
-                    slidesWrap.appendChild(hint("No frames. Add one for a still image; 2+ for a 6-second cycle."));
-                a.Slideshow.forEach((src, i) => {
-                    slidesWrap.appendChild(h("div", { style: "display:flex;gap:6px;align-items:center" },
-                        h("input", { type: "text", value: src, placeholder: "/path/img.png or https://…",
-                            oninput: e => { a.Slideshow[i] = e.target.value; updatePreview(); }, style: "flex:1" }),
-                        btn("↑", () => { move(a.Slideshow, i, -1); reopenStep(); }, "icon"),
-                        btn("↓", () => { move(a.Slideshow, i,  1); reopenStep(); }, "icon"),
-                        btn("✕", () => { a.Slideshow.splice(i, 1); reopenStep(); updatePreview(); }, "danger")
+                    slidesWrap.appendChild(hint("No frames. Add one for a still image; 2+ for a user-clicked slideshow."));
+                a.Slideshow.forEach((slide, i) => {
+                    slidesWrap.appendChild(h("div", {
+                        style: "display:flex;flex-direction:column;gap:6px;padding:10px 10px 8px;background:rgba(0,0,0,0.03);border-radius:7px;border:1px solid rgba(0,0,0,0.07)"
+                    },
+                        h("div", { style: "display:flex;align-items:center;gap:6px;margin-bottom:2px" },
+                            h("span", { style: "font-size:10px;font-weight:700;text-transform:uppercase;color:#aeaeb2;letter-spacing:0.08em;flex:1" },
+                                `Frame ${i + 1}`),
+                            btn("↑", () => { move(a.Slideshow, i, -1); reopenStep(); }, "icon"),
+                            btn("↓", () => { move(a.Slideshow, i,  1); reopenStep(); }, "icon"),
+                            btn("✕", () => { a.Slideshow.splice(i, 1); reopenStep(); updatePreview(); }, "danger")
+                        ),
+                        row("Image", h("input", { type: "text", value: slide.Image || "",
+                            placeholder: "/path/img.png or https://…", style: "flex:1",
+                            oninput: e => { slide.Image = e.target.value; updatePreview(); } })),
+                        row("Title", h("input", { type: "text", value: slide.Title || "",
+                            placeholder: "Overrides dialog title for this frame (optional)",
+                            oninput: e => { slide.Title = e.target.value; } })),
+                        row("Message", h("textarea", {
+                            placeholder: "Overrides message for this frame (Markdown, optional)",
+                            oninput: e => { slide.Message = e.target.value; }
+                        }, slide.Message || ""))
                     ));
                 });
-                slidesWrap.appendChild(btn("+ Add frame", () => { a.Slideshow.push(""); reopenStep(); }));
+                slidesWrap.appendChild(btn("+ Add frame", () => {
+                    a.Slideshow.push({ Image: "", Title: "", Message: "" }); reopenStep();
+                }));
+
+                // Video field with autoplay toggle and live YouTube embed preview
+                const dlgVideoInput = h("input", { type: "text", value: a.Video || "",
+                    placeholder: "/path/video.mp4, https://… or YouTube URL", style: "flex:1",
+                    oninput: e => { a.Video = e.target.value; updatePreview(); reopenStep(); } });
+                const dlgAutoplayBtn = h("button", {
+                    class: "btn" + (a.VideoAutoplay === true ? " btn--active" : ""),
+                    style: "white-space:nowrap;flex-shrink:0",
+                    onclick: () => {
+                        a.VideoAutoplay = a.VideoAutoplay === true ? null : true;
+                        updatePreview(); reopenStep();
+                    }
+                }, "▶ Autoplay");
+                const dlgVideoInputRow = h("div", { style: "display:flex;gap:6px;align-items:center" },
+                    dlgVideoInput, dlgAutoplayBtn);
+                const dlgVideoWrap = h("div", { style: "display:flex;flex-direction:column;gap:4px;flex:1" },
+                    dlgVideoInputRow, ...youTubePreviewNodes(a.Video || ""));
+
                 return [
-                    row("Video",     textInput(a.Video || "", v => { a.Video = v; updatePreview(); }, "/path/video.mp4 or https://…"),
-                        hint("Optional. Wins over slideshow when both are set.")),
+                    row("Video", dlgVideoWrap,
+                        hint("Optional. YouTube URLs/IDs supported natively via --video. Wins over slideshow when set.")),
                     row("Slideshow", slidesWrap)
                 ];
             })(),
@@ -4142,9 +4286,15 @@ function loadSample() {
     vpn.WaitWindow = blankWaitWindow("Connect to ZScaler VPN");
     vpn.WaitWindow.Message = "### Connect to ZScaler\n\n1. Click the **ZScaler** icon in your menu bar.\n2. Enter your `@example.com` email address.\n3. Approve the MFA prompt in your authenticator app.";
     vpn.WaitWindow.Slideshow = [
-        "https://example.com/enrollinator/zscaler-step1.png",
-        "https://example.com/enrollinator/zscaler-step2.png",
-        "https://example.com/enrollinator/zscaler-step3.png"
+        { Image: "https://example.com/enrollinator/zscaler-step1.png",
+          Title: "Step 1 — Open ZScaler",
+          Message: "Click the **ZScaler** icon in your menu bar to begin." },
+        { Image: "https://example.com/enrollinator/zscaler-step2.png",
+          Title: "Step 2 — Enter your email",
+          Message: "Type your `@example.com` email address and press **Connect**." },
+        { Image: "https://example.com/enrollinator/zscaler-step3.png",
+          Title: "Step 3 — Approve MFA",
+          Message: "Approve the push notification in your authenticator app." }
     ];
     vpn.WaitWindow.Width  = 560;
     vpn.WaitWindow.Height = 480;

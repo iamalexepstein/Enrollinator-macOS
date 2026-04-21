@@ -411,14 +411,15 @@ run_step() {
     fi
 
     # WaitWindow pulls (optional).
-    local ww_title ww_message ww_video ww_width ww_height ww_slideshow="" ww_has=0
+    local ww_title ww_message ww_video ww_video_autoplay ww_width ww_height ww_slideshow="" ww_has=0
     local ww_title_fs="" ww_msg_fs="" ww_blur="" ww_ontop=""
     if plist_exists "$cfg" "$skey:WaitWindow"; then
         ww_has=1
         ww_title="$(plist_get    "$cfg" "$skey:WaitWindow:Title")"
         ww_message="$(plist_get  "$cfg" "$skey:WaitWindow:Message")"
-        ww_video="$(plist_get    "$cfg" "$skey:WaitWindow:Video")"
-        ww_width="$(plist_get    "$cfg" "$skey:WaitWindow:Width")"
+        ww_video="$(plist_get          "$cfg" "$skey:WaitWindow:Video")"
+        ww_video_autoplay="$(plist_get "$cfg" "$skey:WaitWindow:VideoAutoplay")"
+        ww_width="$(plist_get          "$cfg" "$skey:WaitWindow:Width")"
         ww_height="$(plist_get   "$cfg" "$skey:WaitWindow:Height")"
         ww_title_fs="$(plist_get "$cfg" "$skey:WaitWindow:TitleFontSize")"
         ww_msg_fs="$(plist_get   "$cfg" "$skey:WaitWindow:MessageFontSize")"
@@ -426,16 +427,24 @@ run_step() {
         ww_ontop="$(plist_get    "$cfg" "$skey:WaitWindow:AlwaysOnTop")"
         [ -z "$ww_title" ] && ww_title="$name"
         [ -z "$ww_message" ] && ww_message="${user_prompt:-Please complete the action shown and leave this window open.}"
-        local ss_count j f
+        local ss_count j f_img f_title f_msg
+        local ww_ss_titles="" ww_ss_msgs=""
         ss_count="$(plist_array_count "$cfg" "$skey:WaitWindow:Slideshow")"
         for (( j=0; j<ss_count; j++ )); do
-            f="$(plist_get "$cfg" "$skey:WaitWindow:Slideshow:$j")"
-            [ -z "$f" ] && continue
-            if [ -z "$ww_slideshow" ]; then
-                ww_slideshow="$f"
+            # Try dict format (Image sub-key) first; fall back to plain string entry.
+            f_img="$(plist_get "$cfg" "$skey:WaitWindow:Slideshow:$j:Image")"
+            if [ -n "$f_img" ]; then
+                f_title="$(plist_get "$cfg" "$skey:WaitWindow:Slideshow:$j:Title")"
+                f_msg="$(plist_get   "$cfg" "$skey:WaitWindow:Slideshow:$j:Message")"
             else
-                ww_slideshow="$ww_slideshow|$f"
+                f_img="$(plist_get   "$cfg" "$skey:WaitWindow:Slideshow:$j")"
+                f_title=""
+                f_msg=""
             fi
+            [ -z "$f_img" ] && [ -z "$f_title" ] && [ -z "$f_msg" ] && continue
+            ww_slideshow="${ww_slideshow:+${ww_slideshow}|}${f_img}"
+            ww_ss_titles="${ww_ss_titles:+${ww_ss_titles}|}${f_title}"
+            ww_ss_msgs="${ww_ss_msgs:+${ww_ss_msgs}|}${f_msg}"
         done
     fi
 
@@ -491,7 +500,7 @@ run_step() {
         [ "$ww_ontop" = "true"  ] && ENROLLINATOR_UI_ONTOP=1
         [ "$ww_ontop" = "false" ] && ENROLLINATOR_UI_ONTOP=0
         export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
-        ui_wait_open "$ww_title" "$ww_message" "$ww_slideshow" "$ww_video" "$ww_width" "$ww_height" "$ww_title_fs" "$ww_msg_fs"
+        ui_wait_open "$ww_title" "$ww_message" "$ww_slideshow" "$ww_video" "$ww_width" "$ww_height" "$ww_title_fs" "$ww_msg_fs" "$ww_ss_titles" "$ww_ss_msgs" "$ww_video_autoplay"
         ENROLLINATOR_UI_BLUR="$_saved_blur"; ENROLLINATOR_UI_ONTOP="$_saved_ontop"
         export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
     elif [ -n "$user_prompt" ]; then

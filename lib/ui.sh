@@ -75,6 +75,44 @@ _ui_normalize_icon() {
     esac
 }
 
+# Detect YouTube URLs and convert them to an embeddable form for swiftDialog's
+# Normalise a video URL/identifier for swiftDialog's --video flag.
+# swiftDialog accepts file paths, https:// URLs, and bare YouTube video IDs
+# directly via --video.  Full YouTube watch/short URLs are reduced to just the
+# 11-character video ID so --video can play them natively.
+# Echoes the normalised value (ID or original URL); empty input echoes nothing.
+_ui_normalize_video() {
+    local url="$1"
+    [ -z "$url" ] && return 0
+    # Store regex in variables — bash 3.2 can't parse [?&] or {n} as bare
+    # literals inside [[ =~ ]] without a syntax error.
+    local _re_watch='[?&]v=([A-Za-z0-9_-]{11})'
+    local _re_short='youtu\.be/([A-Za-z0-9_-]{11})'
+    if [[ "$url" =~ $_re_watch ]]; then
+        printf 'youtubeid=%s' "${BASH_REMATCH[1]}"   # youtube.com/watch?v=ID
+        return 0
+    elif [[ "$url" =~ $_re_short ]]; then
+        printf 'youtubeid=%s' "${BASH_REMATCH[1]}"   # youtu.be/ID
+        return 0
+    fi
+    # Also accept a bare 11-char YouTube ID passed directly
+    local _re_bare='^[A-Za-z0-9_-]{11}$'
+    if [[ "$url" =~ $_re_bare ]]; then
+        printf 'youtubeid=%s' "$url"
+        return 0
+    fi
+    printf '%s' "$url"
+}
+
+# _ui_add_video_arg <array_name_ref> <video_url_or_id>
+# Resolves YouTube URLs to bare IDs, then appends --video to the named array.
+_ui_add_video_arg() {
+    local _arr="$1" _url="$2"
+    local _resolved
+    _resolved="$(_ui_normalize_video "$_url")"
+    [ -n "$_resolved" ] && eval "${_arr}+=( --video \"\$_resolved\" )"
+}
+
 # ui_start — launches the main run window.
 # Arguments: title subtitle accent logo_path steps_file
 # Additional optional knobs (read from env to keep the positional list sane):
@@ -337,41 +375,55 @@ ui_stop() {
 # ---------------------------------------------------------------------------
 
 # ui_wait_open <title> <message> <slideshow_pipe_delim> <video> <width> <height>
+#              [title_fontsize] [msg_fontsize] [slide_titles_pipe_delim] [slide_msgs_pipe_delim]
 #   slideshow_pipe_delim: "/a.png|/b.png|/c.png"
 #     Multiple frames → user clicks "Next →" through each one synchronously
 #     before the persistent wait window (last frame) launches.  Condition
 #     polling in run_step doesn't start until ui_wait_open returns, so the
 #     user finishes reading all instruction slides before Enrollinator begins
 #     checking.  Single frame → shown as --image in the wait window.
-#   video: path or URL, empty means none — wins over slideshow when both set
-# If slideshow and video are both set, video wins.
+#   video: path or URL, or YouTube URL (auto-converted to web embed), empty = none
+#     video wins over slideshow when both set
+#   slide_titles_pipe_delim: "Title 1|Title 2|…"  — per-frame title overrides
+#   slide_msgs_pipe_delim:   "Msg 1|Msg 2|…"      — per-frame message overrides
+#     Empty slot for a frame → falls back to the window-level title/message.
+#   video_autoplay: "true" → add --videoautoplay to the wait window
 ui_wait_open() {
     local title="$1" message="$2" slideshow="$3" video="$4" width="$5" height="$6"
     local title_fontsize="${7:-}" msg_fontsize="${8:-14}"
+    local slide_titles="${9:-}" slide_msgs="${10:-}" video_autoplay="${11:-}"
     [ -z "$width" ] && width=520
     [ -z "$height" ] && height=420
 
     ui_wait_close   # clean up any prior wait window
 
     # ── User-clicked instruction slides ────────────────────────────────────
-    # Same pattern as ui_dialog_popup: show all but the last frame as
-    # individual dialogs the user must click through, then fall through to
-    # launch the persistent (button-disabled) wait window for the last frame.
+    # Every frame — including the last — is shown as an interactive dialog
+    # the user must click through.  The last frame uses "Got it" instead of
+    # "Next →" and clicking it breaks the loop so the persistent wait window
+    # can launch.  All frames after the first show a "← Back" button.
     if [ -z "$video" ] && [[ "$slideshow" == *"|"* ]]; then
-        local -a ww_frames
+        local -a ww_frames ww_stitle_arr ww_smsg_arr
         local IFS='|'
         # shellcheck disable=SC2206
         ww_frames=( $slideshow )
+        [ -n "$slide_titles" ] && ww_stitle_arr=( $slide_titles ) || ww_stitle_arr=()
+        [ -n "$slide_msgs"   ] && ww_smsg_arr=(   $slide_msgs   ) || ww_smsg_arr=()
         unset IFS
         local ww_total=${#ww_frames[@]}
-        local ww_i
-        for (( ww_i=0; ww_i < ww_total - 1; ww_i++ )); do
-            local ww_frame ww_resolved
+        local ww_i=0
+        while true; do
+            local ww_frame ww_resolved ww_stitle ww_smsg ww_is_last
             ww_frame="${ww_frames[$ww_i]}"
             ww_resolved="$(_ui_normalize_icon "$ww_frame")"
+            ww_stitle="${ww_stitle_arr[$ww_i]:-}"
+            ww_smsg="${ww_smsg_arr[$ww_i]:-}"
+            [ -z "$ww_stitle" ] && ww_stitle="$title"
+            [ -z "$ww_smsg"   ] && ww_smsg="$message"
+            [ "$ww_i" -eq $(( ww_total - 1 )) ] && ww_is_last=1 || ww_is_last=0
             local ww_slide_args=(
-                --title "$title"
-                --message "$message"
+                --title "$ww_stitle"
+                --message "$ww_smsg"
                 --messagefont "size=${msg_fontsize}"
                 --position "center"
                 --width "$width"
@@ -379,18 +431,44 @@ ui_wait_open() {
                 --moveable
                 --ignorednd
                 --hideicon
-                --button1text "Next →  ($(( ww_i + 1 )) of ${ww_total})"
             )
+            if [ "$ww_is_last" -eq 1 ]; then
+                ww_slide_args+=( --button1text "Got it  ($(( ww_i + 1 )) of ${ww_total})" )
+            else
+                ww_slide_args+=( --button1text "Next →  ($(( ww_i + 1 )) of ${ww_total})" )
+            fi
+            [ "$ww_i" -gt 0 ] && ww_slide_args+=( --button2text "← Back" )
             [ -n "$title_fontsize" ] && ww_slide_args+=( --titlefont "size=${title_fontsize}" )
             [ -n "$ww_resolved" ]    && ww_slide_args+=( --image "$ww_resolved" )
             [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && ww_slide_args+=( --ontop )
             [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && ww_slide_args+=( --blurscreen )
             _ui_user_exec "$DIALOG_BIN" "${ww_slide_args[@]}"
             local ww_rc=$?
-            [ "$ww_rc" -ne 0 ] && return "$ww_rc"
+            case "$ww_rc" in
+                0)  if [ "$ww_is_last" -eq 1 ]; then
+                        break   # user confirmed the last slide; launch wait window
+                    fi
+                    ww_i=$(( ww_i + 1 )) ;;
+                2)  [ "$ww_i" -gt 0 ] && ww_i=$(( ww_i - 1 )) ;;        # Back
+                *)  return "$ww_rc" ;;
+            esac
         done
-        # Reduce slideshow to the last frame for the persistent wait window below.
-        slideshow="${ww_frames[$(( ww_total - 1 ))]}"
+        # The last frame's image and per-slide text carry into the persistent window.
+        local ww_last=$(( ww_total - 1 ))
+        slideshow="${ww_frames[$ww_last]}"
+        local _last_stitle="${ww_stitle_arr[$ww_last]:-}"
+        local _last_smsg="${ww_smsg_arr[$ww_last]:-}"
+        [ -n "$_last_stitle" ] && title="$_last_stitle"
+        [ -n "$_last_smsg"   ] && message="$_last_smsg"
+    elif [ -z "$video" ] && [ -n "$slideshow" ]; then
+        # Single-frame slideshow: apply per-slide overrides to the persistent window
+        local IFS='|'
+        local -a _s1_t _s1_m
+        [ -n "$slide_titles" ] && _s1_t=( $slide_titles ) || _s1_t=()
+        [ -n "$slide_msgs"   ] && _s1_m=( $slide_msgs   ) || _s1_m=()
+        unset IFS
+        [ -n "${_s1_t[0]:-}" ] && title="${_s1_t[0]}"
+        [ -n "${_s1_m[0]:-}" ] && message="${_s1_m[0]}"
     fi
 
     : > "$WAIT_COMMAND_FILE"
@@ -415,7 +493,8 @@ ui_wait_open() {
     )
 
     if [ -n "$video" ]; then
-        args+=( --video "$video" )
+        _ui_add_video_arg args "$video"
+        [ "$video_autoplay" = "true" ] && args+=( --videoautoplay )
     elif [ -n "$slideshow" ]; then
         local single_resolved
         single_resolved="$(_ui_normalize_icon "$slideshow")"
@@ -489,17 +568,23 @@ ui_wait_close() {
 
 # ui_dialog_popup <title> <message> <width> <height> <buttons_pipe_delim>
 #                 [title_fontsize] [msg_fontsize] [slideshow_pipe_delim] [video]
+#                 [slide_titles_pipe_delim] [slide_msgs_pipe_delim]
 # Prints the label of the button the user clicked to stdout, exit 0.
 # Returns non-zero on error (swiftDialog failed to launch or was killed).
 # Supports up to 3 buttons (swiftDialog limit for button1/2/3).
 # slideshow_pipe_delim: "/a.png|/b.png|/c.png" — each image is its own dialog
 #   the user must click "Next →" through; the last frame shows with the real
 #   action buttons.  Single image: shown as --image in the final dialog.
-# video: path or URL — wins over slideshow when both set
+# video: path, URL, or YouTube URL (auto-converted to web embed) — wins over slideshow
+# slide_titles_pipe_delim: "Title 1|Title 2|…"  — per-frame title overrides
+# slide_msgs_pipe_delim:   "Msg 1|Msg 2|…"      — per-frame message overrides
+#   Empty slot → falls back to the dialog-level title/message.
+# video_autoplay: "true" → add --videoautoplay
 ui_dialog_popup() {
     local title="$1" message="$2" width="$3" height="$4" buttons="$5"
     local title_fontsize="${6:-}" msg_fontsize="${7:-14}"
     local slideshow="${8:-}" video="${9:-}"
+    local slide_titles="${10:-}" slide_msgs="${11:-}" video_autoplay="${12:-}"
     [ -z "$width" ]  && width=520
     [ -z "$height" ] && height=300
 
@@ -515,23 +600,29 @@ ui_dialog_popup() {
     # ── User-clicked slideshow ──────────────────────────────────────────────
     # When multiple images are in the Slideshow array, display each one as
     # its own dialog that the user must explicitly click through before the
-    # final action dialog (with the real buttons) appears.  This is different
-    # from the wait-window auto-rotator which runs on a timer.
+    # final action dialog (with the real buttons) appears.
     if [ -z "$video" ] && [[ "$slideshow" == *"|"* ]]; then
-        local -a ss_frames
+        local -a ss_frames ss_stitle_arr ss_smsg_arr
         local IFS='|'
         # shellcheck disable=SC2206
         ss_frames=( $slideshow )
+        [ -n "$slide_titles" ] && ss_stitle_arr=( $slide_titles ) || ss_stitle_arr=()
+        [ -n "$slide_msgs"   ] && ss_smsg_arr=(   $slide_msgs   ) || ss_smsg_arr=()
         unset IFS
         local ss_total=${#ss_frames[@]}
-        local ss_i
-        for (( ss_i=0; ss_i < ss_total - 1; ss_i++ )); do
-            local ss_frame ss_resolved
+        # While loop so the user can navigate back (button2) as well as forward.
+        local ss_i=0
+        while [ "$ss_i" -lt $(( ss_total - 1 )) ]; do
+            local ss_frame ss_resolved ss_stitle ss_smsg
             ss_frame="${ss_frames[$ss_i]}"
             ss_resolved="$(_ui_normalize_icon "$ss_frame")"
+            ss_stitle="${ss_stitle_arr[$ss_i]:-}"
+            ss_smsg="${ss_smsg_arr[$ss_i]:-}"
+            [ -z "$ss_stitle" ] && ss_stitle="$title"
+            [ -z "$ss_smsg"   ] && ss_smsg="$message"
             local ss_args=(
-                --title "$title"
-                --message "$message"
+                --title "$ss_stitle"
+                --message "$ss_smsg"
                 --messagefont "size=${msg_fontsize}"
                 --position "center"
                 --width "$width"
@@ -540,19 +631,35 @@ ui_dialog_popup() {
                 --hideicon
                 --button1text "Next →  ($(( ss_i + 1 )) of ${ss_total})"
             )
+            [ "$ss_i" -gt 0 ] && ss_args+=( --button2text "← Back" )
             [ -n "$title_fontsize" ]  && ss_args+=( --titlefont "size=${title_fontsize}" )
             [ -n "$ss_resolved" ]     && ss_args+=( --image "$ss_resolved" )
             [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && ss_args+=( --ontop )
             [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && ss_args+=( --blurscreen )
             _ui_user_exec "$DIALOG_BIN" "${ss_args[@]}"
             local ss_rc=$?
-            # Any non-zero exit (user force-quit, timeout, etc.) aborts the slideshow.
-            [ "$ss_rc" -ne 0 ] && return "$ss_rc"
+            case "$ss_rc" in
+                0) ss_i=$(( ss_i + 1 )) ;;                               # Next
+                2) [ "$ss_i" -gt 0 ] && ss_i=$(( ss_i - 1 )) ;;         # Back
+                *) return "$ss_rc" ;;
+            esac
         done
-        # Replace the slideshow variable with just the last frame so the final
-        # dialog below shows it as a single image rather than re-triggering
-        # the multi-frame path.
-        slideshow="${ss_frames[$(( ss_total - 1 ))]}"
+        # Replace slideshow with just the last frame; carry over its per-slide overrides.
+        local ss_last=$(( ss_total - 1 ))
+        slideshow="${ss_frames[$ss_last]}"
+        local _last_ss_t="${ss_stitle_arr[$ss_last]:-}"
+        local _last_ss_m="${ss_smsg_arr[$ss_last]:-}"
+        [ -n "$_last_ss_t" ] && title="$_last_ss_t"
+        [ -n "$_last_ss_m" ] && message="$_last_ss_m"
+    elif [ -z "$video" ] && [ -n "$slideshow" ]; then
+        # Single-frame slideshow — apply per-slide overrides to the final dialog
+        local IFS='|'
+        local -a _s1_t _s1_m
+        [ -n "$slide_titles" ] && _s1_t=( $slide_titles ) || _s1_t=()
+        [ -n "$slide_msgs"   ] && _s1_m=( $slide_msgs   ) || _s1_m=()
+        unset IFS
+        [ -n "${_s1_t[0]:-}" ] && title="${_s1_t[0]}"
+        [ -n "${_s1_m[0]:-}" ] && message="${_s1_m[0]}"
     fi
 
     # ── Final (or only) dialog ──────────────────────────────────────────────
@@ -578,9 +685,10 @@ ui_dialog_popup() {
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
     [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
 
-    # Video wins over a single remaining slideshow frame.
+    # Video (with YouTube support) wins over a single remaining slideshow frame.
     if [ -n "$video" ]; then
-        args+=( --video "$video" )
+        _ui_add_video_arg args "$video"
+        [ "$video_autoplay" = "true" ] && args+=( --videoautoplay )
     elif [ -n "$slideshow" ]; then
         local single_resolved
         single_resolved="$(_ui_normalize_icon "$slideshow")"

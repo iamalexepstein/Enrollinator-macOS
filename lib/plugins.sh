@@ -168,13 +168,27 @@ action_dialog() {
     msg_fs="$(plist_get "$file" "${key}:MessageFontSize")"
     dlg_blur="$(plist_get "$file" "${key}:Blur")"
     dlg_ontop="$(plist_get "$file" "${key}:AlwaysOnTop")"
-    local dlg_video dlg_slideshow="" dlg_ss_count dlg_j dlg_f
+    local dlg_video dlg_video_autoplay dlg_slideshow="" dlg_ss_titles="" dlg_ss_msgs=""
+    local dlg_ss_count dlg_j dlg_f dlg_st dlg_sm
     dlg_video="$(plist_get "$file" "${key}:Video")"
+    dlg_video_autoplay="$(plist_get "$file" "${key}:VideoAutoplay")"
     dlg_ss_count="$(plist_array_count "$file" "${key}:Slideshow")"
     for (( dlg_j=0; dlg_j<dlg_ss_count; dlg_j++ )); do
-        dlg_f="$(plist_get "$file" "${key}:Slideshow:${dlg_j}")"
-        [ -z "$dlg_f" ] && continue
+        # Try dict format (Image sub-key) first; fall back to plain string entry.
+        dlg_f="$(plist_get "$file" "${key}:Slideshow:${dlg_j}:Image")"
+        if [ -n "$dlg_f" ]; then
+            dlg_st="$(plist_get "$file" "${key}:Slideshow:${dlg_j}:Title")"
+            dlg_sm="$(plist_get "$file" "${key}:Slideshow:${dlg_j}:Message")"
+        else
+            dlg_f="$(plist_get "$file" "${key}:Slideshow:${dlg_j}")"
+            dlg_st=""
+            dlg_sm=""
+        fi
+        # Skip entirely empty entries.
+        [ -z "$dlg_f" ] && [ -z "$dlg_st" ] && [ -z "$dlg_sm" ] && continue
         dlg_slideshow="${dlg_slideshow:+${dlg_slideshow}|}${dlg_f}"
+        dlg_ss_titles="${dlg_ss_titles:+${dlg_ss_titles}|}${dlg_st}"
+        dlg_ss_msgs="${dlg_ss_msgs:+${dlg_ss_msgs}|}${dlg_sm}"
     done
 
     if [ -z "$title" ] || [ -z "$message" ]; then
@@ -206,7 +220,7 @@ action_dialog() {
     export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
 
     local clicked rc
-    clicked="$(ui_dialog_popup "$title" "$message" "$width" "$height" "$btns" "$title_fs" "$msg_fs" "$dlg_slideshow" "$dlg_video")"
+    clicked="$(ui_dialog_popup "$title" "$message" "$width" "$height" "$btns" "$title_fs" "$msg_fs" "$dlg_slideshow" "$dlg_video" "$dlg_ss_titles" "$dlg_ss_msgs" "$dlg_video_autoplay")"
     rc=$?
     ENROLLINATOR_UI_BLUR="$_saved_blur"; ENROLLINATOR_UI_ONTOP="$_saved_ontop"
     export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
