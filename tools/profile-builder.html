@@ -3816,61 +3816,85 @@ function toggleDownloadMenu(btn) {
 
 function loadSample() {
     const s = defaultState();
-    s.outer.PayloadIdentifier = "com.example.enrollinator";
-    s.outer.PayloadDisplayName = "Acme Corp Onboarding";
-    s.outer.PayloadOrganization = "Acme Corp";
-    s.outer.PayloadDescription = "macOS onboarding flow powered by Enrollinator.";
-    s.Branding.Title = "Welcome to Acme Corp";
-    s.Branding.Subtitle = "We're setting up your Mac. This usually takes about 10 minutes.";
-    s.Branding.Logo = "https://example.com/enrollinator/logo.png";
-    s.Branding.Banner = "https://example.com/enrollinator/banner.png";
-    s.Branding.AccentColor = "#0A84FF";
-    s.Branding.WindowWidth = 780;
-    s.Branding.WindowHeight = 600;
-    s.AllowClose = true;
-    s.TestMode = false;
 
+    // ── Identity ──────────────────────────────────────────────────────────────
+    s.outer.PayloadIdentifier   = "com.example.enrollinator";
+    s.outer.PayloadDisplayName  = "Acme Corp Onboarding";
+    s.outer.PayloadOrganization = "Acme Corp";
+    s.outer.PayloadDescription  = "macOS onboarding flow powered by Enrollinator.";
+
+    // ── Branding — tokens + SF animation + font sizes ─────────────────────────
+    s.Branding.Title          = "Welcome to Acme Corp, {console_user}!";
+    s.Branding.Subtitle       = "Setting up your {model}. This usually takes about 10 minutes.";
+    s.Branding.Logo           = "SF=sparkles,animation=pulse";
+    s.Branding.Banner         = "https://example.com/enrollinator/banner.png";
+    s.Branding.AccentColor    = "#0A84FF";
+    s.Branding.TitleFontSize  = 22;
+    s.Branding.MessageFontSize = 14;
+    s.Branding.WindowWidth    = 780;
+    s.Branding.WindowHeight   = 600;
+
+    // ── Global settings ───────────────────────────────────────────────────────
+    s.AllowClose = true;
+    s.TestMode   = true;   // test mode on by default so the sample is safe to run
+
+    // ── Hardware info panel ───────────────────────────────────────────────────
     s.HardwareInfo = {
         Enabled: true,
-        Fields: ["console_user", "computer_name", "serial_number", "model", "os_version"]
+        Fields: ["console_user", "computer_name", "serial_number", "model", "os_version", "ip_address"]
     };
+
+    // ── Help button ───────────────────────────────────────────────────────────
     s.Help = {
         Enabled: true,
         Title: "Need help?",
         Message: "The IT team is on standby — reach out through any of these channels.",
         Contacts: [
-            { Label: "Slack",  Detail: "#it-help",          URL: "https://example.slack.com/channels/it-help" },
-            { Label: "Email",  Detail: "it@example.com",    URL: "mailto:it@example.com" },
-            { Label: "Portal", Detail: "help.example.com",  URL: "https://help.example.com" }
+            { Label: "Slack",  Detail: "#it-help",         URL: "https://example.slack.com/channels/it-help" },
+            { Label: "Email",  Detail: "it@example.com",   URL: "mailto:it@example.com" },
+            { Label: "Portal", Detail: "help.example.com", URL: "https://help.example.com" }
         ]
     };
 
-    // ── Playbook 1: Standard (default for all employees) ─────────────────────
+    // ── Add-on picker customisation ───────────────────────────────────────────
+    s.AddonPicker = {
+        Title:         "Optional Tools",
+        Message:       "Select any additional software you'd like installed on your Mac. You can always install these later through Self Service.",
+        Icon:          "SF=app.badge.checkmark,animation=bounce",
+        InstallButton: "Install selected",
+        SkipButton:    "Not now",
+        Width:         540,
+        Height:        460,
+        TitleFontSize:   null,
+        MessageFontSize: null
+    };
+
+    // ── Playbook 1: Standard (default for all employees) ──────────────────────
     const std = blankProfile();
     std.Name        = "Standard";
-    std.Description = "Baseline setup for all employees.";
-    // No selector, no base — selected via DefaultPlaybook.
+    std.Description = "Baseline setup for every employee. Selected automatically when no other playbook matches.";
 
-    // Step 1: AUP — dialog action
+    // Step 1: AUP — dialog action. OnFailure: $end (declined → abort setup).
     const aup = blankStep();
-    aup.Id   = "acknowledge-aup";
-    aup.Name = "Acknowledge Acceptable Use Policy";
-    aup.Description = "Review and accept the company AUP before setup continues.";
-    aup.Icon = "SF=doc.text";
-    aup.Action = blankAction("dialog");
-    aup.Action.Title   = "Acceptable Use Policy";
-    aup.Action.Message = "By continuing you agree to the Acceptable Use Policy at https://example.com/aup. Violation may result in loss of access.";
-    aup.Action.Buttons        = ["I Agree", "Cancel"];
+    aup.Id        = "acknowledge-aup";
+    aup.Name      = "Acceptable Use Policy";
+    aup.Description = "User must agree before any software is installed.";
+    aup.Icon      = "SF=doc.text,animation=appear";
+    aup.Action    = blankAction("dialog");
+    aup.Action.Title          = "Acceptable Use Policy";
+    aup.Action.Message        = "By continuing you agree to the [Acceptable Use Policy](https://example.com/aup).\n\nViolation may result in suspension of access.";
+    aup.Action.Buttons        = ["I Agree", "Decline"];
     aup.Action.ExpectedButton = "I Agree";
     aup.Action.Width  = 560;
-    aup.Action.Height = 340;
+    aup.Action.Height = 360;
+    aup.OnFailure = "$end";   // declined → skip the rest of setup
     std.Steps.push(aup);
 
-    // Step 2: Rosetta — shell action + file_exists condition + ContinueOnFailure
+    // Step 2: Rosetta — shell + file_exists + ContinueOnFailure
     const rosetta = blankStep();
     rosetta.Id   = "install-rosetta";
     rosetta.Name = "Install Rosetta 2";
-    rosetta.Icon = "SF=cpu";
+    rosetta.Icon = "SF=cpu,animation=bounce";
     rosetta.Action = blankAction("shell");
     rosetta.Action.Command        = "/usr/sbin/softwareupdate --install-rosetta --agree-to-license";
     rosetta.Action.TimeoutSeconds = 300;
@@ -3879,7 +3903,8 @@ function loadSample() {
         { Path: "/usr/libexec/rosetta/rosetta", Kind: "file" }));
     std.Steps.push(rosetta);
 
-    // Step 3: Chrome — shell action + app_installed condition
+    // Step 3: Chrome — shell + app_installed. Branch: success → set-default-browser,
+    //          failure → chrome-install-failed (dialog informs user, then continues).
     const chrome = blankStep();
     chrome.Id   = "install-chrome";
     chrome.Name = "Install Google Chrome";
@@ -3889,51 +3914,71 @@ function loadSample() {
     chrome.Action.TimeoutSeconds = 600;
     chrome.Conditions.push(Object.assign(blankCondition("app_installed"),
         { BundleId: "com.google.Chrome", MinVersion: "120.0" }));
+    chrome.OnSuccess = "set-default-browser";
+    chrome.OnFailure = "chrome-install-failed";
     std.Steps.push(chrome);
 
-    // Step 4: Slack — package action + app_installed condition
+    // Step 4: Chrome install failed — dialog action (informs user), then continues to browser step.
+    const chromeFailed = blankStep();
+    chromeFailed.Id   = "chrome-install-failed";
+    chromeFailed.Name = "Chrome install notice";
+    chromeFailed.Icon = "SF=exclamationmark.triangle,animation=pulse";
+    chromeFailed.Action = blankAction("dialog");
+    chromeFailed.Action.Title   = "Chrome Could Not Be Installed";
+    chromeFailed.Action.Message = "Google Chrome couldn't be installed automatically. You can install it manually from [google.com/chrome](https://google.com/chrome) after setup finishes.\n\nSetup will continue with the remaining steps.";
+    chromeFailed.Action.Buttons = ["Continue"];
+    chromeFailed.Action.Width   = 520;
+    chromeFailed.Action.Height  = 280;
+    chromeFailed.OnSuccess = "set-default-browser";
+    std.Steps.push(chromeFailed);
+
+    // Step 5: Set default browser — noop + default_browser (blocking, WaitWindow)
+    const defBrowser = blankStep();
+    defBrowser.Id              = "set-default-browser";
+    defBrowser.Name            = "Set Chrome as default browser";
+    defBrowser.Icon            = "SF=globe,animation=pulse";
+    defBrowser.Blocking        = true;
+    defBrowser.PollIntervalSeconds = 5;
+    defBrowser.TimeoutSeconds  = 300;
+    defBrowser.UserPrompt      = "Open System Settings → Desktop & Dock → Default web browser and choose Google Chrome.";
+    defBrowser.WaitWindow      = blankWaitWindow("Set Your Default Browser");
+    defBrowser.WaitWindow.Message = "### Set Chrome as your default browser\n\n1. Open **System Settings**\n2. Go to **Desktop & Dock**\n3. Scroll to **Default web browser** and select **Google Chrome**";
+    defBrowser.WaitWindow.Width  = 500;
+    defBrowser.WaitWindow.Height = 380;
+    defBrowser.Conditions.push(Object.assign(blankCondition("default_browser"),
+        { BundleId: "com.google.Chrome" }));
+    std.Steps.push(defBrowser);
+
+    // Step 6: Slack — package + app_installed
     const slack = blankStep();
     slack.Id   = "install-slack";
     slack.Name = "Install Slack";
     slack.Icon = "SF=bubble.left.and.bubble.right";
     slack.Action = blankAction("package");
     slack.Action.Path   = "/Library/Enrollinator/packages/Slack.pkg";
-    slack.Action.Target = "/Applications";
+    slack.Action.Target = "/";
     slack.Conditions.push(Object.assign(blankCondition("app_installed"),
         { BundleId: "com.tinyspeck.slackmacgap" }));
     std.Steps.push(slack);
 
-    // Step 5: MDM enrollment — wait action + profile_installed condition
+    // Step 7: MDM enrollment — wait + profile_installed
     const mdm = blankStep();
     mdm.Id   = "wait-mdm-enrollment";
-    mdm.Name = "Wait for MDM enrollment";
-    mdm.Description = "Pauses until the device management profile is installed.";
-    mdm.Icon = "SF=network.badge.shield.half.filled";
+    mdm.Name = "Verify MDM enrollment";
+    mdm.Description = "Waits until the management profile is confirmed installed.";
+    mdm.Icon = "SF=network.badge.shield.half.filled,animation=variableColor";
     mdm.Action = blankAction("wait");
-    mdm.Action.DurationSeconds = 15;
+    mdm.Action.DurationSeconds = 10;
     mdm.Conditions.push(Object.assign(blankCondition("profile_installed"),
         { Identifier: "com.example.mdm.enrollment" }));
     std.Steps.push(mdm);
 
-    // Step 6: Default browser — noop action + default_browser condition (blocking)
-    const defBrowser = blankStep();
-    defBrowser.Id   = "set-default-browser";
-    defBrowser.Name = "Set Chrome as default browser";
-    defBrowser.Icon = "SF=globe";
-    defBrowser.Blocking           = true;
-    defBrowser.PollIntervalSeconds = 5;
-    defBrowser.TimeoutSeconds      = 300;
-    defBrowser.UserPrompt = "Open System Settings → General → Default web browser and select Google Chrome, then click Done.";
-    defBrowser.Conditions.push(Object.assign(blankCondition("default_browser"),
-        { BundleId: "com.google.Chrome" }));
-    std.Steps.push(defBrowser);
-
-    // Step 7: ZScaler VPN — shell action + process_running + shell conditions (blocking, WaitWindow)
+    // Step 8: ZScaler VPN — shell + process_running + shell (blocking, WaitWindow + Slideshow)
     const vpn = blankStep();
     vpn.Id   = "connect-vpn";
     vpn.Name = "Connect to ZScaler VPN";
     vpn.Description = "Required for corporate network and intranet access.";
-    vpn.Icon = "SF=lock.shield";
+    vpn.Icon = "SF=lock.shield,animation=pulse";
     vpn.Blocking            = true;
     vpn.PollIntervalSeconds = 5;
     vpn.TimeoutSeconds      = 1800;
@@ -3941,7 +3986,7 @@ function loadSample() {
     vpn.Action = blankAction("shell");
     vpn.Action.Command        = "/usr/bin/open -a ZScaler";
     vpn.Action.TimeoutSeconds = 10;
-    vpn.Action.RunAsUser      = "console";
+    vpn.Action.RunAsUser      = "$CONSOLE_USER";
     vpn.WaitWindow = blankWaitWindow("Connect to ZScaler VPN");
     vpn.WaitWindow.Message = "### Connect to ZScaler\n\n1. Click the **ZScaler** icon in your menu bar.\n2. Enter your `@example.com` email address.\n3. Approve the MFA prompt in your authenticator app.";
     vpn.WaitWindow.Slideshow = [
@@ -3957,17 +4002,16 @@ function loadSample() {
         { Command: "/sbin/ifconfig 2>/dev/null | /usr/bin/grep -qE '^utun[0-9]+:.*flags.*UP'", TimeoutSeconds: 5 }));
     std.Steps.push(vpn);
 
-    // ── Playbook 2: Engineering (extends Standard, file-flag selector) ────────
+    // ── Addon 1: Engineering ──────────────────────────────────────────────────
     const eng = blankProfile();
     eng.Name        = "Engineering";
-    eng.Description = "Developer machines — inherits Standard, then adds dev toolchain.";
-    eng.Selector    = { HostnameRegex: "", ModelIdentifierGlob: "", FileExists: "/Library/Enrollinator/flags/engineering" };
+    eng.Description = "Developer toolchain — Xcode CLI, Homebrew, and VS Code.";
+    eng.Addon       = true;
 
-    // Step 1: Xcode CLI — shell action + file_exists condition + ContinueOnFailure
     const xcli = blankStep();
     xcli.Id   = "install-xcli";
     xcli.Name = "Install Xcode Command Line Tools";
-    xcli.Icon = "SF=hammer";
+    xcli.Icon = "SF=hammer,animation=bounce";
     xcli.Action = blankAction("shell");
     xcli.Action.Command        = "/usr/bin/xcode-select --install 2>/dev/null; /usr/bin/xcode-select --print-path";
     xcli.Action.TimeoutSeconds = 600;
@@ -3976,7 +4020,6 @@ function loadSample() {
         { Path: "/Library/Developer/CommandLineTools/usr/bin/clang", Kind: "file" }));
     eng.Steps.push(xcli);
 
-    // Step 2: Homebrew — shell action + shell condition (checks brew binary)
     const brew = blankStep();
     brew.Id   = "install-homebrew";
     brew.Name = "Install Homebrew";
@@ -3984,70 +4027,63 @@ function loadSample() {
     brew.Action = blankAction("shell");
     brew.Action.Command        = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
     brew.Action.TimeoutSeconds = 900;
+    brew.Action.RunAsUser      = "$CONSOLE_USER";
     brew.Conditions.push(Object.assign(blankCondition("shell"),
         { Command: "[ -x /usr/local/bin/brew ] || [ -x /opt/homebrew/bin/brew ]", TimeoutSeconds: 5 }));
     eng.Steps.push(brew);
 
-    // Step 3: VS Code — package action + app_installed condition
     const vscode = blankStep();
     vscode.Id   = "install-vscode";
     vscode.Name = "Install Visual Studio Code";
     vscode.Icon = "SF=curlybraces";
     vscode.Action = blankAction("package");
-    vscode.Action.Path   = "/Library/Enrollinator/packages/VSCode.pkg";
-    vscode.Action.Target = "/Applications";
+    vscode.Action.Path = "/Library/Enrollinator/packages/VSCode.pkg";
     vscode.Conditions.push(Object.assign(blankCondition("app_installed"),
         { BundleId: "com.microsoft.VSCode" }));
     eng.Steps.push(vscode);
 
-    // Step 4: Settle — wait action
-    const settle = blankStep();
-    settle.Id   = "settle-dev-env";
-    settle.Name = "Let the environment settle";
-    settle.Icon = "SF=hourglass";
-    settle.Action = blankAction("wait");
-    settle.Action.DurationSeconds = 8;
-    eng.Steps.push(settle);
+    const engSettle = blankStep();
+    engSettle.Id   = "settle-dev-env";
+    engSettle.Name = "Let the environment settle";
+    engSettle.Icon = "SF=hourglass,animation=rotate";
+    engSettle.Action = blankAction("wait");
+    engSettle.Action.DurationSeconds = 8;
+    eng.Steps.push(engSettle);
 
-    // ── Playbook 3: Xcode Full (addon — user-selectable after base run) ───────
+    // ── Addon 2: Xcode Full ───────────────────────────────────────────────────
     const xcode = blankProfile();
     xcode.Name        = "Xcode Full";
-    xcode.Description = "Full Xcode IDE and iOS Simulator runtimes.";
+    xcode.Description = "Full Xcode IDE and iOS Simulator runtimes. Takes 30–60 minutes.";
     xcode.Addon       = true;
-    xcode.TestMode    = false;
 
-    // Step 1: Install Xcode — shell action + profile_installed condition (MDM pushes Xcode policy)
     const xcodeApp = blankStep();
     xcodeApp.Id   = "install-xcode";
     xcodeApp.Name = "Install Xcode";
-    xcodeApp.Description = "Triggered via Jamf policy. May take 30–60 minutes.";
-    xcodeApp.Icon = "SF=hammer.circle";
+    xcodeApp.Description = "Triggered via MDM policy. This step may take up to an hour.";
+    xcodeApp.Icon = "SF=hammer.circle,animation=bounce";
     xcodeApp.Blocking            = true;
     xcodeApp.PollIntervalSeconds = 60;
     xcodeApp.TimeoutSeconds      = 7200;
     xcodeApp.Action = blankAction("shell");
     xcodeApp.Action.Command        = "/usr/local/bin/jamf policy -event install-xcode";
     xcodeApp.Action.TimeoutSeconds = 7200;
-    xcodeApp.Conditions.push(Object.assign(blankCondition("profile_installed"),
-        { Identifier: "com.example.mdm.xcode-license" }));
     xcodeApp.Conditions.push(Object.assign(blankCondition("app_installed"),
         { BundleId: "com.apple.dt.Xcode", MinVersion: "15.0" }));
+    xcodeApp.Conditions.push(Object.assign(blankCondition("profile_installed"),
+        { Identifier: "com.example.mdm.xcode-license" }));
     xcode.Steps.push(xcodeApp);
 
-    // Step 2: Accept Xcode license — shell action + file_exists condition
     const xcodeLicense = blankStep();
     xcodeLicense.Id   = "accept-xcode-license";
     xcodeLicense.Name = "Accept Xcode license agreement";
     xcodeLicense.Icon = "SF=doc.badge.checkmark";
     xcodeLicense.Action = blankAction("shell");
     xcodeLicense.Action.Command        = "/usr/bin/xcodebuild -license accept";
-    xcodeLicense.Action.RunAsUser      = "root";
     xcodeLicense.Action.TimeoutSeconds = 30;
     xcodeLicense.Conditions.push(Object.assign(blankCondition("file_exists"),
         { Path: "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild", Kind: "file" }));
     xcode.Steps.push(xcodeLicense);
 
-    // Step 3: iOS Simulator — shell action + ContinueOnFailure
     const simulator = blankStep();
     simulator.Id   = "install-ios-simulator";
     simulator.Name = "Install iOS Simulator runtime";
@@ -4058,7 +4094,87 @@ function loadSample() {
     simulator.Action.TimeoutSeconds = 3600;
     xcode.Steps.push(simulator);
 
-    s.Playbooks      = [std, eng, xcode];
+    // ── Addon 3: Design ───────────────────────────────────────────────────────
+    const design = blankProfile();
+    design.Name        = "Design";
+    design.Description = "Figma, Adobe Creative Cloud, and company font set.";
+    design.Addon       = true;
+
+    const figma = blankStep();
+    figma.Id   = "install-figma";
+    figma.Name = "Install Figma";
+    figma.Icon = "SF=paintbrush,animation=pulse";
+    figma.Action = blankAction("package");
+    figma.Action.Path = "/Library/Enrollinator/packages/Figma.pkg";
+    figma.Conditions.push(Object.assign(blankCondition("app_installed"),
+        { BundleId: "com.figma.Desktop" }));
+    design.Steps.push(figma);
+
+    const fonts = blankStep();
+    fonts.Id   = "install-fonts";
+    fonts.Name = "Install company fonts";
+    fonts.Icon = "SF=textformat";
+    fonts.Action = blankAction("shell");
+    fonts.Action.Command        = "/usr/local/bin/jamf policy -event install-fonts";
+    fonts.Action.TimeoutSeconds = 120;
+    fonts.ContinueOnFailure = true;
+    fonts.Conditions.push(Object.assign(blankCondition("file_exists"),
+        { Path: "/Library/Fonts/AcmeSans-Regular.ttf", Kind: "file" }));
+    design.Steps.push(fonts);
+
+    const adobeNotice = blankStep();
+    adobeNotice.Id   = "adobe-cc-notice";
+    adobeNotice.Name = "Adobe Creative Cloud";
+    adobeNotice.Icon = "SF=a.square,animation=appear";
+    adobeNotice.Action = blankAction("dialog");
+    adobeNotice.Action.Title   = "Adobe Creative Cloud";
+    adobeNotice.Action.Message = "Adobe Creative Cloud will be available in Self Service. Sign in with your `@example.com` address after setup completes.\n\nAsk IT if you need a licence assigned.";
+    adobeNotice.Action.Buttons = ["Got it"];
+    adobeNotice.Action.Width   = 500;
+    adobeNotice.Action.Height  = 260;
+    design.Steps.push(adobeNotice);
+
+    // ── Addon 4: Data & Analytics ─────────────────────────────────────────────
+    const data = blankProfile();
+    data.Name        = "Data & Analytics";
+    data.Description = "Python 3, Jupyter, and common data-science libraries.";
+    data.Addon       = true;
+
+    const python = blankStep();
+    python.Id   = "install-python";
+    python.Name = "Install Python 3";
+    python.Icon = "SF=function,animation=pulse";
+    python.Action = blankAction("shell");
+    python.Action.Command        = "/usr/local/bin/jamf policy -event install-python3";
+    python.Action.TimeoutSeconds = 300;
+    python.Conditions.push(Object.assign(blankCondition("shell"),
+        { Command: "/usr/bin/python3 --version 2>/dev/null | /usr/bin/grep -q 'Python 3'", TimeoutSeconds: 5 }));
+    data.Steps.push(python);
+
+    const jupyter = blankStep();
+    jupyter.Id   = "install-jupyter";
+    jupyter.Name = "Install Jupyter";
+    jupyter.Icon = "SF=book.pages";
+    jupyter.Action = blankAction("shell");
+    jupyter.Action.Command        = "/usr/local/bin/pip3 install --quiet jupyterlab";
+    jupyter.Action.TimeoutSeconds = 300;
+    jupyter.Action.RunAsUser      = "$CONSOLE_USER";
+    jupyter.ContinueOnFailure = true;
+    jupyter.Conditions.push(Object.assign(blankCondition("shell"),
+        { Command: "/usr/local/bin/jupyter --version 2>/dev/null | /usr/bin/grep -q 'jupyterlab'", TimeoutSeconds: 5 }));
+    data.Steps.push(jupyter);
+
+    const dataSettle = blankStep();
+    dataSettle.Id   = "data-env-ready";
+    dataSettle.Name = "Finalise data environment";
+    dataSettle.Icon = "SF=checkmark.seal,animation=bounce";
+    dataSettle.Action = blankAction("noop");
+    dataSettle.Conditions.push(Object.assign(blankCondition("shell"),
+        { Command: "/usr/bin/python3 -c 'import sys; sys.exit(0)'", TimeoutSeconds: 5 }));
+    data.Steps.push(dataSettle);
+
+    // ── Assemble ──────────────────────────────────────────────────────────────
+    s.Playbooks      = [std, eng, xcode, design, data];
     s.DefaultPlaybook = "Standard";
 
     state = s;
