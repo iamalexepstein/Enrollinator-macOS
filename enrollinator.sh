@@ -1056,23 +1056,26 @@ main() {
 
     ui_require_dialog
     ui_start "$title" "$subtitle" "$accent" "$logo" "$steps_file"
-    local ran_ids_file
+    local ran_ids_file id_map_file
     ran_ids_file="$(/usr/bin/mktemp -t enrollinator-ran-ids)"
-    trap 'ui_stop; /bin/rm -f "$cfg" "$steps_file" "$ran_ids_file"' EXIT
+    id_map_file="$(/usr/bin/mktemp -t enrollinator-id-map)"
+    trap 'ui_stop; /bin/rm -f "$cfg" "$steps_file" "$ran_ids_file" "$id_map_file"' EXIT
 
     # Build a step-ID → index map for branch resolution.
-    declare -A _step_id_to_idx=()
+    # Uses a tab-delimited temp file instead of a bash 4+ associative array so
+    # the script stays compatible with the bash 3.2 that ships with macOS.
     local _k _sid
     for (( _k=0; _k<total; _k++ )); do
         _sid="$(plist_get "$cfg" "$pkey:Steps:$_k:Id")"
         [ -z "$_sid" ] && _sid="step-$_k"
-        _step_id_to_idx["$_sid"]=$_k
+        printf '%s\t%d\n' "$_sid" "$_k" >> "$id_map_file"
     done
 
     # Execute steps — state-machine style so OnSuccess/OnFailure can branch.
     # Cycle guard: abort if we've executed more than total*2 steps (catches
     # infinite loops caused by a branch that points back to itself).
-    declare -A _visited_idx=()
+    # _visited_idx is a plain indexed array (bash 3.2 compatible).
+    local -a _visited_idx
     local i=0 rc any_fail=0 step_id steps_done=0 max_iters=$(( total * 2 + total ))
     while (( i < total && steps_done < max_iters )); do
         ui_set_progress $(( (steps_done * 100) / total )) "Step $((steps_done+1)) of $total"
@@ -1103,8 +1106,9 @@ main() {
             log info "step=$step_id branch → next (continue despite rc=$rc)"
             i=$(( i + 1 ))
         else
-            # Named step ID.
-            local target_idx="${_step_id_to_idx[$branch_target]:-}"
+            # Named step ID — look up in the tab-delimited id_map_file.
+            local target_idx
+            target_idx="$(awk -F'\t' -v t="$branch_target" '$1==t{print $2;exit}' "$id_map_file")"
             if [ -z "$target_idx" ]; then
                 log warn "step=$step_id branch target '$branch_target' not found; advancing normally"
                 i=$(( i + 1 ))
@@ -1121,7 +1125,7 @@ main() {
     # Mark any steps that were never visited (branched over / unreachable) as Skipped.
     local _sk
     for (( _sk=0; _sk<total; _sk++ )); do
-        if [ -z "${_visited_idx[$_sk]+x}" ]; then
+        if [ -z "${_visited_idx[$_sk]:-}" ]; then
             ui_set_step_status "$_sk" pending "Skipped"
         fi
     done
