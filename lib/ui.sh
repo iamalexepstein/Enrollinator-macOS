@@ -454,13 +454,15 @@ ui_wait_close() {
 # Prints the label of the button the user clicked to stdout, exit 0.
 # Returns non-zero on error (swiftDialog failed to launch or was killed).
 # Supports up to 3 buttons (swiftDialog limit for button1/2/3).
-# slideshow_pipe_delim: "/a.png|/b.png" — cycles bannerimage every 6 s
+# slideshow_pipe_delim: "/a.png|/b.png|/c.png" — each image is its own dialog
+#   the user must click "Next →" through; the last frame shows with the real
+#   action buttons.  Single image: shown as --image in the final dialog.
 # video: path or URL — wins over slideshow when both set
 ui_dialog_popup() {
     local title="$1" message="$2" width="$3" height="$4" buttons="$5"
     local title_fontsize="${6:-}" msg_fontsize="${7:-14}"
     local slideshow="${8:-}" video="${9:-}"
-    [ -z "$width" ] && width=520
+    [ -z "$width" ]  && width=520
     [ -z "$height" ] && height=300
 
     local b1 b2 b3
@@ -472,6 +474,49 @@ ui_dialog_popup() {
     b2="${barr[1]:-}"
     b3="${barr[2]:-}"
 
+    # ── User-clicked slideshow ──────────────────────────────────────────────
+    # When multiple images are in the Slideshow array, display each one as
+    # its own dialog that the user must explicitly click through before the
+    # final action dialog (with the real buttons) appears.  This is different
+    # from the wait-window auto-rotator which runs on a timer.
+    if [ -z "$video" ] && [[ "$slideshow" == *"|"* ]]; then
+        local -a ss_frames
+        local IFS='|'
+        # shellcheck disable=SC2206
+        ss_frames=( $slideshow )
+        unset IFS
+        local ss_total=${#ss_frames[@]}
+        local ss_i
+        for (( ss_i=0; ss_i < ss_total - 1; ss_i++ )); do
+            local ss_frame ss_resolved
+            ss_frame="${ss_frames[$ss_i]}"
+            ss_resolved="$(_ui_normalize_icon "$ss_frame")"
+            local ss_args=(
+                --title "$title"
+                --message "$message"
+                --messagefont "size=${msg_fontsize}"
+                --position "center"
+                --width "$width"
+                --height "$height"
+                --moveable
+                --hideicon
+                --button1text "Next →  ($(( ss_i + 1 )) of ${ss_total})"
+            )
+            [ -n "$title_fontsize" ]  && ss_args+=( --titlefont "size=${title_fontsize}" )
+            [ -n "$ss_resolved" ]     && ss_args+=( --image "$ss_resolved" )
+            [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && ss_args+=( --ontop )
+            _ui_user_exec "$DIALOG_BIN" "${ss_args[@]}"
+            local ss_rc=$?
+            # Any non-zero exit (user force-quit, timeout, etc.) aborts the slideshow.
+            [ "$ss_rc" -ne 0 ] && return "$ss_rc"
+        done
+        # Replace the slideshow variable with just the last frame so the final
+        # dialog below shows it as a single image rather than re-triggering
+        # the multi-frame path.
+        slideshow="${ss_frames[$(( ss_total - 1 ))]}"
+    fi
+
+    # ── Final (or only) dialog ──────────────────────────────────────────────
     local popup_cmd="/var/tmp/enrollinator.popup.log"
     : > "$popup_cmd"
     /bin/chmod 0666 "$popup_cmd" 2>/dev/null || true
@@ -494,32 +539,18 @@ ui_dialog_popup() {
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
     [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
 
-    # Video wins over slideshow when both are supplied.
+    # Video wins over a single remaining slideshow frame.
     if [ -n "$video" ]; then
         args+=( --video "$video" )
     elif [ -n "$slideshow" ]; then
-        local first_frame first_resolved
-        first_frame="${slideshow%%|*}"
-        first_resolved="$(_ui_normalize_icon "$first_frame")"
-        [ -n "$first_resolved" ] && args+=( --bannerimage "$first_resolved" )
-    fi
-
-    # Start background slideshow rotator when there are multiple frames.
-    local _popup_slideshow_pid=""
-    if [ -z "$video" ] && [ -n "$slideshow" ] && [[ "$slideshow" == *"|"* ]]; then
-        ( _ui_slideshow_loop "$popup_cmd" "$slideshow" ) &
-        _popup_slideshow_pid=$!
+        local single_resolved
+        single_resolved="$(_ui_normalize_icon "$slideshow")"
+        [ -n "$single_resolved" ] && args+=( --image "$single_resolved" )
     fi
 
     local rc
     _ui_user_exec "$DIALOG_BIN" "${args[@]}"
     rc=$?
-
-    # Stop rotator (if any) and clean up.
-    if [ -n "$_popup_slideshow_pid" ]; then
-        kill "$_popup_slideshow_pid" 2>/dev/null
-        wait "$_popup_slideshow_pid" 2>/dev/null
-    fi
     /bin/rm -f "$popup_cmd" 2>/dev/null || true
 
     # swiftDialog return codes: 0=button1, 2=button2, 3=infobutton, 10=timeout, etc.
