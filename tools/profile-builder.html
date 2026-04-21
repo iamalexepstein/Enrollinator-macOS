@@ -503,7 +503,7 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     border: 1px solid rgba(0,0,0,0.13);
     border-radius: 16px;
     box-shadow: 0 24px 70px rgba(0,0,0,0.26), 0 4px 14px rgba(0,0,0,0.1);
-    width: 530px;
+    width: 610px;
     max-height: calc(100vh - 80px);
     display: flex; flex-direction: column;
     overflow: hidden;
@@ -636,6 +636,24 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 .behavior-flag-hint { font-size: 11.5px; color: #8e8e93; margin-top: 2px; }
 .pair-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
 .pair-row .row { margin-bottom: 0; grid-template-columns: 76px 1fr; }
+/* Compact number inputs — used for font-size fields */
+.pair-row--compact .row { grid-template-columns: 94px 1fr; }
+.pair-row--compact input[type="number"] { max-width: 76px; min-width: 0; }
+/* Inline group labels inside settings tiles */
+.settings-group {
+    margin: 14px 0 8px;
+    padding-bottom: 7px;
+    border-bottom: 1px solid rgba(0,0,0,0.07);
+    display: flex; align-items: center; gap: 8px;
+}
+.settings-group:first-child { margin-top: 4px; }
+.settings-group-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: #aeaeb2; font-weight: 700; white-space: nowrap;
+}
+.settings-group::after {
+    content: ""; flex: 1; height: 1px;
+}
 
 /* Optional field add/remove */
 .optional-add-btn {
@@ -2686,17 +2704,25 @@ function renderBrandingTile() {
     return h("div", { class: "tile" },
         h("h3", null, "Branding"),
         h("p", { class: "tile-desc" }, "Customises the main onboarding window. Title and Subtitle support ", h("code", null, "{token}"), " substitution — click the ", h("b", null, "{ }"), " button next to a field to insert a live value like the user's name or serial number."),
+        /* ── Text ── */
+        h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Text")),
         row("Title",    textInputWithVars(b.Title, v => b.Title = v, "Welcome to your new Mac")),
         row("Subtitle", textInputWithVars(b.Subtitle, v => b.Subtitle = v)),
+        /* ── Visual ── */
+        h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Visual")),
         optionalIconRow("Logo", "branding-logo", b.Logo, v => b.Logo = v),
         optionalTextRow("Banner", "branding-banner", b.Banner, v => b.Banner = v,
             "/path/banner.png or https://…",
             "Image shown across the top of the window."),
-        row("Accent",   h("div", { class: "inline-color" }, swatch, text)),
-        h("div", { class: "pair-row" },
+        row("Accent colour", h("div", { class: "inline-color" }, swatch, text)),
+        /* ── Typography ── */
+        h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Typography")),
+        h("div", { class: "pair-row pair-row--compact" },
             row("Title font size",   intInput(b.TitleFontSize,   v => { b.TitleFontSize   = v; updatePreview(); }, "default")),
             row("Message font size", intInput(b.MessageFontSize, v => { b.MessageFontSize = v; updatePreview(); }, "14"))
         ),
+        /* ── Window ── */
+        h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Window Size")),
         h("div", { class: "pair-row" },
             row("Width",  intInput(b.WindowWidth,  v => b.WindowWidth  = v, "720"), hint("Pixels.")),
             row("Height", intInput(b.WindowHeight, v => b.WindowHeight = v, "560"), hint("Pixels."))
@@ -2799,6 +2825,8 @@ function renderAddonPickerTile() {
     return h("div", { class: "tile" },
         h("h3", null, "Add-on picker"),
         hint("Customise the swiftDialog window shown when optional add-on playbooks are available. Leave blank to use the defaults."),
+        /* ── Content ── */
+        h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Content")),
         row("Title",
             textInput(ap.Title, v => { ap.Title = v; updatePreview(); }, "Optional Add-ons")),
         row("Message",
@@ -2807,14 +2835,20 @@ function renderAddonPickerTile() {
                 placeholder: "Select additional profiles to install."
             }, ap.Message || "")),
         row("Icon", ...renderIconInput(ap.Icon, v => { ap.Icon = v; updatePreview(); }, reopenSettings)),
-        h("div", { class: "pair-row" },
+        /* ── Typography ── */
+        h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Typography")),
+        h("div", { class: "pair-row pair-row--compact" },
             row("Title font size",   intInput(ap.TitleFontSize,   v => { ap.TitleFontSize   = v; updatePreview(); }, "default")),
             row("Message font size", intInput(ap.MessageFontSize, v => { ap.MessageFontSize = v; updatePreview(); }, "14"))
         ),
+        /* ── Buttons ── */
+        h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Buttons")),
         row("Install button",
             textInput(ap.InstallButton, v => { ap.InstallButton = v; updatePreview(); }, "Install")),
         row("Skip button",
             textInput(ap.SkipButton, v => { ap.SkipButton = v; updatePreview(); }, "Skip")),
+        /* ── Window ── */
+        h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Window Size")),
         h("div", { class: "pair-row" },
             row("Width",  intInput(ap.Width,  v => { ap.Width  = v; updatePreview(); }, "500")),
             row("Height", intInput(ap.Height, v => { ap.Height = v; updatePreview(); }, "360"))
