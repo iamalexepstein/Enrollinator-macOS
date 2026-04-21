@@ -99,6 +99,15 @@ ui_start() {
         entry="title=$name,statustext=Pending,status=pending"
         resolved_icon="$(_ui_normalize_icon "$icon")"
         if [ -n "$resolved_icon" ]; then
+            # Strip any ",animation=X" suffix from SF symbols before embedding
+            # the icon in the --listitem comma-delimited string. The suffix
+            # introduces an extra comma that swiftDialog parses as a separate
+            # key=value pair, causing it to display the attribute key name
+            # ("animation") as the list item's visible title instead of the
+            # step name. List item icons don't need animations in the list view.
+            case "$resolved_icon" in
+                SF=*,*) resolved_icon="${resolved_icon%%,*}" ;;
+            esac
             entry="$entry,icon=$resolved_icon"
         fi
         listitems+=( --listitem "$entry" )
@@ -224,7 +233,14 @@ ui_append_step() {
     local cmd="listitem: add, title: $name, status: pending, statustext: Pending"
     local resolved_icon
     resolved_icon="$(_ui_normalize_icon "$icon")"
-    [ -n "$resolved_icon" ] && cmd="$cmd, icon: $resolved_icon"
+    if [ -n "$resolved_icon" ]; then
+        # Strip animation suffix from SF symbols — same comma-parsing issue
+        # as in ui_start: the extra comma produces a rogue "animation" key.
+        case "$resolved_icon" in
+            SF=*,*) resolved_icon="${resolved_icon%%,*}" ;;
+        esac
+        cmd="$cmd, icon: $resolved_icon"
+    fi
     ui_cmd "$cmd"
 }
 
