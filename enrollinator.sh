@@ -89,7 +89,7 @@ Options:
                         Useful for dev configs — schema rooted at the top level.
   --profile NAME        Force a specific profile, ignoring selectors.
   --domain DOMAIN       Override managed-prefs domain (default: com.enrollinator.app).
-  --test                Run in test mode: evaluate conditions, DON'T execute actions.
+  --test                Run in test mode: evaluate conditions, skip actions (dialog actions still run).
   --force               Re-run even if /var/lib/enrollinator/completed exists.
   --dry-run             Parse config and print the plan, don't execute.
   --skip-root-check     Allow running as non-root (development only).

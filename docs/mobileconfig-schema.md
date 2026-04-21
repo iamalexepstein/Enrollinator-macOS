@@ -23,7 +23,7 @@ This document describes every key that entry understands.
 | `Branding`       | dict            | no       | Window title, subtitle, logo, accent color, banner, window size. |
 | `DefaultPlaybook` | string          | no       | Name of the playbook to use when no selector matches. |
 | `AllowClose`     | bool            | no       | If `true`, Enrollinator enables the Done button at the end instead of auto-quitting. Defaults to `false`. |
-| `TestMode`       | bool            | no       | If `true`, Enrollinator evaluates conditions but skips every `Action`. In test mode Enrollinator also caps each blocking step's effective timeout at 5 seconds so a rehearsal never actually hangs. Overridable per-profile. Defaults to `false`. |
+| `TestMode`       | bool            | no       | If `true`, Enrollinator evaluates conditions but skips destructive actions (`shell`, `package`, `wait`). `dialog` actions still run — they are pure UI with no side effects. Blocking step timeouts are capped at 5 seconds so a rehearsal never hangs. Overridable per-profile. Defaults to `false`. |
 | `HardwareInfo`   | dict            | no       | Enables a hardware info panel next to the step list. See below. |
 | `Help`           | dict            | no       | Enables a "?" help button in the window. Shown contents are configured here. See below. |
 | `AddonPicker`    | dict            | no       | Customises the post-install add-on picker window. See below. |
@@ -330,7 +330,7 @@ managed-prefs domain, a raw `.mobileconfig`, or a bare plist. The flags:
 | `--xml PATH`        | Load a bare plist XML file. Schema is rooted at the top level — no `PayloadContent` wrapping required. Handy for dev configs. |
 | `--profile NAME`    | Force a specific profile, ignoring selectors. |
 | `--domain DOMAIN`   | Override the managed-prefs domain (default `com.enrollinator.app`). |
-| `--test`            | Run in test mode: actions are simulated, conditions still evaluate. Does not mark the run completed. |
+| `--test`            | Run in test mode: `shell`, `package`, and `wait` actions are skipped; `dialog` actions still run; conditions evaluate normally. Does not mark the run completed. |
 | `--force`           | Re-run even if `/var/lib/enrollinator/completed` exists. |
 | `--dry-run`         | Parse config and print the plan, don't execute. |
 | `--skip-root-check` | Allow running as non-root. Dev only — swiftDialog won't appear in user sessions. |

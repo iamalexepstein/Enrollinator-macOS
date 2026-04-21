@@ -94,7 +94,7 @@ sudo /usr/local/enrollinator/enrollinator.sh --profile Engineering
 # Re-run even if already completed:
 sudo /usr/local/enrollinator/enrollinator.sh --force
 
-# Test mode: walk the UI, evaluate conditions, SKIP actions:
+# Test mode: walk the UI, evaluate conditions, skip actions (dialog actions still run):
 sudo /usr/local/enrollinator/enrollinator.sh --test --force
 
 # Print the plan without executing anything:

@@ -658,13 +658,11 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 .var-label { font-size: 11.5px; color: #8e8e93; }
 
 /* ---------------------------------------------------------------- tooltips */
-[data-tooltip] { position: relative; }
-[data-tooltip]::after {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: calc(100% + 7px);
-    left: 50%;
-    transform: translateX(-50%);
+/* Rendered as a position:fixed div appended to <body> by initTooltips()
+   so overflow:hidden ancestors can never clip them. */
+.js-tooltip {
+    position: fixed;
+    z-index: 99999;
     background: #1c1c1e;
     color: #f5f5f7;
     font-size: 11.5px;
@@ -676,35 +674,7 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.12s;
-    z-index: 9999;
     box-shadow: 0 2px 8px rgba(0,0,0,0.22);
-}
-[data-tooltip]::before {
-    content: "";
-    position: absolute;
-    bottom: calc(100% + 2px);
-    left: 50%;
-    transform: translateX(-50%);
-    border: 5px solid transparent;
-    border-top-color: #1c1c1e;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.12s;
-    z-index: 9999;
-}
-[data-tooltip]:hover::after,
-[data-tooltip]:hover::before { opacity: 1; }
-
-/* Tooltip below (for elements near the top of the screen) */
-[data-tooltip-below]::after {
-    bottom: auto;
-    top: calc(100% + 7px);
-}
-[data-tooltip-below]::before {
-    bottom: auto;
-    top: calc(100% + 2px);
-    border-top-color: transparent;
-    border-bottom-color: #1c1c1e;
 }
 
 /* ------------------------------------------------------------- help button */
@@ -961,9 +931,6 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     transition: opacity 0.15s;
 }
 .step-list:hover .step-insert { opacity: 1; }
-.step-insert::before, .step-insert::after {
-    content: ''; flex: 1; height: 1px; background: #d1d1d6;
-}
 .step-insert-btn {
     flex-shrink: 0; width: 18px; height: 18px;
     border-radius: 50%; border: 1.5px solid #c7c7cc;
@@ -3607,10 +3574,23 @@ function actionFields(a) {
             ));
         }
 
-        rows.push(
-            row("Run as user", textInput(a.RunAsUser, v => a.RunAsUser = v, "$CONSOLE_USER")),
-            row("Timeout (s)", intInput(a.TimeoutSeconds, v => a.TimeoutSeconds = v, "300"))
-        );
+        const runAsChecked = !!(a.RunAsUser);
+        rows.push(row("Run as user",
+            h("div", { style: "display:flex;flex-direction:column;gap:6px" },
+                h("label", { style: "display:flex;align-items:center;gap:7px;cursor:pointer" },
+                    h("input", { type: "checkbox", checked: runAsChecked,
+                        onchange: e => {
+                            a.RunAsUser = e.target.checked ? "$CONSOLE_USER" : "";
+                            reopenStep();
+                        }
+                    }),
+                    h("span", { style: "font-size:12.5px" }, "Run as a different user")
+                ),
+                ...(runAsChecked ? [textInput(a.RunAsUser, v => { a.RunAsUser = v; }, "$CONSOLE_USER")] : [])
+            ),
+            hint("Default: runs as root (the script user). Check to run as the console user or a named account.")
+        ));
+        rows.push(row("Timeout (s)", intInput(a.TimeoutSeconds, v => a.TimeoutSeconds = v, "300")));
         return rows;
     }
     if (a.Type === "package") {
@@ -4100,6 +4080,56 @@ function resetUiForNewState() {
 }
 
 // ============================================================================
+// Tooltips — position:fixed so overflow:hidden ancestors can never clip them.
+// ============================================================================
+
+function initTooltips() {
+    const tip = document.createElement("div");
+    tip.className = "js-tooltip";
+    document.body.appendChild(tip);
+
+    let hideTimer = null;
+
+    function show(target) {
+        const text = target.dataset.tooltip;
+        if (!text) return;
+        clearTimeout(hideTimer);
+        tip.textContent = text;
+        tip.style.opacity = "0";
+        tip.style.display = "block";
+
+        const below = target.hasAttribute("data-tooltip-below");
+        const r = target.getBoundingClientRect();
+        const tw = tip.offsetWidth;
+        const th = tip.offsetHeight;
+        let left = r.left + r.width / 2 - tw / 2;
+        let top  = below ? r.bottom + 7 : r.top - th - 7;
+
+        // Keep within viewport horizontally.
+        left = Math.max(6, Math.min(left, window.innerWidth - tw - 6));
+        tip.style.left = left + "px";
+        tip.style.top  = top  + "px";
+        tip.style.opacity = "1";
+    }
+
+    function hide() {
+        tip.style.opacity = "0";
+        hideTimer = setTimeout(() => { tip.style.display = "none"; }, 130);
+    }
+
+    document.addEventListener("mouseover", e => {
+        const t = e.target.closest("[data-tooltip]");
+        if (t) show(t); else hide();
+    });
+    document.addEventListener("mouseout", e => {
+        if (!e.target.closest("[data-tooltip]")) return;
+        // Only hide when leaving the element entirely (not entering a child).
+        if (!e.relatedTarget || !e.relatedTarget.closest("[data-tooltip]")) hide();
+    });
+    document.addEventListener("scroll", hide, true);
+}
+
+// ============================================================================
 // Boot
 // ============================================================================
 
@@ -4125,6 +4155,8 @@ document.getElementById("import-file").addEventListener("change", async e => {
 
 // Close modal on Esc.
 window.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+initTooltips();
 
 // ============================================================================
 // Getting Started

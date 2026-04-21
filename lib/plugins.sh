@@ -28,13 +28,14 @@ action_run() {
 
     # Test mode: describe what we would run without actually running it.
     # Conditions still evaluate normally so users can rehearse gating.
-    if [ "${ENROLLINATOR_TEST_MODE:-0}" = "1" ]; then
+    # Exception: dialog actions run for real — they are pure UI with no
+    # side effects, so showing them during a test run is useful and safe.
+    if [ "${ENROLLINATOR_TEST_MODE:-0}" = "1" ] && [ "$type" != "dialog" ]; then
         local summary
         case "$type" in
             shell)   summary="$(plist_get "$file" "${key}:Action:Command")" ;;
             package) summary="$(plist_get "$file" "${key}:Action:Path")" ;;
             wait)    summary="$(plist_get "$file" "${key}:Action:DurationSeconds")s" ;;
-            dialog)  summary="$(plist_get "$file" "${key}:Action:Title")" ;;
             noop)    summary="noop" ;;
             *)       summary="$type" ;;
         esac
