@@ -158,7 +158,7 @@ action_wait() {
 #   ExpectedButton  (string, optional; defaults to the first button)
 action_dialog() {
     local file="$1" key="$2"
-    local title message width height expected title_fs msg_fs
+    local title message width height expected title_fs msg_fs dlg_blur dlg_ontop
     title="$(plist_get "$file" "${key}:Title")"
     message="$(plist_get "$file" "${key}:Message")"
     width="$(plist_get "$file" "${key}:Width")"
@@ -166,6 +166,16 @@ action_dialog() {
     expected="$(plist_get "$file" "${key}:ExpectedButton")"
     title_fs="$(plist_get "$file" "${key}:TitleFontSize")"
     msg_fs="$(plist_get "$file" "${key}:MessageFontSize")"
+    dlg_blur="$(plist_get "$file" "${key}:Blur")"
+    dlg_ontop="$(plist_get "$file" "${key}:AlwaysOnTop")"
+    local dlg_video dlg_slideshow="" dlg_ss_count dlg_j dlg_f
+    dlg_video="$(plist_get "$file" "${key}:Video")"
+    dlg_ss_count="$(plist_array_count "$file" "${key}:Slideshow")"
+    for (( dlg_j=0; dlg_j<dlg_ss_count; dlg_j++ )); do
+        dlg_f="$(plist_get "$file" "${key}:Slideshow:${dlg_j}")"
+        [ -z "$dlg_f" ] && continue
+        dlg_slideshow="${dlg_slideshow:+${dlg_slideshow}|}${dlg_f}"
+    done
 
     if [ -z "$title" ] || [ -z "$message" ]; then
         echo "dialog action: Title and Message are required"
@@ -187,9 +197,19 @@ action_dialog() {
     [ -z "$btns" ] && btns="OK"
     [ -z "$expected" ] && expected="${btns%%|*}"
 
+    # Apply per-dialog blur/ontop overrides, falling back to global env.
+    local _saved_blur="$ENROLLINATOR_UI_BLUR" _saved_ontop="$ENROLLINATOR_UI_ONTOP"
+    [ "$dlg_blur"  = "true"  ] && ENROLLINATOR_UI_BLUR=1
+    [ "$dlg_blur"  = "false" ] && ENROLLINATOR_UI_BLUR=0
+    [ "$dlg_ontop" = "true"  ] && ENROLLINATOR_UI_ONTOP=1
+    [ "$dlg_ontop" = "false" ] && ENROLLINATOR_UI_ONTOP=0
+    export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
+
     local clicked rc
-    clicked="$(ui_dialog_popup "$title" "$message" "$width" "$height" "$btns" "$title_fs" "$msg_fs")"
+    clicked="$(ui_dialog_popup "$title" "$message" "$width" "$height" "$btns" "$title_fs" "$msg_fs" "$dlg_slideshow" "$dlg_video")"
     rc=$?
+    ENROLLINATOR_UI_BLUR="$_saved_blur"; ENROLLINATOR_UI_ONTOP="$_saved_ontop"
+    export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
     if [ $rc -ne 0 ]; then
         echo "dialog action: swiftDialog exit $rc"
         return $rc

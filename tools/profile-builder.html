@@ -73,7 +73,7 @@ header.top .header-subtitle a:hover { color: rgba(255,255,255,0.8); text-decorat
 
 main {
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) 5px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 5px 340px;
     height: calc(100vh - 48px);
 }
 @media (max-width: 1000px) {
@@ -102,6 +102,29 @@ main {
     inset: 0 -4px;
 }
 .resize-handle:hover, .resize-handle.resizing { background: #0a84ff; }
+.resize-handle.collapsed { cursor: default; }
+.resize-handle.collapsed:hover { background: rgba(0,0,0,0.35); }
+
+/* Toggle button on the resize handle */
+.preview-toggle-btn {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: #3a3a3c;
+    border: none;
+    cursor: pointer;
+    color: #aeaeb2;
+    font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10;
+    transition: background 0.12s, color 0.12s;
+    line-height: 1;
+    pointer-events: all;
+}
+.preview-toggle-btn:hover { background: #545458; color: #f2f2f7; }
 
 /* ------------------------------------------------------------ preview pane */
 .preview {
@@ -109,7 +132,9 @@ main {
     background: #141416;
     display: flex; flex-direction: column;
     min-width: 180px;
+    transition: min-width 0s;
 }
+.preview.collapsed { min-width: 0; }
 .preview-header {
     padding: 9px 16px;
     background: #1c1c1e;
@@ -122,18 +147,6 @@ main {
 }
 .preview-header .status { color: #30d158; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 11.5px; }
 .preview-header .status.error { color: #ff453a; }
-.preview-collapse-btn {
-    background: none; border: none; cursor: pointer;
-    color: #636366; font-size: 14px; font-weight: 600;
-    padding: 2px 5px; border-radius: 5px; line-height: 1;
-    transition: background 0.12s, color 0.12s;
-}
-.preview-collapse-btn:hover { background: rgba(255,255,255,0.1); color: #d4d4d8; }
-.preview.collapsed pre,
-.preview.collapsed footer { display: none; }
-.preview.collapsed .preview-header { writing-mode: vertical-rl; }
-.preview.collapsed .preview-header-label { display: none; }
-.preview.collapsed .preview-collapse-btn { transform: rotate(180deg); writing-mode: horizontal-tb; }
 .preview pre {
     margin: 0; padding: 14px 16px;
     color: #b0b0b8;
@@ -891,7 +904,9 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     overflow-y: auto;
     padding: 20px 24px 80px;
     min-width: 0;
+    display: flex; flex-direction: column; align-items: center;
 }
+.playbook-content > * { width: 100%; max-width: 640px; }
 .playbook-content-header {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 16px;
@@ -906,14 +921,27 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 .playbook-content-actions { display: flex; gap: 5px; flex-shrink: 0; }
 
 /* --------------------------------------------------------------- step list */
-.step-list { display: flex; flex-direction: column; gap: 0; margin-bottom: 14px; }
-.step-list-empty {
-    padding: 36px 20px; text-align: center; color: #8e8e93;
-    border: 1.5px dashed #d1d1d6; border-radius: 11px;
-    font-size: 13px; background: #fafafa;
+.step-list { display: flex; flex-direction: column; gap: 0; margin-bottom: 14px; align-items: center; }
+/* Empty-playbook CTA — shown instead of step list when there are no steps */
+.step-list-empty-cta {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px;
+    padding: 28px 24px;
+    background: #fffdf5;
+    border: 1.5px dashed #f0c843;
+    border-radius: 13px;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.12s, border-color 0.12s;
+    color: #7a6300;
 }
+.step-list-empty-cta:hover { background: #fff9e0; border-color: #d4a800; }
+.step-list-empty-cta .cta-icon { font-size: 28px; line-height: 1; }
+.step-list-empty-cta .cta-title { font-size: 14px; font-weight: 600; }
+.step-list-empty-cta .cta-sub { font-size: 12px; color: #a08020; }
+
 .step-list-add {
-    display: inline-flex; align-items: center; gap: 7px;
+    display: flex; align-items: center; justify-content: center; gap: 7px;
     padding: 8px 16px;
     background: #f0f7ff; color: #0a7ef0;
     border: 1.5px dashed #a8c8f5;
@@ -925,20 +953,30 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 
 /* ------------------------------------------------- between-step insert row */
 .step-insert {
-    display: flex; align-items: center; gap: 0;
-    padding: 0; margin: 0 2px;
-    height: 20px; opacity: 0;
-    transition: opacity 0.15s;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    height: 24px;
+    width: 100%;
 }
-.step-list:hover .step-insert { opacity: 1; }
+.step-insert::before {
+    content: "";
+    position: absolute;
+    left: 50%; top: 0; bottom: 0;
+    width: 1.5px;
+    background: #d1d1d6;
+    transform: translateX(-50%);
+}
 .step-insert-btn {
-    flex-shrink: 0; width: 18px; height: 18px;
+    position: relative; z-index: 1;
+    flex-shrink: 0; width: 20px; height: 20px;
     border-radius: 50%; border: 1.5px solid #c7c7cc;
     background: #fff; color: #8e8e93;
-    font-size: 13px; line-height: 1; cursor: pointer;
+    font-size: 14px; line-height: 1; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
-    padding: 0; margin: 0 5px; transition: border-color 0.12s, color 0.12s, background 0.12s;
+    padding: 0; transition: border-color 0.12s, color 0.12s, background 0.12s;
+    opacity: 0; transition: opacity 0.15s, border-color 0.12s, color 0.12s, background 0.12s;
 }
+.step-list:hover .step-insert-btn { opacity: 1; }
 .step-insert-btn:hover { border-color: #0a84ff; color: #0a84ff; background: #f0f6ff; }
 
 .step-row {
@@ -951,6 +989,7 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     transition: box-shadow 0.12s, border-color 0.12s;
     position: relative;
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    width: 100%;
 }
 .step-row:hover {
     border-color: #0a84ff;
@@ -1151,14 +1190,13 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 
 <main>
     <div class="canvas" id="canvas"></div>
-    <div class="resize-handle" id="resize-handle"></div>
+    <div class="resize-handle" id="resize-handle">
+        <button class="preview-toggle-btn" id="preview-toggle" data-tooltip="Collapse preview" title="Collapse preview">›</button>
+    </div>
     <div class="preview" id="preview-pane">
         <div class="preview-header">
             <span class="preview-header-label">.mobileconfig preview</span>
-            <div style="display:flex;align-items:center;gap:10px">
-                <span class="status" id="preview-status">valid</span>
-                <button class="preview-collapse-btn" id="preview-toggle" data-tooltip="Collapse preview" title="Collapse preview">›</button>
-            </div>
+            <span class="status" id="preview-status">valid</span>
         </div>
         <pre id="preview"></pre>
         <footer>
@@ -1426,7 +1464,9 @@ function blankWaitWindow(name) {
         Slideshow: [],
         Video: "",
         Width: null,
-        Height: null
+        Height: null,
+        Blur: null,
+        AlwaysOnTop: null
     };
 }
 function blankProfile() {
@@ -1447,7 +1487,9 @@ function blankAction(type) {
         case "dialog":  return { Type: "dialog",  Title: "", Message: "",
                                  TitleFontSize: null, MessageFontSize: null,
                                  Width: null, Height: null,
-                                 Buttons: ["OK"], ExpectedButton: "OK" };
+                                 Buttons: ["OK"], ExpectedButton: "OK",
+                                 Video: "", Slideshow: [],
+                                 Blur: null, AlwaysOnTop: null };
         case "noop":    return { Type: "noop" };
     }
 }
@@ -1497,6 +1539,9 @@ function defaultState() {
         DefaultPlaybook: "Standard",
         AllowClose: false,
         TestMode: false,
+        InstallSwiftDialog: false,
+        BlurScreen: false,
+        AlwaysOnTop: true,
         HardwareInfo: {
             Enabled: false,
             Fields: []
@@ -1606,6 +1651,9 @@ function buildInnerPayload(s) {
         DefaultPlaybook: s.DefaultPlaybook || undefined,
         AllowClose: s.AllowClose === true ? true : undefined,
         TestMode: s.TestMode === true ? true : undefined,
+        InstallSwiftDialog: s.InstallSwiftDialog === true ? true : undefined,
+        BlurScreen: s.BlurScreen === true ? true : undefined,
+        AlwaysOnTop: s.AlwaysOnTop === false ? false : undefined,
 
         HardwareInfo: buildHardwareInfo(s.HardwareInfo),
         Help: buildHelp(s.Help),
@@ -1670,11 +1718,16 @@ function buildAction(a) {
         case "shell":   return clean({ Type: "shell", Command: a.Command, RunAsUser: a.RunAsUser, TimeoutSeconds: a.TimeoutSeconds });
         case "package": return clean({ Type: "package", Path: a.Path, Target: a.Target, TimeoutSeconds: a.TimeoutSeconds });
         case "wait":    return clean({ Type: "wait", DurationSeconds: a.DurationSeconds });
-        case "dialog":  return clean({ Type: "dialog", Title: a.Title, Message: a.Message,
+        case "dialog":  { const dlgSlides = (a.Slideshow || []).filter(Boolean);
+                          return clean({ Type: "dialog", Title: a.Title, Message: a.Message,
                                        TitleFontSize:   Number.isFinite(a.TitleFontSize)   ? a.TitleFontSize   : undefined,
                                        MessageFontSize: Number.isFinite(a.MessageFontSize) ? a.MessageFontSize : undefined,
                                        Width: a.Width, Height: a.Height,
-                                       Buttons: a.Buttons, ExpectedButton: a.ExpectedButton });
+                                       Buttons: a.Buttons, ExpectedButton: a.ExpectedButton,
+                                       Video: a.Video || undefined,
+                                       Slideshow: dlgSlides.length ? dlgSlides : undefined,
+                                       Blur: typeof a.Blur === "boolean" ? a.Blur : undefined,
+                                       AlwaysOnTop: typeof a.AlwaysOnTop === "boolean" ? a.AlwaysOnTop : undefined }); }
         case "noop":    return { Type: "noop" };
         default:        return clean(a);
     }
@@ -1711,7 +1764,9 @@ function buildWaitWindow(ww) {
         Slideshow: slides.length ? slides : undefined,
         Video:  ww.Video  || undefined,
         Width:  Number.isFinite(ww.Width)  ? ww.Width  : undefined,
-        Height: Number.isFinite(ww.Height) ? ww.Height : undefined
+        Height: Number.isFinite(ww.Height) ? ww.Height : undefined,
+        Blur:        typeof ww.Blur        === "boolean" ? ww.Blur        : undefined,
+        AlwaysOnTop: typeof ww.AlwaysOnTop === "boolean" ? ww.AlwaysOnTop : undefined
     };
     return clean(out);
 }
@@ -1877,6 +1932,9 @@ function importFromMobileconfig(xml) {
     next.DefaultPlaybook = inner.DefaultPlaybook || inner.DefaultProfile || "";
     next.AllowClose = !!inner.AllowClose;
     next.TestMode = !!inner.TestMode;
+    next.InstallSwiftDialog = !!inner.InstallSwiftDialog;
+    next.BlurScreen  = !!inner.BlurScreen;
+    next.AlwaysOnTop = inner.AlwaysOnTop !== false;
     next.HardwareInfo = {
         Enabled: !!(inner.HardwareInfo && inner.HardwareInfo.Enabled),
         Fields: (inner.HardwareInfo && Array.isArray(inner.HardwareInfo.Fields))
@@ -1922,7 +1980,9 @@ function importStep(s) {
             Slideshow: Array.isArray(s.WaitWindow.Slideshow) ? s.WaitWindow.Slideshow.slice() : [],
             Video: s.WaitWindow.Video || "",
             Width: Number.isFinite(s.WaitWindow.Width) ? s.WaitWindow.Width : null,
-            Height: Number.isFinite(s.WaitWindow.Height) ? s.WaitWindow.Height : null
+            Height: Number.isFinite(s.WaitWindow.Height) ? s.WaitWindow.Height : null,
+            Blur:        typeof s.WaitWindow.Blur        === "boolean" ? s.WaitWindow.Blur        : null,
+            AlwaysOnTop: typeof s.WaitWindow.AlwaysOnTop === "boolean" ? s.WaitWindow.AlwaysOnTop : null
         };
     }
     return out;
@@ -2043,6 +2103,15 @@ function selectInput(value, options, onChange) {
         return opt;
     });
     return h("select", { onchange: e => { onChange(e.target.value); updatePreview(); } }, ...opts);
+}
+// Three-state select for per-window blur/ontop overrides.
+// value: null = inherit from global, true = on, false = off
+function triStateSelect(value, onChange) {
+    return selectInput(
+        value === true ? "true" : value === false ? "false" : "",
+        [["", "Inherit from global"], ["true", "On"], ["false", "Off"]],
+        v => onChange(v === "" ? null : v === "true")
+    );
 }
 function hint(text) { return h("div", { class: "hint" }, text); }
 function btn(label, onClick, cls) {
@@ -2366,20 +2435,31 @@ function renderPlaybookContent(pIdx) {
         )
     ));
 
-    content.appendChild(renderStepList(profile, pIdx));
+    function addStep() {
+        const st = blankStep();
+        st.Id = `step-${profile.Steps.length + 1}`;
+        st.Name = "New step";
+        profile.Steps.push(st);
+        const newIdx = profile.Steps.length - 1;
+        ui.pendingStep = { pIdx, sIdx: newIdx };
+        openStepEditor(pIdx, newIdx);
+    }
 
-    content.appendChild(h("button", { class: "step-list-add",
-        "data-tooltip": "Add a new step to this playbook",
-        onclick: () => {
-            const st = blankStep();
-            st.Id = `step-${profile.Steps.length + 1}`;
-            st.Name = "New step";
-            profile.Steps.push(st);
-            const newIdx = profile.Steps.length - 1;
-            ui.pendingStep = { pIdx, sIdx: newIdx };
-            openStepEditor(pIdx, newIdx);
-        }
-    }, "+ Add step"));
+    if (profile.Steps.length === 0) {
+        content.appendChild(h("div", { class: "step-list-empty-cta", onclick: addStep },
+            h("div", { class: "cta-icon" }, "＋"),
+            h("div", { class: "cta-title" }, "Add your first step"),
+            h("div", { class: "cta-sub" }, "Click here to add a step and get started")
+        ));
+    } else {
+        content.appendChild(renderStepList(profile, pIdx));
+        content.appendChild(h("div", { style: "display:flex;justify-content:center;" },
+            h("button", { class: "step-list-add",
+                "data-tooltip": "Add a new step to this playbook",
+                onclick: addStep
+            }, "+ Add step")
+        ));
+    }
 
     return content;
 }
@@ -2394,23 +2474,18 @@ function insertStepAt(profile, pIdx, insertIdx) {
 }
 
 function renderStepInsertBtn(profile, pIdx, insertIdx) {
-    const wrap = h("div", { class: "step-insert" });
-    wrap.appendChild(h("button", {
-        class: "step-insert-btn",
-        "data-tooltip": "Insert step here",
-        onclick: e => { e.stopPropagation(); insertStepAt(profile, pIdx, insertIdx); }
-    }, "+"));
-    return wrap;
+    return h("div", { class: "step-insert" },
+        h("button", {
+            class: "step-insert-btn",
+            "data-tooltip": "Insert step here",
+            onclick: e => { e.stopPropagation(); insertStepAt(profile, pIdx, insertIdx); }
+        }, "+")
+    );
 }
 
 function renderStepList(profile, pIdx) {
     const list = h("div", { class: "step-list" });
-
-    if (profile.Steps.length === 0) {
-        list.appendChild(h("div", { class: "step-list-empty" },
-            "No steps yet — click + Add step below."));
-        return list;
-    }
+    if (profile.Steps.length === 0) return list;
 
     profile.Steps.forEach((st, sIdx) => {
         list.appendChild(renderStepRow(st, pIdx, sIdx));
@@ -2768,7 +2843,20 @@ function renderRuntimeTile() {
         row("Test mode",
             checkbox(state.TestMode, v => state.TestMode = v,
                 "Simulate actions; evaluate conditions"),
-            hint("Actions are skipped so no software is installed. Conditions still run. Blocking steps time out after 5 s. The completed flag is not written, so the run can be repeated freely."))
+            hint("Actions are skipped so no software is installed. Conditions still run. Blocking steps time out after 5 s. The completed flag is not written, so the run can be repeated freely.")),
+        row("swiftDialog",
+            checkbox(state.InstallSwiftDialog, v => state.InstallSwiftDialog = v,
+                "Auto-install swiftDialog if missing"),
+            hint("If swiftDialog is not found at /usr/local/bin/dialog when the script runs, Enrollinator will download and install the latest release from GitHub. A system dialog tells the user to wait while it installs.")),
+        row("Always on top",
+            checkbox(state.AlwaysOnTop, v => state.AlwaysOnTop = v,
+                "Keep all windows above other apps"),
+            hint("Enabled by default. Disable if you want users to be able to switch to other apps while setup runs.")),
+        row("Blur screen",
+            checkbox(state.BlurScreen, v => state.BlurScreen = v,
+                "Blur the desktop behind all windows"),
+            hint("Adds --blurscreen to the main window, wait windows, dialog popups, and the add-on picker. Creates a focused onboarding feel.")
+        )
     );
 }
 
@@ -3400,6 +3488,7 @@ function renderBranchBlock(st, pIdx, sIdx, steps) {
 
     const failureOpts = [
         { value: "",         label: "⛔ Stop run" },
+        { value: "$end",     label: "⏹ End run" },
         { value: "$next",    label: "▶ Continue to next step" },
         ...stepOptions(sIdx)
     ];
@@ -3477,6 +3566,10 @@ function renderWaitWindowFields(st) {
         h("div", { class: "pair-row" },
             row("Width",  intInput(ww.Width,  v => ww.Width  = v, "520")),
             row("Height", intInput(ww.Height, v => ww.Height = v, "420"))
+        ),
+        h("div", { class: "pair-row" },
+            row("Blur screen",   triStateSelect(ww.Blur,        v => { ww.Blur        = v; updatePreview(); })),
+            row("Always on top", triStateSelect(ww.AlwaysOnTop, v => { ww.AlwaysOnTop = v; updatePreview(); }))
         ),
         row("Slideshow", slidesWrap)
     ];
@@ -3662,7 +3755,32 @@ function actionFields(a) {
                 selectInput(a.ExpectedButton,
                     (buttons.length ? buttons : [""]),
                     v => { a.ExpectedButton = v; updatePreview(); }),
-                hint("Step passes only if the user clicks this button."))
+                hint("Step passes only if the user clicks this button.")),
+            ...(() => {
+                if (!Array.isArray(a.Slideshow)) a.Slideshow = [];
+                const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:4px" });
+                if (a.Slideshow.length === 0)
+                    slidesWrap.appendChild(hint("No frames. Add one for a still image; 2+ for a 6-second cycle."));
+                a.Slideshow.forEach((src, i) => {
+                    slidesWrap.appendChild(h("div", { style: "display:flex;gap:6px;align-items:center" },
+                        h("input", { type: "text", value: src, placeholder: "/path/img.png or https://…",
+                            oninput: e => { a.Slideshow[i] = e.target.value; updatePreview(); }, style: "flex:1" }),
+                        btn("↑", () => { move(a.Slideshow, i, -1); reopenStep(); }, "icon"),
+                        btn("↓", () => { move(a.Slideshow, i,  1); reopenStep(); }, "icon"),
+                        btn("✕", () => { a.Slideshow.splice(i, 1); reopenStep(); updatePreview(); }, "danger")
+                    ));
+                });
+                slidesWrap.appendChild(btn("+ Add frame", () => { a.Slideshow.push(""); reopenStep(); }));
+                return [
+                    row("Video",     textInput(a.Video || "", v => { a.Video = v; updatePreview(); }, "/path/video.mp4 or https://…"),
+                        hint("Optional. Wins over slideshow when both are set.")),
+                    row("Slideshow", slidesWrap)
+                ];
+            })(),
+            h("div", { class: "pair-row" },
+                row("Blur screen",   triStateSelect(a.Blur,        v => { a.Blur        = v; updatePreview(); })),
+                row("Always on top", triStateSelect(a.AlwaysOnTop, v => { a.AlwaysOnTop = v; updatePreview(); }))
+            )
         ];
     }
     return [];
@@ -4373,20 +4491,24 @@ updatePreview();
 
 // ---- preview collapse toggle
 (function() {
-    const btn = document.getElementById("preview-toggle");
-    const pane = document.getElementById("preview-pane");
+    const btn    = document.getElementById("preview-toggle");
+    const pane   = document.getElementById("preview-pane");
+    const handle = document.getElementById("resize-handle");
     const mainEl = document.querySelector("main");
-    const COLLAPSED_W = "36px";
 
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", e => {
+        e.stopPropagation(); // don't trigger resize-handle mousedown
         const isCollapsed = pane.classList.toggle("collapsed");
+        handle.classList.toggle("collapsed", isCollapsed);
         if (isCollapsed) {
             pane._savedCols = mainEl.style.gridTemplateColumns || "";
-            mainEl.style.gridTemplateColumns = `1fr 5px ${COLLAPSED_W}`;
+            mainEl.style.gridTemplateColumns = "1fr 5px 0px";
+            btn.textContent = "‹";
             btn.setAttribute("data-tooltip", "Expand preview");
             btn.title = "Expand preview";
         } else {
             mainEl.style.gridTemplateColumns = pane._savedCols || "";
+            btn.textContent = "›";
             btn.setAttribute("data-tooltip", "Collapse preview");
             btn.title = "Collapse preview";
         }
@@ -4399,6 +4521,7 @@ updatePreview();
     const mainEl = document.querySelector("main");
     let active = false, startX = 0, startW = 0;
     handle.addEventListener("mousedown", e => {
+        if (handle.classList.contains("collapsed")) return;
         active = true;
         startX = e.clientX;
         startW = document.getElementById("canvas").getBoundingClientRect().width;

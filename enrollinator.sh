@@ -412,7 +412,7 @@ run_step() {
 
     # WaitWindow pulls (optional).
     local ww_title ww_message ww_video ww_width ww_height ww_slideshow="" ww_has=0
-    local ww_title_fs="" ww_msg_fs=""
+    local ww_title_fs="" ww_msg_fs="" ww_blur="" ww_ontop=""
     if plist_exists "$cfg" "$skey:WaitWindow"; then
         ww_has=1
         ww_title="$(plist_get    "$cfg" "$skey:WaitWindow:Title")"
@@ -422,6 +422,8 @@ run_step() {
         ww_height="$(plist_get   "$cfg" "$skey:WaitWindow:Height")"
         ww_title_fs="$(plist_get "$cfg" "$skey:WaitWindow:TitleFontSize")"
         ww_msg_fs="$(plist_get   "$cfg" "$skey:WaitWindow:MessageFontSize")"
+        ww_blur="$(plist_get     "$cfg" "$skey:WaitWindow:Blur")"
+        ww_ontop="$(plist_get    "$cfg" "$skey:WaitWindow:AlwaysOnTop")"
         [ -z "$ww_title" ] && ww_title="$name"
         [ -z "$ww_message" ] && ww_message="${user_prompt:-Please complete the action shown and leave this window open.}"
         local ss_count j f
@@ -483,7 +485,15 @@ run_step() {
     # 4. Blocking: poll until pass (or timeout). Prefer a WaitWindow popup
     # over stomping on the main window's subtitle.
     if [ "$ww_has" -eq 1 ]; then
+        local _saved_blur="$ENROLLINATOR_UI_BLUR" _saved_ontop="$ENROLLINATOR_UI_ONTOP"
+        [ "$ww_blur"  = "true"  ] && ENROLLINATOR_UI_BLUR=1
+        [ "$ww_blur"  = "false" ] && ENROLLINATOR_UI_BLUR=0
+        [ "$ww_ontop" = "true"  ] && ENROLLINATOR_UI_ONTOP=1
+        [ "$ww_ontop" = "false" ] && ENROLLINATOR_UI_ONTOP=0
+        export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
         ui_wait_open "$ww_title" "$ww_message" "$ww_slideshow" "$ww_video" "$ww_width" "$ww_height" "$ww_title_fs" "$ww_msg_fs"
+        ENROLLINATOR_UI_BLUR="$_saved_blur"; ENROLLINATOR_UI_ONTOP="$_saved_ontop"
+        export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
     elif [ -n "$user_prompt" ]; then
         ui_set_banner "$user_prompt"
     fi
@@ -702,6 +712,81 @@ dry_run_plan() {
 }
 
 # ----------------------------------------------------------------------------
+# swiftDialog auto-install
+# ----------------------------------------------------------------------------
+
+# ensure_swiftdialog
+# If $DIALOG_BIN is already executable, returns immediately (nothing to do).
+# Otherwise: shows an osascript "please wait" popup to the console user,
+# downloads the latest swiftDialog release from GitHub, installs it, then
+# dismisses the popup.
+ensure_swiftdialog() {
+    [ -x "$DIALOG_BIN" ] && return 0
+
+    log info "swiftDialog not found at $DIALOG_BIN — installing latest release…"
+
+    # Show a non-blocking osascript popup while we work.  'giving up after'
+    # acts as a safety net so it never hangs permanently.
+    local _osa_pid=""
+    if [ -n "${ENROLLINATOR_CONSOLE_USER:-}" ] && [ "$ENROLLINATOR_CONSOLE_USER" != "root" ]; then
+        local _uid
+        _uid="$(/usr/bin/id -u "$ENROLLINATOR_CONSOLE_USER" 2>/dev/null)"
+        if [ -n "$_uid" ]; then
+            /bin/launchctl asuser "$_uid" /usr/bin/osascript -e \
+                'display dialog "Your new computer setup will start in a moment — please wait while a few required components are installed." buttons {"OK"} giving up after 300 with title "Getting Ready…" with icon note' \
+                >/dev/null 2>&1 &
+            _osa_pid=$!
+        fi
+    fi
+
+    local _dismiss_osa
+    _dismiss_osa() {
+        [ -n "$_osa_pid" ] && kill "$_osa_pid" 2>/dev/null
+        wait "$_osa_pid" 2>/dev/null
+    }
+
+    # Fetch the latest pkg URL from the GitHub releases API.
+    local pkg_url
+    pkg_url="$(/usr/bin/curl -fsSL \
+        "https://api.github.com/repos/swiftDialog/swiftDialog/releases/latest" \
+        | /usr/bin/grep '"browser_download_url"' \
+        | /usr/bin/grep '\.pkg"' \
+        | /usr/bin/head -1 \
+        | /usr/bin/awk -F'"' '{print $4}')"
+
+    if [ -z "$pkg_url" ]; then
+        log warn "Could not determine latest swiftDialog download URL — skipping install."
+        _dismiss_osa
+        return 1
+    fi
+
+    log info "Downloading swiftDialog from: $pkg_url"
+    local tmp_pkg
+    tmp_pkg="$(/usr/bin/mktemp -t swiftdialog).pkg"
+
+    if ! /usr/bin/curl -fsSL -o "$tmp_pkg" "$pkg_url"; then
+        log warn "Failed to download swiftDialog pkg."
+        /bin/rm -f "$tmp_pkg"
+        _dismiss_osa
+        return 1
+    fi
+
+    log info "Installing swiftDialog…"
+    /usr/sbin/installer -pkg "$tmp_pkg" -target / >/dev/null 2>&1
+    local rc=$?
+    /bin/rm -f "$tmp_pkg"
+
+    if [ $rc -eq 0 ]; then
+        log info "swiftDialog installed successfully."
+    else
+        log warn "swiftDialog installer exited $rc."
+    fi
+
+    _dismiss_osa
+    return $rc
+}
+
+# ----------------------------------------------------------------------------
 # Addon profiles — shown to the user after the main profile finishes.
 # ----------------------------------------------------------------------------
 
@@ -772,16 +857,26 @@ run_addon_profiles() {
     }
     [ -z "$selected_raw" ] && { log info "No addons selected."; return 0; }
 
-    # Build a list of (pkey, step_index) for unique steps, and append them to
-    # the running swiftDialog window.
-    local -a addon_run_pkeys=() addon_run_idxs=()
-    local sel_name apkey acount j sid sname sicon
+    # Build a list of (pkey, step_index, test_mode) for unique steps, and
+    # append them to the running swiftDialog window.
+    # test_mode per step: inherits the addon profile's own TestMode flag (or the
+    # already-exported ENROLLINATOR_TEST_MODE if the global/main-profile flag set it).
+    local -a addon_run_pkeys=() addon_run_idxs=() addon_run_test=()
+    local sel_name apkey acount j sid sname sicon addon_test
     while IFS= read -r sel_name; do
         [ -z "$sel_name" ] && continue
         # Map name → index.
         for (( i=0; i<${#addon_names[@]}; i++ )); do
             [ "${addon_names[$i]}" != "$sel_name" ] && continue
             apkey=":Playbooks:${addon_idxs[$i]}"
+            # Effective test mode for this addon: global env already set to 1 if
+            # --test / top-level TestMode / main-profile TestMode applied.
+            # Also honour the addon profile's own TestMode key.
+            addon_test="$ENROLLINATOR_TEST_MODE"
+            if [ "$addon_test" != "1" ] && \
+               [ "$(plist_bool "$cfg" "$apkey:TestMode" false)" = "true" ]; then
+                addon_test="1"
+            fi
             acount="$(plist_array_count "$cfg" "$apkey:Steps")"
             for (( j=0; j<acount; j++ )); do
                 sid="$(plist_get "$cfg" "$apkey:Steps:$j:Id")"
@@ -797,6 +892,7 @@ run_addon_profiles() {
                 ui_append_step "$sname" "$sicon"
                 addon_run_pkeys+=("$apkey")
                 addon_run_idxs+=("$j")
+                addon_run_test+=("$addon_test")
             done
             break
         done
@@ -813,6 +909,9 @@ run_addon_profiles() {
     for (( i=0; i<total_addon; i++ )); do
         ui_idx=$(( list_item_base + i ))
         ui_set_progress $(( (i * 100) / total_addon )) "Add-on step $((i+1)) of $total_addon"
+        # Apply per-addon test mode for this step's action/condition handlers.
+        ENROLLINATOR_TEST_MODE="${addon_run_test[$i]}"
+        export ENROLLINATOR_TEST_MODE
         run_step "$cfg" "${addon_run_pkeys[$i]}" "${addon_run_idxs[$i]}" "$ui_idx"
         rc=$?
         [ $rc -ne 0 ] && any_fail=1
@@ -942,6 +1041,18 @@ main() {
     export ENROLLINATOR_UI_WIDTH ENROLLINATOR_UI_HEIGHT ENROLLINATOR_UI_BANNER \
            ENROLLINATOR_UI_TITLE_FONTSIZE ENROLLINATOR_UI_MSG_FONTSIZE \
            ENROLLINATOR_UI_INFOBOX ENROLLINATOR_UI_HELPMESSAGE
+
+    local ui_blur ui_ontop
+    ui_blur="$(plist_bool "$cfg" ":BlurScreen" false)"
+    ui_ontop="$(plist_bool "$cfg" ":AlwaysOnTop" true)"
+    ENROLLINATOR_UI_BLUR="$([ "$ui_blur"  = "true" ] && echo 1 || echo 0)"
+    ENROLLINATOR_UI_ONTOP="$([ "$ui_ontop" = "true" ] && echo 1 || echo 0)"
+    export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
+
+    # Auto-install swiftDialog if the config requests it.
+    if [ "$(plist_bool "$cfg" ":InstallSwiftDialog" false)" = "true" ]; then
+        ensure_swiftdialog || true   # non-fatal — ui_require_dialog will catch a missing binary
+    fi
 
     ui_require_dialog
     ui_start "$title" "$subtitle" "$accent" "$logo" "$steps_file"

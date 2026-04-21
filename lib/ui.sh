@@ -114,7 +114,6 @@ ui_start() {
         --width "$width"
         --height "$height"
         --moveable
-        --ontop
         --ignorednd
         --hidetimerbar
         --button1disabled
@@ -157,6 +156,8 @@ ui_start() {
     local mf_size="${ENROLLINATOR_UI_MSG_FONTSIZE:-14}"
     args+=( --messagefont "size=${mf_size}" )
 
+    [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
+    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
     _ui_user_exec "$DIALOG_BIN" "${args[@]}" "${listitems[@]}" &
     echo $! > "$DIALOG_PID_FILE"
     # Give the dialog a moment to open the command file for reading.
@@ -253,13 +254,14 @@ ui_addon_picker() {
         --button2text "$skip_btn"
         --json
         --moveable
-        --ontop
         --position center
         --width  "$width"
         --height "$height"
     )
     [ -n "$icon_resolved" ]    && args+=( --icon "$icon_resolved" )
     [ -n "$title_fontsize" ]   && args+=( --titlefont "size=${title_fontsize}" )
+    [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
+    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
 
     # Build checkbox list; track names separately for JSON parsing.
     # Descriptions are consumed here (used by caller in the message body)
@@ -341,7 +343,6 @@ ui_wait_open() {
         --width "$width"
         --height "$height"
         --moveable
-        --ontop
         --ignorednd
         --button1disabled
         --button1text "Waiting…"
@@ -362,6 +363,8 @@ ui_wait_open() {
     fi
 
     [ -n "$title_fontsize" ] && args+=( --titlefont "size=${title_fontsize}" )
+    [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
+    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
 
     _ui_user_exec "$DIALOG_BIN" "${args[@]}" &
     echo $! > "$WAIT_PID_FILE"
@@ -375,10 +378,11 @@ ui_wait_open() {
     /bin/sleep 0.3
 }
 
-# Background loop: cycle the wait window's banner image through a slideshow.
-# $1 = pipe-delimited paths; interval is a generous 6s.
-ui_wait_slideshow_loop() {
-    local slideshow="$1" interval="${ENROLLINATOR_WAIT_SLIDESHOW_INTERVAL:-6}"
+# Generic background slideshow rotator.
+# _ui_slideshow_loop <cmd_file> <pipe-delimited-frames> [interval_secs]
+# Cycles bannerimage: commands into cmd_file until that file disappears.
+_ui_slideshow_loop() {
+    local cmd_file="$1" slideshow="$2" interval="${3:-${ENROLLINATOR_WAIT_SLIDESHOW_INTERVAL:-6}}"
     local -a frames
     local IFS='|'
     # shellcheck disable=SC2206
@@ -387,15 +391,20 @@ ui_wait_slideshow_loop() {
     local n=${#frames[@]}
     [ "$n" -le 1 ] && return 0
     local i=1
-    while [ -f "$WAIT_COMMAND_FILE" ]; do
+    while [ -f "$cmd_file" ]; do
         /bin/sleep "$interval"
-        [ -f "$WAIT_COMMAND_FILE" ] || break
+        [ -f "$cmd_file" ] || break
         local f="${frames[$((i % n))]}"
         local r
         r="$(_ui_normalize_icon "$f")"
-        [ -n "$r" ] && printf 'bannerimage: %s\n' "$r" >> "$WAIT_COMMAND_FILE"
+        [ -n "$r" ] && printf 'bannerimage: %s\n' "$r" >> "$cmd_file"
         i=$((i + 1))
     done
+}
+
+# Kept for back-compat; delegates to the generic helper.
+ui_wait_slideshow_loop() {
+    _ui_slideshow_loop "$WAIT_COMMAND_FILE" "$@"
 }
 
 ui_wait_close() {
@@ -424,13 +433,17 @@ ui_wait_close() {
 # One-shot popup — used by the "dialog" action type.
 # ---------------------------------------------------------------------------
 
-# ui_dialog_popup <title> <message> <width> <height> <buttons_pipe_delim> [title_fontsize] [msg_fontsize]
+# ui_dialog_popup <title> <message> <width> <height> <buttons_pipe_delim>
+#                 [title_fontsize] [msg_fontsize] [slideshow_pipe_delim] [video]
 # Prints the label of the button the user clicked to stdout, exit 0.
 # Returns non-zero on error (swiftDialog failed to launch or was killed).
 # Supports up to 3 buttons (swiftDialog limit for button1/2/3).
+# slideshow_pipe_delim: "/a.png|/b.png" — cycles bannerimage every 6 s
+# video: path or URL — wins over slideshow when both set
 ui_dialog_popup() {
     local title="$1" message="$2" width="$3" height="$4" buttons="$5"
     local title_fontsize="${6:-}" msg_fontsize="${7:-14}"
+    local slideshow="${8:-}" video="${9:-}"
     [ -z "$width" ] && width=520
     [ -z "$height" ] && height=300
 
@@ -455,7 +468,6 @@ ui_dialog_popup() {
         --width "$width"
         --height "$height"
         --moveable
-        --ontop
         --hideicon
         --button1text "$b1"
         --commandfile "$popup_cmd"
@@ -463,10 +475,35 @@ ui_dialog_popup() {
     [ -n "$title_fontsize" ] && args+=( --titlefont "size=${title_fontsize}" )
     [ -n "$b2" ] && args+=( --button2text "$b2" )
     [ -n "$b3" ] && args+=( --infobuttontext "$b3" )   # 3rd = info button slot
+    [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
+    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
+
+    # Video wins over slideshow when both are supplied.
+    if [ -n "$video" ]; then
+        args+=( --video "$video" )
+    elif [ -n "$slideshow" ]; then
+        local first_frame first_resolved
+        first_frame="${slideshow%%|*}"
+        first_resolved="$(_ui_normalize_icon "$first_frame")"
+        [ -n "$first_resolved" ] && args+=( --bannerimage "$first_resolved" )
+    fi
+
+    # Start background slideshow rotator when there are multiple frames.
+    local _popup_slideshow_pid=""
+    if [ -z "$video" ] && [ -n "$slideshow" ] && [[ "$slideshow" == *"|"* ]]; then
+        ( _ui_slideshow_loop "$popup_cmd" "$slideshow" ) &
+        _popup_slideshow_pid=$!
+    fi
 
     local rc
     _ui_user_exec "$DIALOG_BIN" "${args[@]}"
     rc=$?
+
+    # Stop rotator (if any) and clean up.
+    if [ -n "$_popup_slideshow_pid" ]; then
+        kill "$_popup_slideshow_pid" 2>/dev/null
+        wait "$_popup_slideshow_pid" 2>/dev/null
+    fi
     /bin/rm -f "$popup_cmd" 2>/dev/null || true
 
     # swiftDialog return codes: 0=button1, 2=button2, 3=infobutton, 10=timeout, etc.
