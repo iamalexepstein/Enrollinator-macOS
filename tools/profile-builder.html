@@ -1,0 +1,4193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Enrollinator Profile Builder</title>
+<style>
+/* ------------------------------------------------------------------ reset */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1c1c1e;
+    background: #e8e8ec;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+
+/* ----------------------------------------------------------------- layout */
+header.top {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px;
+    height: 48px;
+    background: #1c1c1e;
+    color: #f5f5f7;
+    border-bottom: 1px solid rgba(0,0,0,0.6);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+}
+header.top h1 {
+    font-size: 14px; font-weight: 600; margin: 0;
+    display: flex; align-items: center; gap: 10px;
+    letter-spacing: -0.01em;
+}
+header.top h1::before {
+    content: ""; display: inline-block; width: 8px; height: 8px;
+    background: #0a84ff; border-radius: 50%;
+    box-shadow: 0 0 7px rgba(10,132,255,0.7);
+}
+header.top .actions { display: flex; gap: 6px; }
+header.top button {
+    background: rgba(255,255,255,0.09);
+    color: #e8e8ed; border: 1px solid rgba(255,255,255,0.12);
+    padding: 0 14px; height: 30px; border-radius: 7px; cursor: pointer;
+    font-size: 12.5px; font-weight: 500;
+    transition: background 0.15s;
+}
+header.top button:hover { background: rgba(255,255,255,0.15); }
+header.top button.primary {
+    background: #0a84ff; border-color: transparent;
+    box-shadow: 0 1px 4px rgba(10,132,255,0.4);
+}
+header.top button.primary:hover { background: #0070e0; }
+
+main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) 5px minmax(0, 1fr);
+    height: calc(100vh - 48px);
+}
+@media (max-width: 1000px) {
+    main { grid-template-columns: 1fr; height: auto; }
+    .resize-handle { display: none; }
+}
+
+.canvas {
+    display: flex;
+    overflow: hidden;
+    background: #e8e8ec;
+}
+
+/* --------------------------------------------------------- resize handle */
+.resize-handle {
+    background: rgba(0,0,0,0.35);
+    cursor: col-resize;
+    position: relative;
+    transition: background 0.15s;
+    flex-shrink: 0;
+    z-index: 5;
+}
+.resize-handle::after {
+    content: "";
+    position: absolute;
+    inset: 0 -4px;
+}
+.resize-handle:hover, .resize-handle.resizing { background: #0a84ff; }
+
+/* ------------------------------------------------------------ preview pane */
+.preview {
+    overflow: hidden;
+    background: #141416;
+    display: flex; flex-direction: column;
+    min-width: 180px;
+}
+.preview-header {
+    padding: 9px 16px;
+    background: #1c1c1e;
+    color: #636366;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
+}
+.preview-header .status { color: #30d158; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 11.5px; }
+.preview-header .status.error { color: #ff453a; }
+.preview-collapse-btn {
+    background: none; border: none; cursor: pointer;
+    color: #636366; font-size: 14px; font-weight: 600;
+    padding: 2px 5px; border-radius: 5px; line-height: 1;
+    transition: background 0.12s, color 0.12s;
+}
+.preview-collapse-btn:hover { background: rgba(255,255,255,0.1); color: #d4d4d8; }
+.preview.collapsed pre,
+.preview.collapsed footer { display: none; }
+.preview.collapsed .preview-header { writing-mode: vertical-rl; }
+.preview.collapsed .preview-header-label { display: none; }
+.preview.collapsed .preview-collapse-btn { transform: rotate(180deg); writing-mode: horizontal-tb; }
+.preview pre {
+    margin: 0; padding: 14px 16px;
+    color: #b0b0b8;
+    font: 11px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overflow: auto; flex: 1;
+    white-space: pre; tab-size: 4;
+}
+footer {
+    padding: 7px 16px; font-size: 11px; color: #48484a;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    background: #1c1c1e;
+    display: flex; justify-content: space-between;
+    flex-shrink: 0;
+}
+footer a { color: #0a84ff; text-decoration: none; }
+
+/* ------------------------------------------------- lanes header + tiles */
+.lanes-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px;
+}
+.lanes-header h2 {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: #8e8e93; font-weight: 700; margin: 0;
+}
+
+/* ------------------------------------------------------------------ lanes */
+.lane {
+    background: #fff;
+    border: 1px solid rgba(0,0,0,0.09);
+    border-radius: 13px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 0 0 0.5px rgba(0,0,0,0.04);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.lane.drag-over {
+    border-color: #0a84ff;
+    box-shadow: 0 0 0 3px rgba(10,132,255,0.18);
+}
+.lane-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px;
+    background: #fafafa;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    cursor: grab;
+}
+.lane-header:active { cursor: grabbing; }
+.lane-title {
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 600; font-size: 13.5px; color: #1c1c1e;
+}
+.lane-title .handle {
+    color: #c7c7cc; cursor: grab; user-select: none;
+    font-size: 14px; line-height: 1;
+}
+.lane-title .pill {
+    background: #ebebf0; color: #6e6e73;
+    font-size: 10.5px; font-weight: 500;
+    padding: 2px 8px; border-radius: 20px;
+}
+.lane-title .pill.test-mode { background: #fff4d4; color: #7a5400; }
+.lane-title .pill.default   { background: #dbeeff; color: #004fa3; }
+.lane-actions { display: flex; gap: 5px; }
+.lane-title .pill.addon { background: #f0fdf4; color: #166534; }
+.lane-title .pill.warn  { background: #fff4ec; color: #c05000; }
+
+.validation-banner {
+    margin: 0 0 10px;
+    padding: 10px 14px;
+    background: #fff8f0;
+    border: 1px solid #f0c080;
+    border-radius: 10px;
+    font-size: 12.5px;
+    color: #7a4000;
+}
+.validation-banner summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 6px; }
+.validation-banner summary::before { content: "⚠"; }
+.validation-banner ul { margin: 8px 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.validation-banner li { list-style: disc; }
+
+.cube.has-error {
+    border-color: #ff6b6b !important;
+    box-shadow: 0 0 0 2px rgba(255,59,48,0.18) !important;
+}
+.cube-error-badge {
+    position: absolute; top: 6px; right: 6px;
+    background: #ff3b30; color: #fff;
+    font-size: 9px; font-weight: 700;
+    padding: 1px 5px; border-radius: 8px;
+    line-height: 1.5;
+}
+
+.lane-strip {
+    padding: 12px 14px;
+    display: flex; align-items: stretch; gap: 10px;
+    overflow-x: auto; min-height: 136px;
+    scrollbar-width: thin;
+    scrollbar-color: #d1d1d6 transparent;
+}
+.lane-strip::-webkit-scrollbar { height: 4px; }
+.lane-strip::-webkit-scrollbar-thumb { background: #d1d1d6; border-radius: 2px; }
+.lane-strip.drag-over { background: #f0f6ff; }
+.lane-strip .empty {
+    color: #8e8e93; font-size: 12.5px;
+    display: flex; align-items: center; justify-content: center;
+    flex: 1; padding: 20px 8px;
+    border: 1.5px dashed #d1d1d6; border-radius: 10px;
+    background: #fafafa;
+}
+
+/* ------------------------------------------------------------------ cubes */
+.cube {
+    flex: 0 0 174px;
+    background: #fff;
+    border: 1px solid rgba(0,0,0,0.09);
+    border-radius: 12px;
+    padding: 12px;
+    display: flex; flex-direction: column; gap: 7px;
+    cursor: pointer;
+    transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+    position: relative;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.cube:hover {
+    border-color: #0a84ff;
+    box-shadow: 0 4px 14px rgba(10,132,255,0.18);
+    transform: translateY(-2px);
+}
+.cube:active { transform: translateY(0); cursor: grabbing; }
+.cube.dragging { opacity: 0.38; }
+.cube.drop-before { box-shadow: -3px 0 0 #0a84ff; }
+.cube.drop-after  { box-shadow:  3px 0 0 #0a84ff; }
+.cube-num {
+    position: absolute; top: 7px; left: 9px;
+    font-size: 9.5px; color: #c7c7cc; font-weight: 600; letter-spacing: 0.02em;
+}
+.cube-dup {
+    position: absolute; top: 5px; right: 5px;
+    width: 20px; height: 20px;
+    padding: 0; border: 0; background: transparent;
+    color: #c7c7cc; font-size: 13px; line-height: 20px;
+    border-radius: 5px; cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+}
+.cube-dup:hover { background: #eef5ff; color: #0a84ff; }
+.cube-icon {
+    width: 38px; height: 38px; border-radius: 9px;
+    background: linear-gradient(145deg, #e8f1ff, #d6e8ff);
+    color: #0a84ff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; font-weight: 700;
+    overflow: hidden; margin-top: 5px;
+    flex-shrink: 0;
+}
+.cube-icon img { width: 100%; height: 100%; object-fit: cover; }
+.cube-name {
+    font-weight: 600; font-size: 12.5px; color: #1c1c1e;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; text-overflow: ellipsis;
+    min-height: 32px; line-height: 1.35;
+}
+.cube-id {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; color: #8e8e93;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cube-badges { display: flex; flex-wrap: wrap; gap: 3px; }
+.cube-badges .tag {
+    font-size: 10px; padding: 2px 6px; border-radius: 20px;
+    background: #ebebf0; color: #6e6e73; font-weight: 500;
+}
+.cube-badges .tag.action   { background: #dff2d8; color: #1a5e13; }
+.cube-badges .tag.blocking { background: #fde3de; color: #8c1c12; }
+.cube-badges .tag.conds    { background: #ebe3ff; color: #432d94; }
+
+.add-cube {
+    flex: 0 0 126px;
+    border: 1.5px dashed #a8c8f5;
+    border-radius: 12px;
+    background: #f0f7ff;
+    color: #0a7ef0;
+    font-weight: 500; font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+.add-cube:hover { background: #e2efff; border-color: #0a84ff; }
+
+.add-lane {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px;
+    background: #f0f7ff; color: #0a7ef0;
+    border: 1.5px dashed #a8c8f5;
+    border-radius: 8px; cursor: pointer;
+    font-weight: 500; font-size: 13px;
+    transition: background 0.12s, border-color 0.12s;
+}
+.add-lane:hover { background: #e2efff; border-color: #0a84ff; }
+
+/* ------------------------------------------------------------------- forms */
+.row { display: grid; grid-template-columns: 132px 1fr; gap: 6px 10px; align-items: start; margin-bottom: 8px; }
+.row > label { padding-top: 6px; color: #3a3a3c; font-weight: 500; font-size: 12.5px; }
+.row > .field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.row .hint { font-size: 11px; color: #8e8e93; line-height: 1.45; }
+
+input[type="text"], input[type="number"], select, textarea {
+    padding: 6px 9px;
+    border: 1px solid #d1d1d6;
+    border-radius: 7px;
+    background: #fff;
+    width: 100%;
+    font-size: 13px;
+    transition: border-color 0.12s, box-shadow 0.12s;
+}
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #0a84ff;
+    box-shadow: 0 0 0 3px rgba(10,132,255,0.16);
+}
+textarea { resize: vertical; min-height: 52px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+.command-preview { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; padding: 6px 9px; background: #f2f2f7; border: 1px solid #d1d1d6; border-radius: 7px; color: #1c1c1e; word-break: break-all; line-height: 1.5; }
+input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px solid #d1d1d6; border-radius: 7px; cursor: pointer; }
+.inline-color { display: flex; gap: 8px; align-items: center; }
+.inline-color input[type="text"] { flex: 1; }
+
+.check-row { display: flex; align-items: center; gap: 8px; }
+.check-row input[type="checkbox"] { margin: 0; width: 15px; height: 15px; accent-color: #0a84ff; cursor: pointer; }
+
+/* ----------------------------------------------------------------- buttons */
+.btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 0 10px; height: 28px;
+    border: 1px solid #d1d1d6; background: #fff;
+    border-radius: 7px; cursor: pointer;
+    font-size: 12px; font-weight: 500; color: #1c1c1e;
+    transition: background 0.1s, border-color 0.1s;
+    white-space: nowrap;
+}
+.btn:hover { background: #f5f5f7; border-color: #c7c7cc; }
+.btn.danger { color: #bf2c22; border-color: #f0c4be; }
+.btn.danger:hover { background: #fff2f0; border-color: #e09a92; }
+.btn.primary { background: #0a84ff; color: #fff; border-color: transparent; box-shadow: 0 1px 3px rgba(10,132,255,0.3); }
+.btn.primary:hover { background: #0070e0; }
+
+.empty-state {
+    text-align: center; padding: 14px; color: #8e8e93;
+    background: #fafafa; border: 1.5px dashed #d1d1d6; border-radius: 9px;
+    margin-bottom: 10px; font-size: 12px; line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------- modal */
+.modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 40; padding: 20px;
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+}
+.modal {
+    background: #f5f5f7;
+    border-radius: 16px;
+    box-shadow: 0 28px 80px rgba(0,0,0,0.35), 0 4px 16px rgba(0,0,0,0.1);
+    width: 100%; max-width: 720px;
+    max-height: 90vh;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.5);
+}
+.modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px;
+    background: #fff;
+    border-bottom: 1px solid rgba(0,0,0,0.07);
+}
+.modal-title { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 9px; letter-spacing: -0.01em; }
+.modal-title .pill {
+    background: #ebebf0; color: #6e6e73;
+    font-size: 11px; padding: 2px 8px; border-radius: 20px;
+    font-weight: 500;
+}
+.modal-body { padding: 14px 18px; overflow-y: auto; flex: 1; }
+.modal-footer {
+    padding: 11px 18px;
+    background: #fff;
+    border-top: 1px solid rgba(0,0,0,0.07);
+    display: flex; justify-content: space-between; gap: 8px;
+}
+
+.section {
+    background: #fff;
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 11px;
+    padding: 13px 15px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.section-title {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em;
+    color: #8e8e93; font-weight: 700;
+    margin: 0 0 11px;
+}
+.section-title.plain { margin-bottom: 0; }
+.sub-section {
+    background: #f9f9fb;
+    border: 1px solid rgba(0,0,0,0.07);
+    border-radius: 9px;
+    padding: 10px;
+    margin-bottom: 8px;
+}
+.sub-section-title {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+}
+.sub-section-title .pill {
+    background: #ebebf0; color: #6e6e73; padding: 2px 7px;
+    font-size: 11px; border-radius: 20px; font-weight: 500;
+}
+
+/* ---------------------------------------------------- settings trigger btn */
+.settings-trigger-row { margin-bottom: 14px; }
+.settings-trigger-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 15px;
+    background: #fff;
+    border: 1px solid rgba(0,0,0,0.1);
+    border-radius: 9px; cursor: pointer;
+    font-size: 13px; font-weight: 500; color: #1c1c1e;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    transition: background 0.12s, box-shadow 0.12s, border-color 0.12s;
+}
+.settings-trigger-btn:hover {
+    background: #f5f5f7;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+.settings-trigger-btn.active {
+    background: #eef6ff; border-color: #0a84ff; color: #0a84ff;
+    box-shadow: 0 0 0 3px rgba(10,132,255,0.16);
+}
+.settings-trigger-btn .stb-icon { font-size: 14px; line-height: 1; }
+.settings-trigger-btn .stb-caret {
+    font-size: 9px; color: #8e8e93; margin-left: 1px;
+    transition: transform 0.18s;
+}
+.settings-trigger-btn.active .stb-caret { transform: rotate(180deg); }
+
+/* ----------------------------------------------------- settings popover */
+.popover-backdrop { position: fixed; inset: 0; z-index: 29; }
+.settings-popover {
+    position: fixed; z-index: 30;
+    background: #f5f5f7;
+    border: 1px solid rgba(0,0,0,0.13);
+    border-radius: 16px;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.26), 0 4px 14px rgba(0,0,0,0.1);
+    width: 530px;
+    max-height: calc(100vh - 80px);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+    animation: pop-in 0.16s cubic-bezier(0.34, 1.36, 0.64, 1);
+}
+@keyframes pop-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.popover-tab-bar {
+    display: flex;
+    border-bottom: 1px solid rgba(0,0,0,0.07);
+    padding: 0 8px;
+    overflow-x: auto;
+    background: #fff;
+    border-radius: 16px 16px 0 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-shrink: 0;
+}
+.popover-tab-bar::-webkit-scrollbar { display: none; }
+.popover-tab {
+    padding: 11px 13px;
+    font-size: 12.5px; font-weight: 500;
+    color: #6e6e73; cursor: pointer;
+    border: none; border-bottom: 2px solid transparent;
+    background: none; white-space: nowrap;
+    margin-bottom: -1px;
+    transition: color 0.1s;
+}
+.popover-tab.active { color: #0a84ff; border-bottom-color: #0a84ff; }
+.popover-tab:hover:not(.active) { color: #1c1c1e; }
+.popover-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
+/* Tiles render flat inside the popover */
+.popover-body .tile {
+    background: transparent; border: none; border-radius: 0;
+    padding: 0; margin-bottom: 0; box-shadow: none;
+}
+.popover-body .tile h3 { display: none; }
+
+/* ---------------------------------------------------- step modal tabs */
+.modal-tab-bar {
+    display: flex;
+    border-bottom: 1px solid rgba(0,0,0,0.07);
+    padding: 0 14px;
+    background: #fff;
+    flex-shrink: 0;
+    overflow-x: auto; scrollbar-width: none;
+}
+.modal-tab-bar::-webkit-scrollbar { display: none; }
+.modal-tab {
+    padding: 10px 12px;
+    font-size: 12.5px; font-weight: 500; color: #6e6e73; cursor: pointer;
+    border: none; border-bottom: 2px solid transparent;
+    background: none; white-space: nowrap; margin-bottom: -1px;
+    transition: color 0.1s;
+    display: flex; align-items: center; gap: 5px;
+}
+.modal-tab.active { color: #0a84ff; border-bottom-color: #0a84ff; }
+.modal-tab:hover:not(.active) { color: #1c1c1e; }
+.tab-badge {
+    background: #ebebf0; color: #6e6e73;
+    font-size: 10px; font-weight: 600;
+    padding: 1px 6px; border-radius: 20px; min-width: 16px; text-align: center;
+}
+.modal-tab.active .tab-badge { background: rgba(10,132,255,0.14); color: #0a84ff; }
+
+/* ---------------------------------------------------- step info hero */
+.step-info-hero {
+    display: flex; align-items: flex-start; gap: 14px; padding: 16px !important;
+}
+.step-icon-lg {
+    width: 58px; height: 58px; border-radius: 14px;
+    background: linear-gradient(145deg, #e8f1ff, #d4e5ff); color: #0a84ff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; font-weight: 700; overflow: hidden; flex-shrink: 0;
+}
+.step-icon-lg img { width: 100%; height: 100%; object-fit: cover; }
+.step-hero-fields { flex: 1; display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.step-name-input {
+    font-size: 16px !important; font-weight: 600 !important;
+    padding: 7px 10px !important; border-radius: 8px !important;
+    letter-spacing: -0.01em !important;
+}
+.step-id-input {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace !important;
+    font-size: 12px !important; color: #6e6e73 !important;
+}
+
+/* ---------------------------------------------------- action segmented control */
+.seg-control {
+    display: flex; background: #ebebf0; border-radius: 9px; padding: 3px; gap: 2px;
+}
+.seg-btn {
+    flex: 1; padding: 5px 6px;
+    border: none; background: transparent; border-radius: 7px;
+    font-size: 12px; font-weight: 500; color: #6e6e73; cursor: pointer;
+    transition: background 0.12s, color 0.12s, box-shadow 0.12s;
+    text-align: center; white-space: nowrap;
+}
+.seg-btn.active { background: #fff; color: #1c1c1e; box-shadow: 0 1px 4px rgba(0,0,0,0.14); }
+.seg-btn:hover:not(.active) { color: #1c1c1e; }
+
+/* ---------------------------------------------------- action empty state */
+.action-empty { text-align: center; padding: 20px 16px 16px; }
+.action-empty-icon { font-size: 36px; margin-bottom: 8px; }
+.action-empty p { color: #8e8e93; font-size: 13px; margin: 0 0 16px; line-height: 1.5; }
+.action-empty-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.07em; color: #8e8e93; margin-bottom: 8px;
+}
+
+/* ---------------------------------------------------- condition type pills */
+.type-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0; }
+.type-grid-btn {
+    padding: 5px 12px; border: 1px solid #d1d1d6; background: #fff;
+    border-radius: 20px; font-size: 11.5px; font-weight: 500; color: #3a3a3c;
+    cursor: pointer; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.type-grid-btn:hover { background: #f0f6ff; border-color: #0a84ff; color: #0a84ff; }
+
+/* ---------------------------------------------------- behavior flags */
+.behavior-flag {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.behavior-flag:last-child { border-bottom: none; }
+.behavior-flag-label { font-weight: 500; font-size: 13px; color: #1c1c1e; }
+.behavior-flag-hint { font-size: 11.5px; color: #8e8e93; margin-top: 2px; }
+.pair-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.pair-row .row { margin-bottom: 0; grid-template-columns: 76px 1fr; }
+
+/* Optional field add/remove */
+.optional-add-btn {
+  padding: 4px 10px; font-size: 12px; color: #636366;
+  background: none; border: 1px dashed #c7c7cc; border-radius: 6px;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+}
+.optional-add-btn:hover { background: #f2f2f7; border-color: #aeaeb2; color: #1c1c1e; }
+
+/* Variable picker */
+.var-input-wrap { display: flex; gap: 4px; align-items: center; }
+.var-input-wrap input { flex: 1; min-width: 0; }
+.var-picker-wrap { position: relative; flex-shrink: 0; }
+.var-picker-btn {
+  padding: 4px 8px; background: #f2f2f7; border: 1px solid #d1d1d6;
+  border-radius: 6px; cursor: pointer; font-size: 11.5px; font-family: monospace;
+  color: #636366; white-space: nowrap; line-height: 1.4;
+}
+.var-picker-btn:hover { background: #e5e5ea; border-color: #aeaeb2; }
+.var-picker-dropdown {
+  position: absolute; right: 0; top: calc(100% + 4px); background: #fff;
+  border: 1px solid #d1d1d6; border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.13); z-index: 9999;
+  min-width: 230px; padding: 4px 0; overflow: hidden;
+}
+.var-picker-dropdown.hidden { display: none; }
+.var-picker-item {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 7px 13px; cursor: pointer; user-select: none;
+}
+.var-picker-item:hover { background: #f2f2f7; }
+.var-token { font-family: monospace; font-size: 12px; color: #1c1c1e; flex-shrink: 0; }
+.var-label { font-size: 11.5px; color: #8e8e93; }
+
+/* ---------------------------------------------------------------- tooltips */
+[data-tooltip] { position: relative; }
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 7px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1c1c1e;
+    color: #f5f5f7;
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.3;
+    padding: 5px 10px;
+    border-radius: 7px;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s;
+    z-index: 9999;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.22);
+}
+[data-tooltip]::before {
+    content: "";
+    position: absolute;
+    bottom: calc(100% + 2px);
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: #1c1c1e;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s;
+    z-index: 9999;
+}
+[data-tooltip]:hover::after,
+[data-tooltip]:hover::before { opacity: 1; }
+
+/* Tooltip below (for elements near the top of the screen) */
+[data-tooltip-below]::after {
+    bottom: auto;
+    top: calc(100% + 7px);
+}
+[data-tooltip-below]::before {
+    bottom: auto;
+    top: calc(100% + 2px);
+    border-top-color: transparent;
+    border-bottom-color: #1c1c1e;
+}
+
+/* ------------------------------------------------------------- help button */
+.header-help-btn {
+    background: rgba(255,255,255,0.09);
+    color: #d4d4d8; border: 1px solid rgba(255,255,255,0.12);
+    width: 30px; height: 30px; border-radius: 50%;
+    cursor: pointer; font-size: 13px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+    flex-shrink: 0;
+}
+.header-help-btn:hover { background: rgba(255,255,255,0.18); color: #fff; }
+
+/* ------------------------------------------------------- getting started */
+.gs-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 50; padding: 24px;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    animation: fade-in 0.18s ease;
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.gs-modal {
+    background: #fff;
+    border-radius: 18px;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.32), 0 4px 16px rgba(0,0,0,0.08);
+    width: 100%; max-width: 580px;
+    overflow: hidden;
+    animation: slide-up 0.2s cubic-bezier(0.34,1.36,0.64,1);
+}
+@keyframes slide-up {
+    from { opacity: 0; transform: translateY(16px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.gs-header {
+    background: linear-gradient(135deg, #1c1c2e 0%, #1a2a3a 100%);
+    padding: 30px 32px 26px;
+    color: #fff;
+}
+.gs-header h2 {
+    font-size: 22px; font-weight: 700; margin: 0 0 6px;
+    letter-spacing: -0.03em;
+}
+.gs-header p {
+    font-size: 13.5px; color: rgba(255,255,255,0.55); margin: 0; line-height: 1.5;
+}
+.gs-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: #f0f0f5;
+    border-top: 1px solid #ebebf0;
+}
+.gs-card {
+    background: #fff;
+    padding: 20px 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+.gs-card-icon {
+    font-size: 26px; line-height: 1;
+    margin-bottom: 2px;
+}
+.gs-card h3 {
+    font-size: 13.5px; font-weight: 700; color: #1c1c1e;
+    margin: 0; letter-spacing: -0.01em;
+}
+.gs-card p {
+    font-size: 12.5px; color: #6e6e73; margin: 0; line-height: 1.5;
+}
+.gs-card kbd {
+    display: inline-block;
+    background: #f2f2f7; border: 1px solid #d1d1d6;
+    border-radius: 4px; padding: 1px 5px;
+    font-size: 11px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: #3a3a3c;
+}
+.gs-footer {
+    padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-top: 1px solid #ebebf0;
+    background: #fafafa;
+}
+.gs-footer label {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 12.5px; color: #6e6e73; cursor: pointer;
+    user-select: none;
+}
+.gs-footer input[type="checkbox"] { accent-color: #0a84ff; cursor: pointer; }
+
+/* ---------------------------------------------------------------- sidebar */
+.playbook-sidebar {
+    width: 210px;
+    flex-shrink: 0;
+    border-right: 1px solid rgba(0,0,0,0.1);
+    background: #fafafa;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 14px 10px 24px;
+    gap: 2px;
+    transition: width 0.22s cubic-bezier(0.4,0,0.2,1);
+}
+.playbook-sidebar.collapsed {
+    width: 44px;
+    padding: 14px 6px 24px;
+    align-items: center;
+}
+
+/* Sidebar toggle button */
+.sidebar-toggle {
+    display: flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    background: none; border: 1px solid rgba(0,0,0,0.1);
+    color: #8e8e93; cursor: pointer; font-size: 12px;
+    transition: background 0.1s, color 0.1s;
+    flex-shrink: 0;
+}
+.sidebar-toggle:hover { background: rgba(0,0,0,0.06); color: #3a3a3c; }
+
+.sidebar-top-row {
+    display: flex; align-items: center; justify-content: space-between;
+    width: 100%; margin-bottom: 4px; gap: 6px;
+}
+.collapsed .sidebar-top-row { justify-content: center; margin-bottom: 8px; }
+
+.sidebar-settings-row { margin-bottom: 6px; width: 100%; }
+.collapsed .sidebar-settings-row { display: none; }
+.sidebar-settings-row .settings-trigger-btn {
+    width: 100%; justify-content: flex-start;
+    font-size: 12.5px; padding: 7px 12px;
+}
+
+/* Collapsed settings icon button */
+.sidebar-settings-icon {
+    display: none;
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: #fff; border: 1px solid rgba(0,0,0,0.12);
+    color: #3a3a3c; cursor: pointer; font-size: 15px;
+    align-items: center; justify-content: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+    transition: background 0.1s;
+}
+.sidebar-settings-icon:hover { background: #f0f6ff; }
+.collapsed .sidebar-settings-icon { display: flex; }
+
+.sidebar-section-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.10em;
+    color: #8e8e93; font-weight: 700; padding: 6px 8px 4px; width: 100%;
+    transition: opacity 0.15s;
+}
+.collapsed .sidebar-section-label { display: none; }
+
+.sidebar-playbook-list { display: flex; flex-direction: column; gap: 1px; flex: 1; width: 100%; }
+.sidebar-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 7px 10px;
+    border-radius: 8px; cursor: pointer;
+    font-size: 13px; font-weight: 500; color: #3a3a3c;
+    transition: background 0.1s;
+    user-select: none;
+    width: 100%;
+}
+.collapsed .sidebar-item {
+    justify-content: center;
+    padding: 7px 0;
+    width: 32px;
+}
+.sidebar-item:hover:not(.active) { background: rgba(0,0,0,0.05); }
+.sidebar-item.active { background: #e3eeff; color: #0a5fcc; }
+.sidebar-item.drag-over { background: #e3eeff; }
+.sidebar-item.step-drop-over {
+    background: #edfcf4;
+    outline: 2px dashed #28c840;
+    outline-offset: -2px;
+}
+.sidebar-item.dragging { opacity: 0.4; }
+.sidebar-item-icon { font-size: 12px; flex-shrink: 0; opacity: 0.55; }
+.sidebar-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.sidebar-item-count {
+    font-size: 11px; font-weight: 500;
+    background: rgba(0,0,0,0.07); color: #636366;
+    padding: 1px 6px; border-radius: 10px; flex-shrink: 0;
+}
+.sidebar-item.active .sidebar-item-count { background: rgba(10,95,204,0.14); color: #0a5fcc; }
+.sidebar-item-warn { font-size: 11px; color: #c05000; flex-shrink: 0; }
+.collapsed .sidebar-item-name,
+.collapsed .sidebar-item-count,
+.collapsed .sidebar-item-warn { display: none; }
+
+.sidebar-add-btn {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 7px 10px; margin-top: 6px;
+    font-size: 12.5px; font-weight: 500; color: #0a7ef0;
+    background: none; border: 1.5px dashed #a8c8f5;
+    border-radius: 8px; cursor: pointer; width: 100%;
+    transition: background 0.1s, border-color 0.1s;
+}
+.sidebar-add-btn:hover { background: #e8f2ff; border-color: #0a84ff; }
+.collapsed .sidebar-add-btn { width: 32px; padding: 7px 0; }
+.sidebar-add-btn-label { transition: opacity 0.15s; }
+.collapsed .sidebar-add-btn-label { display: none; }
+
+/* --------------------------------------------------------- content area */
+.playbook-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 24px 80px;
+    min-width: 0;
+}
+.playbook-content-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+    gap: 10px;
+}
+.playbook-content-title {
+    display: flex; align-items: center; gap: 8px;
+    font-weight: 700; font-size: 16px; color: #1c1c1e;
+    letter-spacing: -0.01em;
+    flex-wrap: wrap;
+}
+.playbook-content-actions { display: flex; gap: 5px; flex-shrink: 0; }
+
+/* --------------------------------------------------------------- step list */
+.step-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.step-list-empty {
+    padding: 36px 20px; text-align: center; color: #8e8e93;
+    border: 1.5px dashed #d1d1d6; border-radius: 11px;
+    font-size: 13px; background: #fafafa;
+}
+.step-list-add {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 16px;
+    background: #f0f7ff; color: #0a7ef0;
+    border: 1.5px dashed #a8c8f5;
+    border-radius: 8px; cursor: pointer;
+    font-weight: 500; font-size: 13px;
+    transition: background 0.12s, border-color 0.12s;
+}
+.step-list-add:hover { background: #e2efff; border-color: #0a84ff; }
+
+.step-row {
+    display: flex; align-items: center; gap: 11px;
+    background: #fff;
+    border: 1px solid rgba(0,0,0,0.09);
+    border-radius: 11px;
+    padding: 11px 14px;
+    cursor: pointer;
+    transition: box-shadow 0.12s, border-color 0.12s;
+    position: relative;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.step-row:hover {
+    border-color: #0a84ff;
+    box-shadow: 0 0 0 3px rgba(10,132,255,0.14), 0 2px 8px rgba(0,0,0,0.07);
+}
+.step-row.dragging { opacity: 0.38; }
+.step-row.drop-before { box-shadow: 0 -3px 0 #0a84ff, 0 1px 3px rgba(0,0,0,0.05); }
+.step-row.drop-after  { box-shadow: 0  3px 0 #0a84ff, 0 1px 3px rgba(0,0,0,0.05); }
+.step-row-handle {
+    color: #c7c7cc; cursor: grab; font-size: 14px; flex-shrink: 0;
+    line-height: 1;
+}
+.step-row-num {
+    font-size: 10.5px; color: #c7c7cc; font-weight: 600;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    flex-shrink: 0; min-width: 18px; text-align: right;
+}
+.step-row-icon {
+    width: 34px; height: 34px; border-radius: 8px;
+    background: linear-gradient(145deg, #e8f1ff, #d6e8ff);
+    color: #0a84ff; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; overflow: hidden;
+}
+.step-row-icon img { width: 100%; height: 100%; object-fit: cover; }
+.step-row-body { flex: 1; min-width: 0; }
+.step-row-name {
+    font-weight: 600; font-size: 13.5px; color: #1c1c1e;
+    margin-bottom: 3px; letter-spacing: -0.01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.step-row-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.step-row-id {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 10.5px; color: #8e8e93;
+}
+.step-row-error-badge {
+    font-size: 10px; font-weight: 700; color: #bf2c22;
+    background: #fff2f0; border: 1px solid #f0c4be;
+    padding: 1px 5px; border-radius: 6px;
+}
+.step-row-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.step-row-actions .btn { height: 26px; padding: 0 8px; font-size: 12px; }
+
+/* ------------------------------------------------- contextual copy */
+.context-banner {
+    margin: 0 16px 4px;
+    padding: 9px 12px;
+    background: #f0f4ff;
+    border: 1px solid #d0dcf8;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #3a3a3c;
+    line-height: 1.5;
+}
+.context-banner b { color: #1c1c1e; }
+.context-banner em { font-style: italic; color: #444; }
+.tile-desc {
+    margin: -6px 0 12px;
+    font-size: 12px;
+    color: #6e6e73;
+    line-height: 1.5;
+}
+.branch-block-subtitle {
+    font-size: 11px;
+    color: #8e8e93;
+    font-weight: 400;
+    margin-left: 4px;
+}
+
+/* ------------------------------------------------- SF Symbol animation row */
+.sf-anim-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 5px;
+}
+.sf-anim-label {
+    font-size: 11px;
+    color: #6e6e73;
+    white-space: nowrap;
+}
+.sf-anim-select {
+    flex: 1;
+    font-size: 12px;
+    padding: 3px 6px;
+    border: 1px solid #c7c7cc;
+    border-radius: 6px;
+    background: #fff;
+    color: #1c1c1e;
+}
+
+/* ------------------------------------------------- download dropdown */
+.header-dropdown-menu {
+    position: fixed; z-index: 1000;
+    background: #1c1c1e; border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    min-width: 220px;
+}
+.header-dropdown-item {
+    display: flex; flex-direction: column; align-items: flex-start;
+    width: 100%; padding: 10px 14px; border: none; cursor: pointer;
+    background: transparent; text-align: left;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.header-dropdown-item:last-child { border-bottom: none; }
+.header-dropdown-item:hover { background: rgba(255,255,255,0.08); }
+.ddi-label { font-size: 13px; font-weight: 500; color: #f5f5f7; }
+.ddi-hint  { font-size: 11px; color: rgba(255,255,255,0.4); margin-top: 2px; }
+
+/* -------------------------------------------------- branch button on row */
+.btn.branch-btn-active { background: #e6f4ea; border-color: #b6dfc0; color: #1a6630; }
+
+/* -------------------------------------------------- inline branch block */
+.branch-block {
+    display: flex; align-items: stretch;
+    margin: 0 8px 4px 32px;   /* indent to sit under the step number */
+}
+.branch-block-spine {
+    width: 2px; background: #d1d1d6; border-radius: 1px;
+    margin-right: 12px; flex-shrink: 0;
+}
+.branch-block-body {
+    flex: 1; border: 1px solid #d1d1d6; border-radius: 10px;
+    background: #fff; overflow: hidden;
+}
+.branch-block-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 10px 7px 12px;
+    background: #f5f5f7; border-bottom: 1px solid #e5e5ea;
+}
+.branch-block-title {
+    font-size: 11.5px; font-weight: 700; color: #3a3a3c;
+    letter-spacing: 0.03em; text-transform: uppercase;
+}
+.branch-remove-btn {
+    background: none; border: none; cursor: pointer;
+    font-size: 11px; color: #8e8e93; padding: 2px 4px;
+    border-radius: 4px; line-height: 1;
+}
+.branch-remove-btn:hover { background: #fee2e2; color: #9b2218; }
+.branch-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-bottom: 1px solid #f0f0f0;
+}
+.branch-row:last-child { border-bottom: none; }
+.branch-row-label {
+    font-size: 12px; font-weight: 600; white-space: nowrap; min-width: 90px;
+}
+.branch-row-label.success { color: #1a6630; }
+.branch-row-label.failure { color: #9b2218; }
+.branch-inline-select {
+    flex: 1; padding: 5px 28px 5px 9px; border: 1px solid #d1d1d6;
+    border-radius: 6px; font-size: 12.5px; background: #fff; cursor: pointer;
+    appearance: none; -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238e8e93'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 8px center;
+}
+.branch-inline-select:focus { outline: none; border-color: #0a84ff; box-shadow: 0 0 0 3px rgba(10,132,255,0.12); }
+.branch-row.success .branch-inline-select:not([value=""]):not([data-default]) { border-color: #b6dfc0; }
+.branch-row.failure .branch-inline-select:not([value=""]):not([data-default]) { border-color: #f0c4be; }
+</style>
+</head>
+<body>
+
+<header class="top">
+    <h1>Enrollinator Profile Builder</h1>
+    <div class="actions">
+        <button id="import-btn" data-tooltip="Load an existing .mobileconfig">Import…</button>
+        <input type="file" id="import-file" hidden accept=".mobileconfig,.plist,.xml">
+        <button id="sample-btn" data-tooltip="Fill with example playbooks">Load sample</button>
+        <button id="download-btn" class="primary" data-tooltip="Export the finished profile">Download ▾</button>
+        <button class="header-help-btn" id="help-btn" data-tooltip="Getting started guide">?</button>
+    </div>
+</header>
+
+<main>
+    <div class="canvas" id="canvas"></div>
+    <div class="resize-handle" id="resize-handle"></div>
+    <div class="preview" id="preview-pane">
+        <div class="preview-header">
+            <span class="preview-header-label">.mobileconfig preview</span>
+            <div style="display:flex;align-items:center;gap:10px">
+                <span class="status" id="preview-status">valid</span>
+                <button class="preview-collapse-btn" id="preview-toggle" data-tooltip="Collapse preview" title="Collapse preview">›</button>
+            </div>
+        </div>
+        <pre id="preview"></pre>
+        <footer>
+            <span>Generated for the <code>com.enrollinator.app</code> preferences domain.</span>
+            <span><a href="../docs/mobileconfig-schema.md">Schema</a></span>
+        </footer>
+    </div>
+</main>
+
+<div id="modal-root"></div>
+<div id="popover-root"></div>
+
+<script>
+// ============================================================================
+// Data model — the whole form is driven off this single object. Shape mirrors
+// the generated mobileconfig's inner com.enrollinator.app payload, plus a few
+// fields for the outer profile wrapper.
+// ============================================================================
+
+const ACTION_TYPES = ["shell", "package", "wait", "dialog", "noop"];
+
+// SF Symbol animation options supported by swiftDialog.
+// Animations require macOS 13+; breathe/wiggle require macOS 14+.
+const SF_ANIMATIONS = [
+    ["",              "No animation"],
+    ["pulse",         "Pulse"],
+    ["bounce",        "Bounce"],
+    ["variableColor", "Variable Color"],
+    ["appear",        "Appear"],
+    ["disappear",     "Disappear"],
+    ["rotate",        "Rotate"],
+    ["breathe",       "Breathe  (macOS 14+)"],
+    ["wiggle",        "Wiggle  (macOS 14+)"],
+];
+
+/** Parse "SF=name" or "SF=name,animation=X" → { name, animation } */
+function parseSFValue(val) {
+    if (!val || !/^SF=/i.test(val)) return null;
+    const rest = val.slice(3);
+    const parts = rest.split(",");
+    const name = parts[0].trim();
+    let animation = "";
+    for (const p of parts.slice(1)) {
+        const m = p.match(/^animation=(.+)$/i);
+        if (m) animation = m[1].trim();
+    }
+    return { name, animation };
+}
+
+/** Reconstruct an "SF=…" icon string from name + animation. */
+function buildSFValue(name, animation) {
+    if (!name) return "";
+    return animation ? `SF=${name},animation=${animation}` : `SF=${name}`;
+}
+
+/** Inline link to the SF Symbols library. */
+function sfLink() {
+    return h("a", {
+        href: "https://developer.apple.com/sf-symbols/",
+        target: "_blank", rel: "noopener",
+        title: "Browse the SF Symbols library (requires the free SF Symbols app)"
+    }, "SF Symbols library ↗");
+}
+const HARDWARE_FIELDS = [
+    ["console_user",   "Current user"],
+    ["computer_name",  "Computer name"],
+    ["hostname",       "Host name"],
+    ["serial_number",  "Serial number"],
+    ["model",          "Model identifier"],
+    ["os_version",     "macOS version"],
+    ["ip_address",     "IP address"],
+    ["uuid",           "Hardware UUID"]
+];
+const CONDITION_TYPES = [
+    "shell", "app_installed", "default_browser",
+    "file_exists", "profile_installed", "process_running"
+];
+const FILE_KINDS = ["any", "file", "directory"];
+
+// MDM-specific shell action presets. Each MDM has a list of verbs; each verb
+// has a template (with {PLACEHOLDER} tokens) and optional fields the user fills
+// in. The assembled command is stored in action.Command for the plist.
+const MDM_PRESETS = [
+    {
+        id: "jamf", label: "Jamf Pro",
+        verbs: [
+            { id: "policy-event", label: "policy — custom event",
+              template: "/usr/local/bin/jamf policy -event {EVENT_NAME}",
+              timeout: 600,
+              fields: [{ key: "EVENT_NAME", label: "Event name", placeholder: "e.g. install-chrome" }],
+              note: "Triggers the policy assigned to this custom event trigger in Jamf Pro." },
+            { id: "policy-id", label: "policy — by ID",
+              template: "/usr/local/bin/jamf policy -id {POLICY_ID}",
+              timeout: 600,
+              fields: [{ key: "POLICY_ID", label: "Policy ID", placeholder: "e.g. 42" }],
+              note: "Numeric policy ID shown in the Jamf Pro URL bar." },
+            { id: "policy-all", label: "policy — all scoped",
+              template: "/usr/local/bin/jamf policy",
+              timeout: 1200,
+              fields: [],
+              note: "Runs every policy scoped to this Mac at its normal check-in." },
+            { id: "recon", label: "recon",
+              template: "/usr/local/bin/jamf recon",
+              timeout: 300,
+              fields: [],
+              note: "Submit a fresh inventory record to Jamf Pro." },
+            { id: "manage", label: "manage",
+              template: "/usr/local/bin/jamf manage",
+              timeout: 300,
+              fields: [],
+              note: "Re-apply the current management framework." }
+        ]
+    },
+    {
+        id: "installomator", label: "Installomator",
+        verbs: [
+            { id: "install", label: "install — by label",
+              template: "/usr/local/Installomator/Installomator.sh {LABEL} NOTIFY=silent BLOCKING_PROCESS_ACTION=ignore",
+              timeout: 900,
+              fields: [{ key: "LABEL", label: "Label", placeholder: "e.g. googlechromepkg, slack, zoomclient" }],
+              note: "Install Installomator as a dependency first. Full label list: https://github.com/Installomator/Installomator" }
+        ]
+    },
+    {
+        id: "munki", label: "Munki / Workspace ONE",
+        verbs: [
+            { id: "auto", label: "managedsoftwareupdate — check & install",
+              template: "/usr/local/munki/managedsoftwareupdate --auto",
+              timeout: 1800,
+              fields: [],
+              note: "Check the repo and install everything pending." },
+            { id: "installonly", label: "managedsoftwareupdate — install cached only",
+              template: "/usr/local/munki/managedsoftwareupdate --installonly",
+              timeout: 1800,
+              fields: [],
+              note: "Install pre-cached items without re-checking the repo." },
+            { id: "checkonly", label: "managedsoftwareupdate — check only",
+              template: "/usr/local/munki/managedsoftwareupdate --checkonly",
+              timeout: 300,
+              fields: [],
+              note: "Refresh the manifest without installing anything." }
+        ]
+    },
+    {
+        id: "kandji", label: "Kandji",
+        verbs: [
+            { id: "run-all", label: "run — all library items",
+              template: "/usr/local/bin/kandji run --force",
+              timeout: 1800,
+              fields: [],
+              note: "Re-evaluate every library item in the current blueprint." },
+            { id: "run-item", label: "run — specific library item",
+              template: "/usr/local/bin/kandji run --item \"{ITEM_NAME}\"",
+              timeout: 900,
+              fields: [{ key: "ITEM_NAME", label: "Item name", placeholder: "e.g. Google Chrome" }],
+              note: "Use the exact display name shown in the Kandji library." }
+        ]
+    },
+    {
+        id: "mosyle", label: "Mosyle",
+        verbs: [
+            { id: "checkin", label: "force agent check-in",
+              template: "/usr/bin/sudo /usr/local/bin/profiles renew -type=enrollment",
+              timeout: 300,
+              fields: [],
+              note: "Mosyle has no direct trigger CLI; forcing an enrollment renew is the usual poke." }
+        ]
+    },
+    {
+        id: "addigy", label: "Addigy",
+        verbs: [
+            { id: "policy", label: "run a policy",
+              template: "/Library/Addigy/go-agent -run-policy {POLICY_NAME}",
+              timeout: 900,
+              fields: [{ key: "POLICY_NAME", label: "Policy name", placeholder: "e.g. my-addigy-policy" }],
+              note: "Requires the Addigy agent to be installed." }
+        ]
+    },
+    {
+        id: "macos", label: "macOS built-ins",
+        verbs: [
+            { id: "rosetta", label: "Install Rosetta 2",
+              template: "/usr/sbin/softwareupdate --install-rosetta --agree-to-license",
+              timeout: 900,
+              fields: [],
+              note: "" },
+            { id: "clt", label: "Install Xcode Command Line Tools",
+              template: "/usr/bin/xcode-select --install || true",
+              timeout: 1200,
+              fields: [],
+              note: "|| true keeps the step green if CLT is already installed." },
+            { id: "swupdate-all", label: "softwareupdate — install all",
+              template: "/usr/sbin/softwareupdate --install --all --agree-to-license",
+              timeout: 3600,
+              fields: [],
+              note: "" },
+            { id: "installer-pkg", label: "installer — run a local .pkg",
+              template: "/usr/sbin/installer -pkg {PKG_PATH} -target /",
+              timeout: 600,
+              fields: [{ key: "PKG_PATH", label: "Package path", placeholder: "/Library/Enrollinator/packages/YOUR.pkg" }],
+              note: "Prefer Action type=package for a cleaner config." }
+        ]
+    },
+    {
+        id: "custom", label: "Custom / manual",
+        verbs: []
+    }
+];
+
+function assembleMdmCommand(verb, fields) {
+    if (!verb) return "";
+    return verb.template.replace(/\{(\w+)\}/g, (_, k) =>
+        (fields && fields[k] != null && fields[k] !== "") ? fields[k] : k
+    );
+}
+
+function inferMdmSelection(command) {
+    if (!command) return null;
+    for (const mdm of MDM_PRESETS) {
+        if (mdm.id === "custom") continue;
+        for (const verb of mdm.verbs) {
+            if (!verb.fields.length) {
+                if (verb.template === command) return { mdmId: mdm.id, verbId: verb.id, fields: {} };
+            } else {
+                const parts = verb.template.split(/\{[^}]+\}/);
+                const first = parts[0], last = parts[parts.length - 1];
+                if (command.startsWith(first) && (last === "" || command.endsWith(last))) {
+                    const inner = command.slice(first.length, last ? command.length - last.length : undefined);
+                    const fields = {};
+                    if (verb.fields.length === 1) {
+                        fields[verb.fields[0].key] = inner.replace(/^"|"$/g, "");
+                    }
+                    return { mdmId: mdm.id, verbId: verb.id, fields };
+                }
+            }
+        }
+    }
+    return null;
+}
+
+function blankStep() {
+    return {
+        Id: "",
+        Name: "",
+        Description: "",
+        Icon: "",              // local path, https URL, or "SF=symbol.name"
+        Action: null,          // { Type: "...", ... } or null
+        Conditions: [],        // array of { Type: "...", ... }
+        Blocking: false,
+        PollIntervalSeconds: null,
+        TimeoutSeconds: null,
+        ContinueOnFailure: false,
+        UserPrompt: "",
+        WaitWindow: null,      // { Title, Message, Slideshow[], Video, Width, Height }
+        OnSuccess: "",         // step ID to jump to on success; "" = next; "$end" = end
+        OnFailure: ""          // step ID to jump to on failure; "" = default; "$end" = end
+    };
+}
+function blankWaitWindow(name) {
+    return {
+        Title: name || "",
+        Message: "",
+        TitleFontSize: null,
+        MessageFontSize: null,
+        Slideshow: [],
+        Video: "",
+        Width: null,
+        Height: null
+    };
+}
+function blankProfile() {
+    return {
+        Name: "",
+        Description: "",
+        Addon: false,
+        Selector: null,
+        TestMode: false,
+        Steps: []
+    };
+}
+function blankAction(type) {
+    switch (type) {
+        case "shell":   return { Type: "shell",   Command: "", RunAsUser: "", TimeoutSeconds: null };
+        case "package": return { Type: "package", Path: "", Target: "", TimeoutSeconds: null };
+        case "wait":    return { Type: "wait",    DurationSeconds: 10 };
+        case "dialog":  return { Type: "dialog",  Title: "", Message: "",
+                                 TitleFontSize: null, MessageFontSize: null,
+                                 Width: null, Height: null,
+                                 Buttons: ["OK"], ExpectedButton: "OK" };
+        case "noop":    return { Type: "noop" };
+    }
+}
+function blankCondition(type) {
+    switch (type) {
+        case "shell":             return { Type: "shell", Command: "", TimeoutSeconds: null };
+        case "app_installed":     return { Type: "app_installed", BundleId: "", Path: "", MinVersion: "" };
+        case "default_browser":   return { Type: "default_browser", BundleId: "" };
+        case "file_exists":       return { Type: "file_exists", Path: "", Kind: "any" };
+        case "profile_installed": return { Type: "profile_installed", Identifier: "" };
+        case "process_running":   return { Type: "process_running", Name: "", MinimumCount: null };
+    }
+}
+
+let state = defaultState();
+// Transient UI state. The open modal, if any, lives here — not in the
+// serialized state so it never leaks into the generated mobileconfig.
+let ui = { openStep: null, draftStep: null, stepTab: "info", settingsOpen: false, settingsTab: "identity", pendingStep: null, expandedOptional: new Set(), expandedBranches: new Set(), selectedPlaybook: 0, sidebarCollapsed: false };
+
+function deepClone(obj) {
+    if (obj == null) return obj;
+    return JSON.parse(JSON.stringify(obj));
+}
+
+function defaultState() {
+    return {
+        outer: {
+            PayloadIdentifier: "com.example.enrollinator",
+            PayloadDisplayName: "Enrollinator",
+            PayloadOrganization: "Example, Inc.",
+            PayloadDescription: "macOS onboarding flow driven by Enrollinator.",
+            PayloadUUID: uuid(),
+            InnerPayloadUUID: uuid(),
+            IncludeServiceManagement: true
+        },
+        Branding: {
+            Title: "Welcome to your new Mac",
+            Subtitle: "We're getting a few things ready for you.",
+            Logo: "",
+            Banner: "",
+            AccentColor: "#0A84FF",
+            TitleFontSize: null,
+            MessageFontSize: null,
+            WindowWidth: null,
+            WindowHeight: null
+        },
+        DefaultPlaybook: "Standard",
+        AllowClose: false,
+        TestMode: false,
+        HardwareInfo: {
+            Enabled: false,
+            Fields: []
+        },
+        Help: {
+            Enabled: false,
+            Title: "",
+            Message: "",
+            Contacts: []
+        },
+        AddonPicker: {
+            Title: "",
+            Message: "",
+            Icon: "",
+            TitleFontSize: null,
+            MessageFontSize: null,
+            InstallButton: "",
+            SkipButton: "",
+            Width: null,
+            Height: null
+        },
+        Playbooks: [
+            (() => {
+                const p = blankProfile();
+                p.Name = "Standard";
+                p.Description = "Default profile.";
+                return p;
+            })()
+        ]
+    };
+}
+
+// ============================================================================
+// Utilities
+// ============================================================================
+
+function uuid() {
+    if (crypto.randomUUID) return crypto.randomUUID().toUpperCase();
+    return "XXXXXXXX-XXXX-4XXX-YXXX-XXXXXXXXXXXX".replace(/[XY]/g, c => {
+        const r = Math.random() * 16 | 0;
+        const v = c === "X" ? r : (r & 0x3 | 0x8);
+        return v.toString(16).toUpperCase();
+    });
+}
+
+function xmlEscape(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;"
+    })[c]);
+}
+
+// ============================================================================
+// Serialization — state → plist XML
+// ============================================================================
+
+function plistValue(v, indent) {
+    const pad = "    ".repeat(indent);
+    if (v === true)  return `${pad}<true/>`;
+    if (v === false) return `${pad}<false/>`;
+    if (typeof v === "number" && Number.isInteger(v))
+        return `${pad}<integer>${v}</integer>`;
+    if (typeof v === "string")
+        return `${pad}<string>${xmlEscape(v)}</string>`;
+    if (Array.isArray(v)) {
+        if (v.length === 0) return `${pad}<array/>`;
+        return `${pad}<array>\n${v.map(x => plistValue(x, indent + 1)).join("\n")}\n${pad}</array>`;
+    }
+    if (typeof v === "object" && v !== null) {
+        const entries = Object.entries(v);
+        if (entries.length === 0) return `${pad}<dict/>`;
+        const inner = entries.map(([k, val]) =>
+            `${pad}    <key>${xmlEscape(k)}</key>\n${plistValue(val, indent + 1)}`
+        ).join("\n");
+        return `${pad}<dict>\n${inner}\n${pad}</dict>`;
+    }
+    return `${pad}<string></string>`;
+}
+
+// Strip empty strings / null / empty arrays+dicts so we don't emit noisy keys.
+function clean(v) {
+    if (v === null || v === undefined) return undefined;
+    if (typeof v === "string") return v === "" ? undefined : v;
+    if (Array.isArray(v)) {
+        const out = v.map(clean).filter(x => x !== undefined);
+        return out.length === 0 ? undefined : out;
+    }
+    if (typeof v === "object") {
+        const out = {};
+        for (const [k, val] of Object.entries(v)) {
+            const c = clean(val);
+            if (c !== undefined) out[k] = c;
+        }
+        return Object.keys(out).length === 0 ? undefined : out;
+    }
+    return v;
+}
+
+function buildInnerPayload(s) {
+    const payload = {
+        PayloadType: "com.enrollinator.app",
+        PayloadIdentifier: s.outer.PayloadIdentifier + ".config",
+        PayloadUUID: s.outer.InnerPayloadUUID,
+        PayloadVersion: 1,
+        PayloadDisplayName: "Enrollinator configuration",
+
+        Branding: clean(s.Branding) || undefined,
+        DefaultPlaybook: s.DefaultPlaybook || undefined,
+        AllowClose: s.AllowClose === true ? true : undefined,
+        TestMode: s.TestMode === true ? true : undefined,
+
+        HardwareInfo: buildHardwareInfo(s.HardwareInfo),
+        Help: buildHelp(s.Help),
+        AddonPicker: clean({
+            Title:           s.AddonPicker.Title         || undefined,
+            Message:         s.AddonPicker.Message       || undefined,
+            Icon:            s.AddonPicker.Icon          || undefined,
+            TitleFontSize:   Number.isFinite(s.AddonPicker.TitleFontSize)   ? s.AddonPicker.TitleFontSize   : undefined,
+            MessageFontSize: Number.isFinite(s.AddonPicker.MessageFontSize) ? s.AddonPicker.MessageFontSize : undefined,
+            InstallButton:   s.AddonPicker.InstallButton || undefined,
+            SkipButton:      s.AddonPicker.SkipButton    || undefined,
+            Width:  Number.isFinite(s.AddonPicker.Width)  ? s.AddonPicker.Width  : undefined,
+            Height: Number.isFinite(s.AddonPicker.Height) ? s.AddonPicker.Height : undefined
+        }) || undefined,
+
+        Playbooks: s.Playbooks.map(p => {
+            const out = {
+                Name: p.Name,
+                Description: p.Description || undefined,
+                Addon: p.Addon === true ? true : undefined,
+                Selector: clean(p.Selector) || undefined,
+                TestMode: p.TestMode === true ? true : undefined,
+                Steps: p.Steps.map(buildStep)
+            };
+            return clean(out);
+        })
+    };
+    return clean(payload);
+}
+
+// Strip to the dict Enrollinator expects — only include the block when it's
+// actually enabled, so the mobileconfig stays tidy for teams that don't
+// use these features.
+function buildHardwareInfo(hw) {
+    if (!hw || hw.Enabled !== true) return undefined;
+    const fields = (hw.Fields || []).filter(Boolean);
+    return {
+        Enabled: true,
+        Fields: fields.length ? fields : undefined
+    };
+}
+function buildHelp(help) {
+    if (!help || help.Enabled !== true) return undefined;
+    const contacts = (help.Contacts || [])
+        .map(c => clean({
+            Label: c.Label || undefined,
+            Detail: c.Detail || undefined,
+            URL: c.URL || undefined
+        }))
+        .filter(Boolean);
+    return {
+        Enabled: true,
+        Title: help.Title || undefined,
+        Message: help.Message || undefined,
+        Contacts: contacts.length ? contacts : undefined
+    };
+}
+
+function buildAction(a) {
+    if (!a) return undefined;
+    switch (a.Type) {
+        case "shell":   return clean({ Type: "shell", Command: a.Command, RunAsUser: a.RunAsUser, TimeoutSeconds: a.TimeoutSeconds });
+        case "package": return clean({ Type: "package", Path: a.Path, Target: a.Target, TimeoutSeconds: a.TimeoutSeconds });
+        case "wait":    return clean({ Type: "wait", DurationSeconds: a.DurationSeconds });
+        case "dialog":  return clean({ Type: "dialog", Title: a.Title, Message: a.Message,
+                                       TitleFontSize:   Number.isFinite(a.TitleFontSize)   ? a.TitleFontSize   : undefined,
+                                       MessageFontSize: Number.isFinite(a.MessageFontSize) ? a.MessageFontSize : undefined,
+                                       Width: a.Width, Height: a.Height,
+                                       Buttons: a.Buttons, ExpectedButton: a.ExpectedButton });
+        case "noop":    return { Type: "noop" };
+        default:        return clean(a);
+    }
+}
+
+function buildStep(st) {
+    const out = {
+        Id: st.Id || undefined,
+        Name: st.Name || undefined,
+        Description: st.Description || undefined,
+        Icon: st.Icon || undefined,
+        Action: buildAction(st.Action),
+        Conditions: (st.Conditions && st.Conditions.length)
+            ? st.Conditions.map(c => clean(c)).filter(x => x) : undefined,
+        Blocking: st.Blocking === true ? true : undefined,
+        PollIntervalSeconds: Number.isFinite(st.PollIntervalSeconds) ? st.PollIntervalSeconds : undefined,
+        TimeoutSeconds: Number.isFinite(st.TimeoutSeconds) ? st.TimeoutSeconds : undefined,
+        ContinueOnFailure: st.ContinueOnFailure === true ? true : undefined,
+        UserPrompt: st.UserPrompt || undefined,
+        WaitWindow: buildWaitWindow(st.WaitWindow),
+        OnSuccess: st.OnSuccess || undefined,
+        OnFailure: st.OnFailure || undefined
+    };
+    return clean(out);
+}
+function buildWaitWindow(ww) {
+    if (!ww) return undefined;
+    const slides = (ww.Slideshow || []).filter(Boolean);
+    const out = {
+        Title:           ww.Title   || undefined,
+        Message:         ww.Message || undefined,
+        TitleFontSize:   Number.isFinite(ww.TitleFontSize)   ? ww.TitleFontSize   : undefined,
+        MessageFontSize: Number.isFinite(ww.MessageFontSize) ? ww.MessageFontSize : undefined,
+        Slideshow: slides.length ? slides : undefined,
+        Video:  ww.Video  || undefined,
+        Width:  Number.isFinite(ww.Width)  ? ww.Width  : undefined,
+        Height: Number.isFinite(ww.Height) ? ww.Height : undefined
+    };
+    return clean(out);
+}
+
+function serializeMobileconfig(s) {
+    const inner = buildInnerPayload(s);
+    const payloadContent = [inner];
+
+    if (s.outer.IncludeServiceManagement) {
+        payloadContent.push({
+            PayloadType: "com.apple.servicemanagement",
+            PayloadIdentifier: s.outer.PayloadIdentifier + ".servicemanagement",
+            PayloadUUID: uuidStable("sm-" + s.outer.PayloadIdentifier),
+            PayloadVersion: 1,
+            PayloadDisplayName: "Enrollinator background item",
+            Rules: [{ RuleType: "LabelPrefix", RuleValue: "com.enrollinator" }]
+        });
+    }
+
+    const top = {
+        PayloadType: "Configuration",
+        PayloadVersion: 1,
+        PayloadIdentifier: s.outer.PayloadIdentifier,
+        PayloadUUID: s.outer.PayloadUUID,
+        PayloadDisplayName: s.outer.PayloadDisplayName || "Enrollinator",
+        PayloadDescription: s.outer.PayloadDescription || undefined,
+        PayloadOrganization: s.outer.PayloadOrganization || undefined,
+        PayloadScope: "System",
+        PayloadContent: payloadContent
+    };
+
+    const body = plistValue(clean(top), 0);
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Generated by Enrollinator Profile Builder.
+    Inner payload targets the com.enrollinator.app preferences domain directly;
+    Enrollinator reads managed prefs at runtime.
+-->
+<plist version="1.0">
+${body}
+</plist>
+`;
+}
+
+// Bare plist for use with `enrollinator.sh --xml`. The schema is rooted at the
+// top-level com.enrollinator.app keys — no PayloadContent wrapping needed.
+function serializeBareXml(s) {
+    const inner = buildInnerPayload(s);
+    // Strip the mobileconfig metadata keys — enrollinator.sh ignores them
+    // when loading via --xml, but removing them keeps the file tidy.
+    const { PayloadType, PayloadIdentifier, PayloadUUID, PayloadVersion,
+            PayloadDisplayName, ...config } = inner;
+    const body = plistValue(clean(config), 0);
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+    Generated by Enrollinator Profile Builder.
+    Load with: enrollinator.sh --xml this-file.plist
+-->
+<plist version="1.0">
+${body}
+</plist>
+`;
+}
+
+// Deterministic UUID from a seed string.
+function uuidStable(seed) {
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+    const hex = Math.abs(h).toString(16).padStart(8, "0").slice(0, 8).toUpperCase();
+    return `${hex}-0000-4000-8000-000000000000`;
+}
+
+// ============================================================================
+// Parsing — mobileconfig XML → state (for import)
+// ============================================================================
+
+function parsePlistText(xml) {
+    // Strip BOM if present.
+    let src = xml.replace(/^\uFEFF/, "");
+    // Strip XML comments before parsing.  XML forbids "--" inside comments
+    // (e.g. <!-- foo -- bar -->), but Apple's own example configs include them.
+    // Comments carry no data we need, so remove them unconditionally.
+    src = src.replace(/<!--[\s\S]*?-->/g, "");
+    // Strip the Apple plist DOCTYPE declaration — browsers reject the external
+    // DTD URL in strict XML parsing modes.
+    src = src.replace(/<!DOCTYPE\s+plist[^>]*>/i, "");
+    // Try strict XML first; fall back to "text/xml" which is more lenient.
+    let doc = new DOMParser().parseFromString(src, "application/xml");
+    if (doc.querySelector("parsererror")) {
+        doc = new DOMParser().parseFromString(src, "text/xml");
+    }
+    if (doc.querySelector("parsererror")) {
+        const msg = doc.querySelector("parsererror")?.textContent?.split("\n")[0] || "unknown parse error";
+        throw new Error("Not valid XML: " + msg);
+    }
+    const root = doc.querySelector("plist > *");
+    if (!root) throw new Error("No root element inside <plist>");
+    return parseNode(root);
+}
+
+function parseNode(node) {
+    const tag = node.tagName;
+    if (tag === "true")    return true;
+    if (tag === "false")   return false;
+    if (tag === "string")  return node.textContent;
+    if (tag === "integer") return parseInt(node.textContent, 10);
+    if (tag === "real")    return parseFloat(node.textContent);
+    if (tag === "data")    return node.textContent.trim();
+    if (tag === "date")    return node.textContent;
+    if (tag === "array")   return Array.from(node.children).map(parseNode);
+    if (tag === "dict") {
+        const out = {};
+        const kids = Array.from(node.children);
+        for (let i = 0; i < kids.length; i += 2) {
+            if (kids[i].tagName !== "key") continue;
+            out[kids[i].textContent] = parseNode(kids[i + 1]);
+        }
+        return out;
+    }
+    return null;
+}
+
+function importFromMobileconfig(xml) {
+    const top = parsePlistText(xml);
+    // Accept either a full .mobileconfig (has PayloadContent) or a bare
+    // com.enrollinator.app plist (used by enrollinator.sh --xml). We normalize to
+    // the internal state shape either way.
+    let inner;
+    let smPresent = false;
+    let outerMeta = {};
+    if (top && Array.isArray(top.PayloadContent)) {
+        // Full .mobileconfig envelope.
+        inner = top.PayloadContent.find(e => e && e.PayloadType === "com.enrollinator.app");
+        if (!inner) throw new Error("No com.enrollinator.app payload found");
+        smPresent = !!top.PayloadContent.find(e => e && e.PayloadType === "com.apple.servicemanagement");
+        outerMeta = top;
+    } else if (top && (Array.isArray(top.Playbooks) || Array.isArray(top.Profiles))) {
+        // Bare plist — exported with "Download as .plist (--xml)" or enrollinator.sh --xml.
+        // Playbooks is the current key; Profiles is the legacy alias.
+        inner = top;
+        outerMeta = {};
+    } else {
+        throw new Error("Unrecognized file — expected a .mobileconfig or a bare Enrollinator plist (.plist).");
+    }
+
+    const next = defaultState();
+    next.outer = {
+        PayloadIdentifier: outerMeta.PayloadIdentifier || "com.example.enrollinator",
+        PayloadDisplayName: outerMeta.PayloadDisplayName || "Enrollinator",
+        PayloadOrganization: outerMeta.PayloadOrganization || "",
+        PayloadDescription: outerMeta.PayloadDescription || "",
+        PayloadUUID: outerMeta.PayloadUUID || uuid(),
+        InnerPayloadUUID: inner.PayloadUUID || uuid(),
+        IncludeServiceManagement: smPresent
+    };
+    next.Branding = Object.assign({
+        Title: "", Subtitle: "", Logo: "", Banner: "",
+        AccentColor: "#0A84FF", TitleFontSize: null, MessageFontSize: null,
+        WindowWidth: null, WindowHeight: null
+    }, inner.Branding || {});
+    next.DefaultPlaybook = inner.DefaultPlaybook || inner.DefaultProfile || "";
+    next.AllowClose = !!inner.AllowClose;
+    next.TestMode = !!inner.TestMode;
+    next.HardwareInfo = {
+        Enabled: !!(inner.HardwareInfo && inner.HardwareInfo.Enabled),
+        Fields: (inner.HardwareInfo && Array.isArray(inner.HardwareInfo.Fields))
+            ? inner.HardwareInfo.Fields.slice() : []
+    };
+    next.Help = {
+        Enabled: !!(inner.Help && inner.Help.Enabled),
+        Title: (inner.Help && inner.Help.Title) || "",
+        Message: (inner.Help && inner.Help.Message) || "",
+        Contacts: (inner.Help && Array.isArray(inner.Help.Contacts))
+            ? inner.Help.Contacts.map(c => ({
+                Label: c.Label || "", Detail: c.Detail || "", URL: c.URL || ""
+            }))
+            : []
+    };
+    next.AddonPicker = Object.assign(
+        { Title: "", Message: "", Icon: "", TitleFontSize: null, MessageFontSize: null, InstallButton: "", SkipButton: "", Width: null, Height: null },
+        inner.AddonPicker || {}
+    );
+    next.Playbooks = (inner.Playbooks || inner.Profiles || []).map(importProfile);
+    return next;
+}
+
+function importProfile(p) {
+    const out = blankProfile();
+    out.Name = p.Name || "";
+    out.Description = p.Description || "";
+    out.Addon = !!p.Addon;
+    out.Selector = p.Selector || null;
+    out.TestMode = !!p.TestMode;
+    out.Steps = (p.Steps || []).map(importStep);
+    return out;
+}
+function importStep(s) {
+    const out = blankStep();
+    for (const k of Object.keys(out)) if (s[k] !== undefined) out[k] = s[k];
+    if (s.Action) out.Action = s.Action;
+    out.Conditions = s.Conditions || [];
+    if (s.WaitWindow) {
+        out.WaitWindow = {
+            Title: s.WaitWindow.Title || "",
+            Message: s.WaitWindow.Message || "",
+            Slideshow: Array.isArray(s.WaitWindow.Slideshow) ? s.WaitWindow.Slideshow.slice() : [],
+            Video: s.WaitWindow.Video || "",
+            Width: Number.isFinite(s.WaitWindow.Width) ? s.WaitWindow.Width : null,
+            Height: Number.isFinite(s.WaitWindow.Height) ? s.WaitWindow.Height : null
+        };
+    }
+    return out;
+}
+
+// ============================================================================
+// Small DOM helper (no framework, just enough to build nodes from code).
+// ============================================================================
+
+function h(tag, attrs, ...children) {
+    const n = document.createElement(tag);
+    if (attrs) {
+        for (const [k, v] of Object.entries(attrs)) {
+            if (v == null || v === false) continue;
+            if (k === "class")            n.className = v;
+            else if (k === "html")        n.innerHTML = v;
+            else if (k.startsWith("on"))  n.addEventListener(k.slice(2), v);
+            else if (k === "checked")     n.checked = !!v;
+            else if (k === "value")       n.value = v == null ? "" : v;
+            else                          n.setAttribute(k, v);
+        }
+    }
+    for (const c of children.flat()) {
+        if (c == null || c === false) continue;
+        if (typeof c === "string") n.appendChild(document.createTextNode(c));
+        else n.appendChild(c);
+    }
+    return n;
+}
+function row(label, ...fields) {
+    return h("div", { class: "row" },
+        h("label", null, label),
+        h("div", { class: "field" }, ...fields)
+    );
+}
+function textInput(value, onInput, placeholder, onBlur) {
+    const n = h("input", { type: "text", value: value || "",
+        placeholder: placeholder || "",
+        oninput: e => { onInput(e.target.value); updatePreview(); } });
+    if (onBlur) n.addEventListener("blur", onBlur);
+    return n;
+}
+
+// Variables available for substitution in title/subtitle fields.
+const TITLE_VARS = [
+    { token: "{full_name}",     label: "User's full display name" },
+    { token: "{console_user}",  label: "Login username" },
+    { token: "{computer_name}", label: "Computer name" },
+    { token: "{hostname}",      label: "Local hostname" },
+    { token: "{serial_number}", label: "Hardware serial" },
+    { token: "{model}",         label: "Model identifier" },
+    { token: "{os_version}",    label: "macOS version" },
+    { token: "{ip_address}",    label: "Primary IP address" },
+];
+
+// Insert text at the cursor position of an <input> and fire its oninput.
+function insertAtCursor(input, text) {
+    const s = input.selectionStart, e = input.selectionEnd;
+    input.value = input.value.slice(0, s) + text + input.value.slice(e);
+    input.selectionStart = input.selectionEnd = s + text.length;
+    input.dispatchEvent(new Event("input"));
+    input.focus();
+}
+
+// Wrap a textInput with a {…} button that lets the user pick a variable token.
+function textInputWithVars(value, onInput, placeholder, onBlur) {
+    const input = textInput(value, onInput, placeholder, onBlur);
+
+    const dropdown = h("div", { class: "var-picker-dropdown hidden" });
+    TITLE_VARS.forEach(({ token, label }) => {
+        dropdown.appendChild(h("div", { class: "var-picker-item",
+            onmousedown: e => {
+                e.preventDefault(); // keep focus on input
+                insertAtCursor(input, token);
+                dropdown.classList.add("hidden");
+            }
+        },
+            h("span", { class: "var-token" }, token),
+            h("span", { class: "var-label" }, label)
+        ));
+    });
+
+    const btn = h("button", { class: "var-picker-btn", title: "Insert variable",
+        type: "button",
+        onclick: e => { e.stopPropagation(); dropdown.classList.toggle("hidden"); }
+    }, "{…}");
+
+    // Close on any outside click.
+    document.addEventListener("click", () => dropdown.classList.add("hidden"), true);
+
+    return h("div", { class: "var-input-wrap" },
+        input,
+        h("div", { class: "var-picker-wrap" }, btn, dropdown)
+    );
+}
+
+function intInput(value, onInput, placeholder) {
+    return h("input", { type: "number", min: "0",
+        value: value == null ? "" : String(value),
+        placeholder: placeholder || "",
+        oninput: e => {
+            const v = e.target.value === "" ? null : parseInt(e.target.value, 10);
+            onInput(Number.isFinite(v) ? v : null); updatePreview();
+        } });
+}
+function checkbox(checked, onChange, label) {
+    return h("div", { class: "check-row" },
+        h("input", { type: "checkbox", checked: !!checked,
+            onchange: e => { onChange(e.target.checked); updatePreview(); } }),
+        label ? h("span", null, label) : null
+    );
+}
+function selectInput(value, options, onChange) {
+    const opts = options.map(o => {
+        const [val, text] = Array.isArray(o) ? o : [o, o];
+        const opt = h("option", { value: val }, text);
+        if (val === value) opt.selected = true;
+        return opt;
+    });
+    return h("select", { onchange: e => { onChange(e.target.value); updatePreview(); } }, ...opts);
+}
+function hint(text) { return h("div", { class: "hint" }, text); }
+function btn(label, onClick, cls) {
+    return h("button", { class: "btn" + (cls ? " " + cls : ""), onclick: onClick }, label);
+}
+
+/**
+ * Icon input: plain text field for paths/URLs + an animation picker that
+ * appears when the value starts with "SF=". Calls onChange(newValue) on
+ * every change; calls updateFn() (e.g. updatePreview or reopenStep) after.
+ *
+ * Returns a fragment — use spread (...renderIconInput(...)) inside row().
+ */
+function renderIconInput(value, onChange, updateFn) {
+    const sf = parseSFValue(value);
+    const inputEl = textInput(value, v => {
+        onChange(v);
+        if (updateFn) updateFn();
+    }, sf ? "SF=symbol.name" : "/path/img.png, https://…, or SF=symbol.name");
+
+    const nodes = [inputEl];
+
+    if (sf) {
+        const animSel = h("div", { class: "sf-anim-row" },
+            h("span", { class: "sf-anim-label" }, "Animation"),
+            h("select", { class: "sf-anim-select",
+                onchange: e => {
+                    onChange(buildSFValue(sf.name, e.target.value));
+                    if (updateFn) updateFn();
+                }
+            },
+                ...SF_ANIMATIONS.map(([val, label]) =>
+                    h("option", { value: val, selected: val === sf.animation }, label)
+                )
+            )
+        );
+        nodes.push(animSel);
+    }
+
+    nodes.push(h("div", { class: "hint" },
+        "Local path, https:// URL, or ",
+        h("code", null, "SF=symbol.name"),
+        " — ", sfLink()
+    ));
+
+    return nodes;
+}
+
+// ============================================================================
+// Canvas: top-level meta (identity, branding, runtime)
+// ============================================================================
+
+// ============================================================================
+// Validation
+// ============================================================================
+
+let _issues = [];
+
+function validateState() {
+    const issues = [];
+    const nonAddon = state.Playbooks.filter(p => !p.Addon);
+
+    if (state.Playbooks.length === 0) {
+        issues.push({ scope: "global", message: "No playbooks defined." });
+    }
+    if (nonAddon.length > 0 && !state.DefaultPlaybook) {
+        issues.push({ scope: "global", message: "No default playbook set (Runtime tab)." });
+    }
+    if (state.DefaultPlaybook && !nonAddon.find(p => p.Name === state.DefaultPlaybook)) {
+        issues.push({ scope: "global", message: `Default playbook "${state.DefaultPlaybook}" not found.` });
+    }
+
+    const seenNames = new Set();
+    state.Playbooks.forEach((p, pIdx) => {
+        if (!p.Name) {
+            issues.push({ scope: "playbook", pIdx, message: "Playbook has no name." });
+        } else if (seenNames.has(p.Name)) {
+            issues.push({ scope: "playbook", pIdx, message: `Duplicate playbook name: "${p.Name}".` });
+        } else {
+            seenNames.add(p.Name);
+        }
+        if (p.Steps.length === 0) {
+            issues.push({ scope: "playbook", pIdx, message: "Playbook has no steps." });
+        }
+
+        const seenIds = new Set();
+        p.Steps.forEach((st, sIdx) => {
+            const stepIssues = [];
+            if (!st.Name) stepIssues.push("No name.");
+            if (!st.Id) {
+                stepIssues.push("No ID.");
+            } else if (seenIds.has(st.Id)) {
+                stepIssues.push(`Duplicate step ID "${st.Id}".`);
+            } else {
+                seenIds.add(st.Id);
+            }
+            if (st.Action) {
+                const a = st.Action;
+                if (a.Type === "shell"   && !a.Command) stepIssues.push("Shell action has no command.");
+                if (a.Type === "package" && !a.Path)    stepIssues.push("Package action has no path.");
+                if (a.Type === "dialog"  && !a.Title)   stepIssues.push("Dialog action has no title.");
+                if (a.Type === "dialog"  && !a.Message) stepIssues.push("Dialog action has no message.");
+            }
+            (st.Conditions || []).forEach((c, ci) => {
+                const n = ci + 1;
+                if (c.Type === "shell"             && !c.Command)    stepIssues.push(`Condition ${n}: no command.`);
+                if (c.Type === "app_installed"     && !c.BundleId && !c.Path) stepIssues.push(`Condition ${n}: needs a bundle ID or path.`);
+                if (c.Type === "default_browser"   && !c.BundleId)   stepIssues.push(`Condition ${n}: needs a bundle ID.`);
+                if (c.Type === "file_exists"       && !c.Path)       stepIssues.push(`Condition ${n}: needs a path.`);
+                if (c.Type === "profile_installed" && !c.Identifier) stepIssues.push(`Condition ${n}: needs an identifier.`);
+                if (c.Type === "process_running"   && !c.Name)       stepIssues.push(`Condition ${n}: needs a process name.`);
+            });
+            stepIssues.forEach(message =>
+                issues.push({ scope: "step", pIdx, sIdx, message })
+            );
+        });
+    });
+    return issues;
+}
+
+function renderValidationBanner(issues) {
+    const global = issues.filter(i => i.scope === "global");
+    const rest   = issues.filter(i => i.scope !== "global");
+    const total  = issues.length;
+    const label  = `${total} issue${total === 1 ? "" : "s"} found`;
+    const items  = [...global, ...rest].map(i => {
+        let prefix = "";
+        if (i.scope === "playbook") {
+            const p = state.Playbooks[i.pIdx];
+            prefix = `Playbook "${p && p.Name || `#${i.pIdx + 1}`}": `;
+        } else if (i.scope === "step") {
+            const p = state.Playbooks[i.pIdx];
+            const s = p && p.Steps[i.sIdx];
+            prefix = `"${p && p.Name || `Playbook ${i.pIdx + 1}`}" › step ${i.sIdx + 1}${s && s.Name ? ` "${s.Name}"` : ""}: `;
+        }
+        return h("li", null, prefix + i.message);
+    });
+    return h("details", { class: "validation-banner" },
+        h("summary", null, label),
+        h("ul", null, ...items)
+    );
+}
+
+function renderCanvas() {
+    _issues = validateState();
+    // Clamp selected index in case a playbook was deleted.
+    if (ui.selectedPlaybook >= state.Playbooks.length) {
+        ui.selectedPlaybook = Math.max(0, state.Playbooks.length - 1);
+    }
+    const root = document.getElementById("canvas");
+    root.innerHTML = "";
+    root.append(
+        renderPlaybookSidebar(),
+        renderPlaybookContent(ui.selectedPlaybook)
+    );
+}
+
+function renderPlaybookSidebar() {
+    const collapsed = ui.sidebarCollapsed;
+    const sidebar = h("div", { class: "playbook-sidebar" + (collapsed ? " collapsed" : "") });
+
+    // Top row: toggle button (+ settings icon when collapsed)
+    const toggleBtn = h("button", {
+        class: "sidebar-toggle",
+        "data-tooltip": collapsed ? "Expand sidebar" : "Collapse sidebar",
+        "data-tooltip-below": "",
+        onclick: () => { ui.sidebarCollapsed = !ui.sidebarCollapsed; renderCanvas(); }
+    }, collapsed ? "›" : "‹");
+
+    const settingsIconBtn = h("button", {
+        class: "sidebar-settings-icon",
+        "data-tooltip": "Profile Settings",
+        "data-tooltip-below": "",
+        onclick: e => openSettingsPopover(e.currentTarget)
+    }, "⚙");
+
+    sidebar.appendChild(h("div", { class: "sidebar-top-row" },
+        collapsed ? null : h("span", { style: "font-size:11px;font-weight:700;color:#8e8e93;letter-spacing:0.05em;text-transform:uppercase" }, "Playbooks"),
+        toggleBtn
+    ));
+
+    if (collapsed) {
+        sidebar.appendChild(settingsIconBtn);
+    } else {
+        // Settings button
+        const isOpen = ui.settingsOpen;
+        sidebar.appendChild(
+            h("div", { class: "sidebar-settings-row" },
+                h("button", {
+                    class: "settings-trigger-btn" + (isOpen ? " active" : ""),
+                    "data-tooltip": "Branding, identity, hardware info, help & add-on picker",
+                    "data-tooltip-below": "",
+                    onclick: e => openSettingsPopover(e.currentTarget)
+                },
+                    h("span", { class: "stb-icon" }, "⚙"),
+                    "Profile Settings",
+                    h("span", { class: "stb-caret" }, "▾")
+                )
+            )
+        );
+        sidebar.appendChild(h("div", { class: "sidebar-section-label" }, ""));
+    }
+
+    const list = h("div", { class: "sidebar-playbook-list" });
+    state.Playbooks.forEach((p, idx) => {
+        const stepCount = p.Steps.length;
+        const issueCount = _issues.filter(i =>
+            (i.scope === "playbook" || i.scope === "step") && i.pIdx === idx).length;
+        const itemLabel = p.Name || `Playbook ${idx + 1}`;
+        const item = h("div", {
+            class: "sidebar-item" + (ui.selectedPlaybook === idx ? " active" : ""),
+            draggable: "true",
+            "data-tooltip": collapsed ? itemLabel : undefined,
+            "data-tooltip-below": collapsed ? "" : undefined,
+            onclick: () => { ui.selectedPlaybook = idx; renderCanvas(); }
+        },
+            h("span", { class: "sidebar-item-icon" }, p.Addon ? "📦" : "▶"),
+            h("span", { class: "sidebar-item-name" }, itemLabel),
+            issueCount ? h("span", { class: "sidebar-item-warn" }, "⚠") : null,
+            h("span", { class: "sidebar-item-count" }, String(stepCount))
+        );
+
+        item.addEventListener("dragstart", e => {
+            e.dataTransfer.setData("application/enrollinator-lane", String(idx));
+            e.dataTransfer.effectAllowed = "move";
+            item.classList.add("dragging");
+        });
+        item.addEventListener("dragend", () => item.classList.remove("dragging"));
+        item.addEventListener("dragover", e => {
+            if (e.dataTransfer.types.includes("application/enrollinator-lane")) {
+                e.preventDefault(); item.classList.add("drag-over");
+            } else if (e.dataTransfer.types.includes("application/enrollinator-step")) {
+                // Don't allow dropping a step onto its own playbook.
+                e.preventDefault(); item.classList.add("step-drop-over");
+            }
+        });
+        item.addEventListener("dragleave", () => item.classList.remove("drag-over", "step-drop-over"));
+        item.addEventListener("drop", e => {
+            item.classList.remove("drag-over", "step-drop-over");
+            // Reorder playbooks
+            if (e.dataTransfer.types.includes("application/enrollinator-lane")) {
+                const raw = e.dataTransfer.getData("application/enrollinator-lane");
+                if (!raw) return;
+                e.preventDefault();
+                const from = parseInt(raw, 10);
+                if (from === idx) return;
+                const moved = state.Playbooks.splice(from, 1)[0];
+                state.Playbooks.splice(idx, 0, moved);
+                if (ui.selectedPlaybook === from) ui.selectedPlaybook = idx;
+                renderCanvas(); updatePreview();
+                return;
+            }
+            // Move step to this playbook (appended at end)
+            const raw = e.dataTransfer.getData("application/enrollinator-step");
+            if (!raw) return;
+            e.preventDefault();
+            const { from, idx: sIdx } = JSON.parse(raw);
+            if (from === idx) return; // same playbook — ignore, handled by step-row drop
+            moveStep(from, sIdx, idx, state.Playbooks[idx].Steps.length);
+            ui.selectedPlaybook = idx; // switch view to destination
+        });
+
+        list.appendChild(item);
+    });
+    sidebar.appendChild(list);
+
+    sidebar.appendChild(h("button", {
+        class: "sidebar-add-btn",
+        "data-tooltip": collapsed ? "Add playbook" : undefined,
+        "data-tooltip-below": "",
+        onclick: () => {
+            state.Playbooks.push(blankProfile());
+            ui.selectedPlaybook = state.Playbooks.length - 1;
+            renderCanvas(); updatePreview();
+        }
+    },
+        "+",
+        h("span", { class: "sidebar-add-btn-label" }, " Add playbook")
+    ));
+
+    return sidebar;
+}
+
+function renderPlaybookContent(pIdx) {
+    const content = h("div", { class: "playbook-content" });
+
+    if (state.Playbooks.length === 0) {
+        content.appendChild(h("div", { class: "empty-state" },
+            "No playbooks yet — click '+ Add playbook' in the sidebar."));
+        return content;
+    }
+
+    const profile = state.Playbooks[pIdx];
+    if (!profile) return content;
+
+    // Show global issues + issues for this playbook only.
+    const relevant = _issues.filter(i =>
+        i.scope === "global" || ((i.scope === "playbook" || i.scope === "step") && i.pIdx === pIdx));
+    if (relevant.length) content.appendChild(renderValidationBanner(relevant));
+
+    // Playbook header
+    const isDefault = state.DefaultPlaybook === profile.Name;
+    content.appendChild(h("div", { class: "playbook-content-header" },
+        h("div", { class: "playbook-content-title" },
+            h("span", null, profile.Name || `Playbook ${pIdx + 1}`),
+            isDefault ? h("span", { class: "pill default" }, "default") : null,
+            profile.TestMode ? h("span", { class: "pill test-mode" }, "test mode") : null,
+            profile.Addon ? h("span", { class: "pill addon" }, "addon") : null
+        ),
+        h("div", { class: "playbook-content-actions" },
+            btn("Edit", () => openProfileEditor(pIdx)),
+            btn("Duplicate", () => {
+                state.Playbooks.splice(pIdx + 1, 0, JSON.parse(JSON.stringify(profile)));
+                renderCanvas(); updatePreview();
+            }),
+            btn("Delete", () => {
+                if (!confirm(`Delete playbook "${profile.Name || "untitled"}"?`)) return;
+                state.Playbooks.splice(pIdx, 1);
+                renderCanvas(); updatePreview();
+            }, "danger")
+        )
+    ));
+
+    content.appendChild(renderStepList(profile, pIdx));
+
+    content.appendChild(h("button", { class: "step-list-add",
+        "data-tooltip": "Add a new step to this playbook",
+        onclick: () => {
+            const st = blankStep();
+            st.Id = `step-${profile.Steps.length + 1}`;
+            st.Name = "New step";
+            profile.Steps.push(st);
+            const newIdx = profile.Steps.length - 1;
+            ui.pendingStep = { pIdx, sIdx: newIdx };
+            openStepEditor(pIdx, newIdx);
+        }
+    }, "+ Add step"));
+
+    return content;
+}
+
+function renderStepList(profile, pIdx) {
+    const list = h("div", { class: "step-list" });
+
+    if (profile.Steps.length === 0) {
+        list.appendChild(h("div", { class: "step-list-empty" },
+            "No steps yet — click + Add step below."));
+        return list;
+    }
+
+    profile.Steps.forEach((st, sIdx) => {
+        list.appendChild(renderStepRow(st, pIdx, sIdx));
+        const branchKey = `${pIdx}:${sIdx}`;
+        if (st.OnSuccess || st.OnFailure || ui.expandedBranches.has(branchKey)) {
+            list.appendChild(renderBranchBlock(st, pIdx, sIdx, profile.Steps));
+        }
+    });
+
+    // Drop onto empty area at end of list.
+    list.addEventListener("dragover", e => {
+        if (e.dataTransfer.types.includes("application/enrollinator-step")) e.preventDefault();
+    });
+    list.addEventListener("drop", e => {
+        const raw = e.dataTransfer.getData("application/enrollinator-step");
+        if (!raw) return;
+        e.preventDefault();
+        const { from, idx } = JSON.parse(raw);
+        moveStep(from, idx, pIdx, profile.Steps.length);
+    });
+
+    return list;
+}
+
+const SETTINGS_TABS = [
+    { id: "identity", label: "Playbook Identity" },
+    { id: "branding", label: "Branding" },
+    { id: "runtime",  label: "Runtime" },
+    { id: "hardware", label: "Hardware Info" },
+    { id: "help",     label: "Help" },
+    { id: "addons",   label: "Add-on Picker" },
+];
+
+function openSettingsPopover(triggerEl) {
+    if (ui.settingsOpen) {
+        closeSettingsPopover();
+        return;
+    }
+    ui.settingsOpen = true;
+    renderCanvas(); // refresh button active state
+
+    const canvas = document.getElementById("canvas");
+    const cr = canvas.getBoundingClientRect();
+    const width = 530;
+    const left = cr.left + (cr.width - width) / 2;
+    const top  = cr.top + 20;
+
+    const backdrop = h("div", { class: "popover-backdrop", onclick: closeSettingsPopover });
+
+    const tabBar = h("div", { class: "popover-tab-bar", id: "settings-tab-bar" },
+        ...SETTINGS_TABS.map(t =>
+            h("button", {
+                class: "popover-tab" + (ui.settingsTab === t.id ? " active" : ""),
+                "data-tab": t.id,
+                onclick: () => {
+                    ui.settingsTab = t.id;
+                    document.querySelectorAll("#settings-tab-bar .popover-tab")
+                        .forEach(el => el.classList.toggle("active", el.dataset.tab === t.id));
+                    renderSettingsBody();
+                }
+            }, t.label)
+        )
+    );
+
+    const body = h("div", { class: "popover-body", id: "settings-popover-body" });
+
+    const popover = h("div", { class: "settings-popover" }, tabBar, body);
+    popover.style.left = left + "px";
+    popover.style.top  = top  + "px";
+
+    const root = document.getElementById("popover-root");
+    root.innerHTML = "";
+    root.append(backdrop, popover);
+    renderSettingsBody();
+}
+
+function closeSettingsPopover() {
+    ui.settingsOpen = false;
+    document.getElementById("popover-root").innerHTML = "";
+    renderCanvas(); // refresh button active state
+}
+
+function reopenSettings() {
+    if (!ui.settingsOpen) return;
+    renderSettingsBody();
+}
+
+function renderSettingsBody() {
+    const body = document.getElementById("settings-popover-body");
+    if (!body) return;
+    body.innerHTML = "";
+    switch (ui.settingsTab) {
+        case "identity": body.appendChild(renderIdentityTile()); break;
+        case "branding": body.appendChild(renderBrandingTile()); break;
+        case "runtime":  body.appendChild(renderRuntimeTile()); break;
+        case "hardware": body.appendChild(renderHardwareInfoTile()); break;
+        case "help":     body.appendChild(renderHelpTile()); break;
+        case "addons":   body.appendChild(renderAddonPickerTile()); break;
+    }
+}
+
+function renderIdentityTile() {
+    const o = state.outer;
+    return h("div", { class: "tile" },
+        h("h3", null, "Profile identity"),
+        h("p", { class: "tile-desc" }, "These values are embedded in the .mobileconfig envelope and shown by MDM consoles. They don't affect how Enrollinator runs."),
+        row("Identifier",
+            textInput(o.PayloadIdentifier, v => o.PayloadIdentifier = v, "com.example.enrollinator"),
+            hint("Reverse-DNS string. Must be unique in your MDM — changing it creates a new profile rather than updating the existing one.")),
+        row("Display name",
+            textInput(o.PayloadDisplayName, v => o.PayloadDisplayName = v, "Enrollinator")),
+        row("Organization",
+            textInput(o.PayloadOrganization, v => o.PayloadOrganization = v, "Example, Inc.")),
+        row("UUID",
+            h("div", { class: "inline-color" },
+                textInput(o.PayloadUUID, v => o.PayloadUUID = v),
+                btn("Regenerate", () => {
+                    o.PayloadUUID = uuid();
+                    renderCanvas(); updatePreview();
+                })),
+            hint("Regenerate whenever you want your MDM to treat this as a brand-new profile.")),
+        row("Background item",
+            checkbox(o.IncludeServiceManagement,
+                v => o.IncludeServiceManagement = v,
+                "Include com.apple.servicemanagement payload"),
+            hint("Prevents users from disabling the Enrollinator LaunchDaemon in System Settings → Login Items."))
+    );
+}
+
+// Renders an optional path field. Shows a dashed "+ Add" button when the
+// value is empty and the field hasn't been explicitly expanded; once open,
+// shows the text input with a Remove button to collapse it again.
+function optionalTextRow(label, key, value, onUpdate, placeholder, hintText) {
+    const isOpen = !!(value) || ui.expandedOptional.has(key);
+    if (isOpen) {
+        return row(label,
+            h("div", { class: "inline-color" },
+                textInput(value, v => { onUpdate(v); updatePreview(); }, placeholder),
+                h("button", { class: "btn-secondary", onclick: () => {
+                    onUpdate("");
+                    ui.expandedOptional.delete(key);
+                    updatePreview(); reopenSettings();
+                }}, "Remove")
+            ),
+            ...(hintText ? [hint(hintText)] : [])
+        );
+    }
+    return row(label,
+        h("button", { class: "optional-add-btn", onclick: () => {
+            ui.expandedOptional.add(key);
+            reopenSettings();
+        }}, "+ Add")
+    );
+}
+
+/** Like optionalTextRow but uses renderIconInput so SF= fields get the animation picker. */
+function optionalIconRow(label, key, value, onUpdate) {
+    const isOpen = !!(value) || ui.expandedOptional.has(key);
+    if (isOpen) {
+        const removeBtn = h("button", { class: "btn-secondary", style: "flex-shrink:0", onclick: () => {
+            onUpdate("");
+            ui.expandedOptional.delete(key);
+            updatePreview(); reopenSettings();
+        }}, "Remove");
+        const inputNodes = renderIconInput(value, v => { onUpdate(v); updatePreview(); }, reopenSettings);
+        // Wrap text input + remove button on the same line, hints below.
+        const [inputEl, ...extra] = inputNodes;
+        const firstLine = h("div", { class: "inline-color" }, inputEl, removeBtn);
+        return row(label, firstLine, ...extra);
+    }
+    return row(label,
+        h("button", { class: "optional-add-btn", onclick: () => {
+            ui.expandedOptional.add(key);
+            reopenSettings();
+        }}, "+ Add")
+    );
+}
+
+function renderBrandingTile() {
+    const b = state.Branding;
+    const safe = /^#[0-9a-fA-F]{6}$/.test(b.AccentColor) ? b.AccentColor : "#0A84FF";
+    const swatch = h("input", { type: "color", value: safe });
+    const text   = h("input", { type: "text", value: b.AccentColor || "", placeholder: "#0A84FF" });
+    swatch.addEventListener("input", () => {
+        b.AccentColor = swatch.value.toUpperCase();
+        text.value = b.AccentColor;
+        updatePreview();
+    });
+    text.addEventListener("input", () => {
+        b.AccentColor = text.value;
+        if (/^#[0-9a-fA-F]{6}$/.test(text.value)) swatch.value = text.value;
+        updatePreview();
+    });
+    return h("div", { class: "tile" },
+        h("h3", null, "Branding"),
+        h("p", { class: "tile-desc" }, "Customises the main onboarding window. Title and Subtitle support ", h("code", null, "{token}"), " substitution — click the ", h("b", null, "{ }"), " button next to a field to insert a live value like the user's name or serial number."),
+        row("Title",    textInputWithVars(b.Title, v => b.Title = v, "Welcome to your new Mac")),
+        row("Subtitle", textInputWithVars(b.Subtitle, v => b.Subtitle = v)),
+        optionalIconRow("Logo", "branding-logo", b.Logo, v => b.Logo = v),
+        optionalTextRow("Banner", "branding-banner", b.Banner, v => b.Banner = v,
+            "/path/banner.png or https://…",
+            "Image shown across the top of the window."),
+        row("Accent",   h("div", { class: "inline-color" }, swatch, text)),
+        h("div", { class: "pair-row" },
+            row("Title font size",   intInput(b.TitleFontSize,   v => { b.TitleFontSize   = v; updatePreview(); }, "default")),
+            row("Message font size", intInput(b.MessageFontSize, v => { b.MessageFontSize = v; updatePreview(); }, "14"))
+        ),
+        h("div", { class: "pair-row" },
+            row("Width",  intInput(b.WindowWidth,  v => b.WindowWidth  = v, "720"), hint("Pixels.")),
+            row("Height", intInput(b.WindowHeight, v => b.WindowHeight = v, "560"), hint("Pixels."))
+        )
+    );
+}
+
+function renderHardwareInfoTile() {
+    const hw = state.HardwareInfo;
+    const tile = h("div", { class: "tile" }, h("h3", null, "Hardware info"));
+    tile.append(
+        h("p", { class: "tile-desc" }, "Shows a key–value panel next to the step list during onboarding — useful when a user needs to read their serial number to IT over the phone."),
+        row("Enabled",
+            checkbox(hw.Enabled, v => {
+                hw.Enabled = v;
+                reopenSettings(); updatePreview();
+            }, "Show a hardware info panel beside the step list"))
+    );
+    if (hw.Enabled) {
+        const grid = h("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:4px" });
+        for (const [token, label] of HARDWARE_FIELDS) {
+            const isOn = hw.Fields.includes(token);
+            grid.appendChild(h("label", { class: "check-row",
+                style: "gap:6px;font-size:12px;color:#1d1d1f" },
+                h("input", { type: "checkbox", checked: isOn,
+                    onchange: e => {
+                        if (e.target.checked) {
+                            if (!hw.Fields.includes(token)) hw.Fields.push(token);
+                        } else {
+                            hw.Fields = hw.Fields.filter(x => x !== token);
+                        }
+                        updatePreview();
+                    } }),
+                h("span", null, label)));
+        }
+        tile.append(row("Fields", grid,
+            hint("Shown in the order checked here. Uncheck all to hide the panel.")));
+    }
+    return tile;
+}
+
+function renderHelpTile() {
+    const help = state.Help;
+    const tile = h("div", { class: "tile" }, h("h3", null, "Help button"));
+    tile.append(
+        h("p", { class: "tile-desc" }, "Adds a ", h("b", null, "?"), " button to the top-right of the onboarding window. When clicked, it opens a sheet with your IT contact details so users know where to get help mid-setup."),
+        row("Enabled",
+            checkbox(help.Enabled, v => {
+                help.Enabled = v;
+                reopenSettings(); updatePreview();
+            }, "Show a ? button with contact-IT info"))
+    );
+    if (help.Enabled) {
+        tile.append(
+            row("Title",
+                textInput(help.Title, v => help.Title = v, "Need help?")),
+            row("Message",
+                h("textarea", {
+                    oninput: e => { help.Message = e.target.value; updatePreview(); },
+                    placeholder: "Markdown — shown above the contacts list."
+                }, help.Message || ""))
+        );
+        // Contacts editor (table-style)
+        const contactsWrap = h("div", { style: "display:flex;flex-direction:column;gap:6px" });
+        if (help.Contacts.length === 0) {
+            contactsWrap.appendChild(h("div", { class: "hint" }, "No contacts yet — add one below."));
+        }
+        help.Contacts.forEach((c, i) => {
+            const grid = h("div", { class: "sub-section",
+                style: "padding:8px;margin-bottom:0" },
+                h("div", { class: "sub-section-title" },
+                    h("span", { class: "pill" }, c.Label || `Contact ${i + 1}`),
+                    h("div", null,
+                        btn("↑", () => { move(help.Contacts, i, -1); reopenSettings(); }, "icon"),
+                        btn("↓", () => { move(help.Contacts, i,  1); reopenSettings(); }, "icon"),
+                        btn("Remove", () => {
+                            help.Contacts.splice(i, 1);
+                            reopenSettings(); updatePreview();
+                        }, "danger"))),
+                row("Label",
+                    textInput(c.Label, v => c.Label = v, "Slack / Phone / Email")),
+                row("Detail",
+                    textInput(c.Detail, v => c.Detail = v, "#it-help or 555-1212")),
+                row("URL",
+                    textInput(c.URL, v => c.URL = v, "(optional) https://…"))
+            );
+            contactsWrap.appendChild(grid);
+        });
+        contactsWrap.appendChild(btn("+ Add contact", () => {
+            help.Contacts.push({ Label: "", Detail: "", URL: "" });
+            reopenSettings(); updatePreview();
+        }));
+        tile.append(row("Contacts", contactsWrap));
+    }
+    return tile;
+}
+
+function renderAddonPickerTile() {
+    const ap = state.AddonPicker;
+    return h("div", { class: "tile" },
+        h("h3", null, "Add-on picker"),
+        hint("Customise the swiftDialog window shown when optional add-on playbooks are available. Leave blank to use the defaults."),
+        row("Title",
+            textInput(ap.Title, v => { ap.Title = v; updatePreview(); }, "Optional Add-ons")),
+        row("Message",
+            h("textarea", {
+                oninput: e => { ap.Message = e.target.value; updatePreview(); },
+                placeholder: "Select additional profiles to install."
+            }, ap.Message || "")),
+        row("Icon", ...renderIconInput(ap.Icon, v => { ap.Icon = v; updatePreview(); }, reopenSettings)),
+        h("div", { class: "pair-row" },
+            row("Title font size",   intInput(ap.TitleFontSize,   v => { ap.TitleFontSize   = v; updatePreview(); }, "default")),
+            row("Message font size", intInput(ap.MessageFontSize, v => { ap.MessageFontSize = v; updatePreview(); }, "14"))
+        ),
+        row("Install button",
+            textInput(ap.InstallButton, v => { ap.InstallButton = v; updatePreview(); }, "Install")),
+        row("Skip button",
+            textInput(ap.SkipButton, v => { ap.SkipButton = v; updatePreview(); }, "Skip")),
+        h("div", { class: "pair-row" },
+            row("Width",  intInput(ap.Width,  v => { ap.Width  = v; updatePreview(); }, "500")),
+            row("Height", intInput(ap.Height, v => { ap.Height = v; updatePreview(); }, "360"))
+        )
+    );
+}
+
+function renderRuntimeTile() {
+    return h("div", { class: "tile" },
+        h("h3", null, "Run-time"),
+        h("p", { class: "tile-desc" }, "Controls how Enrollinator behaves during and after the run."),
+        row("Default playbook", (() => {
+            const names = state.Playbooks.map(p => p.Name).filter(Boolean)
+                .filter(n => !state.Playbooks.find(p => p.Name === n && p.Addon));
+            return names.length
+                ? selectInput(state.DefaultPlaybook || names[0],
+                    names,
+                    v => { state.DefaultPlaybook = v; renderCanvas(); updatePreview(); })
+                : h("span", { class: "hint" }, "No named playbooks yet");
+        })()),
+        hint("Used when no playbook's Selector matches the current Mac. Add selectors on individual playbooks to route by hostname, model, or flag file."),
+        row("Close",
+            checkbox(state.AllowClose, v => state.AllowClose = v,
+                "Show Done button at end of run"),
+            hint("When off, the window closes automatically after the last step. When on, the user must click Done — useful if you want them to read a completion message.")),
+        row("Test mode",
+            checkbox(state.TestMode, v => state.TestMode = v,
+                "Simulate actions; evaluate conditions"),
+            hint("Actions are skipped so no software is installed. Conditions still run. Blocking steps time out after 5 s. The completed flag is not written, so the run can be repeated freely."))
+    );
+}
+
+// ============================================================================
+// Canvas: lanes (one per profile) with draggable step cubes.
+// ============================================================================
+
+function renderStepRow(step, pIdx, sIdx) {
+    const stepRow = h("div", { class: "step-row", draggable: "true",
+        onclick: () => openStepEditor(pIdx, sIdx) });
+    stepRow.dataset.pidx = String(pIdx);
+    stepRow.dataset.sidx = String(sIdx);
+
+    stepRow.appendChild(h("span", { class: "step-row-handle",
+        "data-tooltip": "Drag to reorder · drop onto a sidebar playbook to move",
+        onclick: e => e.stopPropagation() }, "⋮⋮"));
+
+    stepRow.appendChild(h("span", { class: "step-row-num" }, String(sIdx + 1)));
+
+    // Icon
+    const icon = h("div", { class: "step-row-icon" });
+    if (step.Icon) {
+        if (/^https?:\/\//i.test(step.Icon)) {
+            icon.appendChild(h("img", { src: step.Icon, alt: "" }));
+        } else if (/^SF=/i.test(step.Icon)) {
+            icon.textContent = "􀀳";
+            icon.title = step.Icon;
+        } else {
+            icon.textContent = "📦";
+            icon.title = step.Icon;
+        }
+    } else {
+        icon.textContent = (step.Name || step.Id || "?").trim().charAt(0).toUpperCase() || "?";
+    }
+    stepRow.appendChild(icon);
+
+    // Body
+    const body = h("div", { class: "step-row-body" });
+    body.appendChild(h("div", { class: "step-row-name" }, step.Name || "(unnamed step)"));
+
+    const meta = h("div", { class: "step-row-meta" });
+    meta.appendChild(h("span", { class: "step-row-id" }, step.Id || "no id"));
+
+    const badges = h("div", { class: "cube-badges" });
+    if (step.Action) badges.appendChild(h("span", { class: "tag action" }, step.Action.Type));
+    if (step.Conditions && step.Conditions.length)
+        badges.appendChild(h("span", { class: "tag conds" },
+            `${step.Conditions.length} cond${step.Conditions.length === 1 ? "" : "s"}`));
+    if (step.Blocking) badges.appendChild(h("span", { class: "tag blocking" }, "blocking"));
+    meta.appendChild(badges);
+
+    const stepErrors = _issues.filter(i => i.scope === "step" && i.pIdx === pIdx && i.sIdx === sIdx);
+    if (stepErrors.length) {
+        stepRow.classList.add("has-error");
+        meta.appendChild(h("span", {
+            class: "step-row-error-badge",
+            title: stepErrors.map(e => e.message).join("\n")
+        }, `⚠ ${stepErrors.length}`));
+    }
+
+    body.appendChild(meta);
+    stepRow.appendChild(body);
+
+    // Actions
+    const actions = h("div", { class: "step-row-actions",
+        onclick: e => e.stopPropagation() });
+    const branchKey = `${pIdx}:${sIdx}`;
+    const branchActive = !!(step.OnSuccess || step.OnFailure) || ui.expandedBranches.has(branchKey);
+    actions.appendChild(h("button", {
+        class: "btn" + (branchActive ? " branch-btn-active" : ""),
+        "data-tooltip": branchActive ? "Branch is set" : "Add if/else branch",
+        onclick: e => {
+            e.stopPropagation();
+            if (branchActive && !step.OnSuccess && !step.OnFailure) {
+                ui.expandedBranches.delete(branchKey);
+            } else {
+                ui.expandedBranches.add(branchKey);
+            }
+            renderCanvas();
+        } }, "⎇"));
+    actions.appendChild(h("button", { class: "btn", "data-tooltip": "Duplicate step",
+        onclick: e => {
+            e.stopPropagation();
+            const copy = JSON.parse(JSON.stringify(step));
+            if (copy.Id) copy.Id = copy.Id + "-copy";
+            if (copy.Name) copy.Name = copy.Name + " (copy)";
+            state.Playbooks[pIdx].Steps.splice(sIdx + 1, 0, copy);
+            renderCanvas(); updatePreview();
+        } }, "⎘"));
+    actions.appendChild(h("button", { class: "btn danger", "data-tooltip": "Delete step",
+        onclick: e => {
+            e.stopPropagation();
+            state.Playbooks[pIdx].Steps.splice(sIdx, 1);
+            renderCanvas(); updatePreview();
+        } }, "✕"));
+    stepRow.appendChild(actions);
+
+    // Drag source
+    stepRow.addEventListener("dragstart", e => {
+        e.stopPropagation();
+        e.dataTransfer.setData("application/enrollinator-step",
+            JSON.stringify({ from: pIdx, idx: sIdx }));
+        e.dataTransfer.effectAllowed = "move";
+        stepRow.classList.add("dragging");
+    });
+    stepRow.addEventListener("dragend", () => {
+        stepRow.classList.remove("dragging", "drop-before", "drop-after");
+        document.querySelectorAll(".step-row.drop-before, .step-row.drop-after")
+            .forEach(r => r.classList.remove("drop-before", "drop-after"));
+    });
+
+    // Drop target — top/bottom half = before/after
+    stepRow.addEventListener("dragover", e => {
+        if (!e.dataTransfer.types.includes("application/enrollinator-step")) return;
+        e.preventDefault(); e.stopPropagation();
+        const rect = stepRow.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < rect.height / 2;
+        stepRow.classList.toggle("drop-before", before);
+        stepRow.classList.toggle("drop-after", !before);
+    });
+    stepRow.addEventListener("dragleave", () => {
+        stepRow.classList.remove("drop-before", "drop-after");
+    });
+    stepRow.addEventListener("drop", e => {
+        const raw = e.dataTransfer.getData("application/enrollinator-step");
+        if (!raw) return;
+        e.preventDefault(); e.stopPropagation();
+        const rect = stepRow.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < rect.height / 2;
+        stepRow.classList.remove("drop-before", "drop-after");
+        const { from, idx } = JSON.parse(raw);
+        moveStep(from, idx, pIdx, sIdx + (before ? 0 : 1));
+    });
+
+    return stepRow;
+}
+
+// Move a step from {fromPIdx, fromSIdx} to {toPIdx, toSIdx-ish}.
+// The target index is interpreted as the index AFTER removal of the source.
+function moveStep(fromPIdx, fromSIdx, toPIdx, toSIdx) {
+    const src = state.Playbooks[fromPIdx];
+    const dst = state.Playbooks[toPIdx];
+    if (!src || !dst) return;
+    const [moved] = src.Steps.splice(fromSIdx, 1);
+    if (fromPIdx === toPIdx && toSIdx > fromSIdx) toSIdx--;
+    dst.Steps.splice(toSIdx, 0, moved);
+    renderCanvas(); updatePreview();
+}
+
+// ============================================================================
+// Modal infrastructure
+// ============================================================================
+
+function closeModal() {
+    if (ui.pendingStep) {
+        const { pIdx, sIdx } = ui.pendingStep;
+        state.Playbooks[pIdx].Steps.splice(sIdx, 1);
+        ui.pendingStep = null;
+    }
+    document.getElementById("modal-root").innerHTML = "";
+    ui.openStep = null;
+    ui.draftStep = null;
+}
+
+function openModal(titleNode, bodyNode, footerNode) {
+    const root = document.getElementById("modal-root");
+    root.innerHTML = "";
+    const backdrop = h("div", { class: "modal-backdrop",
+        onclick: e => { if (e.target === backdrop) closeModal(); } });
+    const modal = h("div", { class: "modal" },
+        h("div", { class: "modal-header" }, titleNode,
+            h("button", { class: "btn", onclick: closeModal }, "Close")),
+        h("div", { class: "modal-body" }, bodyNode),
+        h("div", { class: "modal-footer" }, footerNode || h("span"))
+    );
+    backdrop.appendChild(modal);
+    root.appendChild(backdrop);
+}
+
+// ============================================================================
+// Modal: profile editor (name, selector, test mode, description)
+// ============================================================================
+
+function openProfileEditor(pIdx) {
+    const p = state.Playbooks[pIdx];
+    const body = h("div");
+    body.appendChild(renderProfileForm(p));
+
+    const title = h("div", { class: "modal-title" },
+        "Playbook",
+        h("span", { class: "pill" }, p.Name || `#${pIdx + 1}`));
+    const footer = h("div", null,
+        btn("Done", () => { closeModal(); renderCanvas(); updatePreview(); }, "primary"));
+    openModal(title, body, footer);
+}
+
+function renderProfileForm(p) {
+    const wrap = h("div");
+    wrap.append(
+        h("div", { class: "section" },
+            h("div", { class: "section-title" }, "Basics"),
+            row("Name",
+                textInput(p.Name, v => p.Name = v, "Engineering")),
+            row("Description",
+                textInput(p.Description, v => p.Description = v)),
+            row("Test mode",
+                checkbox(p.TestMode, v => p.TestMode = v,
+                    "Force test mode for this profile (actions skipped)")),
+            row("Available as addon",
+                checkbox(p.Addon, v => p.Addon = v,
+                    "Show this profile in the post-install add-on picker"))
+        ),
+        h("div", { class: "section" },
+            h("div", { class: "section-title" }, "Selector"),
+            renderSelectorForm(p)
+        )
+    );
+    return wrap;
+}
+
+function renderSelectorForm(p) {
+    const has = p.Selector !== null;
+    const wrap = h("div");
+    wrap.append(
+        h("div", { class: "sub-section-title" },
+            h("span", { class: "hint" }, has
+                ? "This profile is picked when every filled selector key matches."
+                : "No selector — use DefaultPlaybook or --profile to pick this."),
+            btn(has ? "Remove" : "Add selector",
+                () => { p.Selector = has ? null : { HostnameRegex: "", ModelIdentifierGlob: "", FileExists: "" };
+                        // Rerender modal body in place — easiest is to reopen the editor.
+                        openProfileEditor(state.Playbooks.indexOf(p)); },
+                has ? "danger" : "")
+        )
+    );
+    if (has) {
+        wrap.append(
+            row("Hostname regex",
+                textInput(p.Selector.HostnameRegex, v => p.Selector.HostnameRegex = v, "^eng-\\w+")),
+            row("Model glob",
+                textInput(p.Selector.ModelIdentifierGlob, v => p.Selector.ModelIdentifierGlob = v, "Mac15,*")),
+            row("Flag file",
+                textInput(p.Selector.FileExists, v => p.Selector.FileExists = v, "/Library/Enrollinator/flags/engineering"))
+        );
+    }
+    return wrap;
+}
+
+// ============================================================================
+// Modal: step editor — tabbed (Info / Action / Conditions / Behavior)
+// ============================================================================
+
+const STEP_TABS = [
+    { id: "info",       label: "Info" },
+    { id: "action",     label: "Action" },
+    { id: "conditions", label: "Conditions" },
+    { id: "behavior",   label: "Behavior" },
+];
+
+function openStepEditor(pIdx, sIdx) {
+    const p = state.Playbooks[pIdx];
+    const st = p.Steps[sIdx];
+    if (!st) return;
+    ui.openStep = { pIdx, sIdx };
+    ui.stepTab = "info";
+    // Clone into draft on a fresh open. reopenStep() may call back here when
+    // the modal DOM was torn down; preserve any edits already in the draft.
+    if (!ui.draftStep) ui.draftStep = deepClone(st);
+
+    const root = document.getElementById("modal-root");
+    root.innerHTML = "";
+
+    const draft = ui.draftStep;
+    const tabBar = h("div", { class: "modal-tab-bar" },
+        ...STEP_TABS.map(t => {
+            let badge = null;
+            if (t.id === "action" && draft.Action)
+                badge = h("span", { class: "tab-badge" }, draft.Action.Type);
+            if (t.id === "conditions" && draft.Conditions.length)
+                badge = h("span", { class: "tab-badge" }, String(draft.Conditions.length));
+            return h("button", {
+                class: "modal-tab" + (ui.stepTab === t.id ? " active" : ""),
+                "data-tab": t.id,
+                onclick: () => {
+                    ui.stepTab = t.id;
+                    document.querySelectorAll(".modal-tab-bar .modal-tab")
+                        .forEach(el => el.classList.toggle("active", el.dataset.tab === t.id));
+                    renderStepBody();
+                }
+            }, t.label, badge);
+        })
+    );
+
+    const body = h("div", { class: "modal-body", id: "step-modal-body" });
+
+    const modal = h("div", { class: "modal" },
+        h("div", { class: "modal-header" },
+            h("div", { class: "modal-title" },
+                "Step",
+                h("span", { class: "pill" }, draft.Name || draft.Id || `#${sIdx + 1}`)
+            ),
+            h("button", { class: "btn", onclick: closeModal }, "Close")
+        ),
+        tabBar,
+        body,
+        h("div", { class: "modal-footer" },
+            btn("Delete step", () => {
+                if (!confirm(`Delete step "${draft.Name || draft.Id || "untitled"}"?`)) return;
+                ui.pendingStep = null; // prevent closeModal from double-removing
+                ui.draftStep = null;
+                p.Steps.splice(sIdx, 1);
+                closeModal(); renderCanvas(); updatePreview();
+            }, "danger"),
+            btn("Done", () => {
+                // Commit draft → live state.
+                const { pIdx: _pi, sIdx: _si } = ui.openStep;
+                state.Playbooks[_pi].Steps[_si] = deepClone(ui.draftStep);
+                ui.draftStep = null;
+                ui.pendingStep = null;
+                closeModal(); renderCanvas(); updatePreview();
+            }, "primary")
+        )
+    );
+
+    const backdrop = h("div", { class: "modal-backdrop" });
+    backdrop.appendChild(modal);
+    root.appendChild(backdrop);
+    renderStepBody();
+}
+
+function renderStepBody() {
+    if (!ui.openStep || !ui.draftStep) return;
+    const st = ui.draftStep;
+    const body = document.getElementById("step-modal-body");
+    if (!body) return;
+    body.innerHTML = "";
+    switch (ui.stepTab) {
+        case "info":       body.appendChild(renderStepInfoTab(st)); break;
+        case "action":     body.appendChild(renderStepActionTab(st)); break;
+        case "conditions": body.appendChild(renderStepConditionsTab(st)); break;
+        case "behavior":   body.appendChild(renderStepBehaviorTab(st)); break;
+    }
+    // Refresh tab badges from the draft.
+    document.querySelectorAll(".modal-tab-bar .modal-tab").forEach(el => {
+        const tid = el.dataset.tab;
+        let badge = el.querySelector(".tab-badge");
+        if (tid === "action") {
+            if (st.Action && !badge) {
+                badge = h("span", { class: "tab-badge" }, st.Action.Type);
+                el.appendChild(badge);
+            } else if (st.Action && badge) {
+                badge.textContent = st.Action.Type;
+            } else if (!st.Action && badge) {
+                badge.remove();
+            }
+        }
+        if (tid === "conditions") {
+            if (st.Conditions.length && !badge) {
+                badge = h("span", { class: "tab-badge" }, String(st.Conditions.length));
+                el.appendChild(badge);
+            } else if (st.Conditions.length && badge) {
+                badge.textContent = String(st.Conditions.length);
+            } else if (!st.Conditions.length && badge) {
+                badge.remove();
+            }
+        }
+    });
+}
+
+function reopenStep() {
+    if (!ui.openStep) return;
+    if (document.getElementById("step-modal-body")) {
+        renderStepBody();
+        return;
+    }
+    const { pIdx, sIdx } = ui.openStep;
+    openStepEditor(pIdx, sIdx);
+}
+
+// ---- Info tab ---------------------------------------------------------------
+
+function refreshIconEl(el, st) {
+    el.innerHTML = "";
+    if (st.Icon) {
+        if (/^https?:\/\//i.test(st.Icon)) {
+            el.appendChild(h("img", { src: st.Icon, alt: "" })); return;
+        }
+        if (/^SF=/i.test(st.Icon)) { el.textContent = "SF"; el.title = st.Icon; return; }
+        el.textContent = "📦"; el.title = st.Icon; return;
+    }
+    el.textContent = (st.Name || st.Id || "?").trim().charAt(0).toUpperCase() || "?";
+}
+
+function renderStepInfoTab(st) {
+    const iconEl = h("div", { class: "step-icon-lg" });
+    refreshIconEl(iconEl, st);
+
+    return h("div", null,
+        h("div", { class: "section step-info-hero" },
+            iconEl,
+            h("div", { class: "step-hero-fields" },
+                h("input", {
+                    type: "text", class: "step-name-input",
+                    value: st.Name || "", placeholder: "Step name",
+                    oninput: e => {
+                        st.Name = e.target.value;
+                        refreshIconEl(iconEl, st);
+                        updatePreview();
+                    }
+                }),
+                h("input", {
+                    type: "text", class: "step-id-input",
+                    value: st.Id || "", placeholder: "step-id",
+                    oninput: e => { st.Id = e.target.value; updatePreview(); }
+                })
+            )
+        ),
+        h("div", { class: "context-banner" },
+            h("b", null, "Name"), " is shown in the progress window as the step runs. ",
+            h("b", null, "Id"), " is a machine-readable key used in branch targets, log output, and add-on deduplication — use lowercase-with-hyphens and keep it unique within the playbook."
+        ),
+        h("div", { class: "section" },
+            h("div", { class: "section-title" }, "Details"),
+            row("Description", textInput(st.Description, v => st.Description = v)),
+            row("Icon",
+                ...renderIconInput(st.Icon, v => {
+                    st.Icon = v;
+                    const prev = document.querySelector(".step-icon-lg");
+                    if (prev) refreshIconEl(prev, st);
+                }, reopenStep)
+            )
+        )
+    );
+}
+
+// ---- Action tab -------------------------------------------------------------
+
+function renderStepActionTab(st) {
+    const wrap = h("div");
+
+    if (!st.Action) {
+        wrap.appendChild(
+            h("div", { class: "section action-empty" },
+                h("div", { class: "action-empty-icon" }, "⚡"),
+                h("p", null, "An action is something Enrollinator ", h("em", null, "does"), " — install a package, run a shell command, show a dialog, or pause. It runs once at the start of the step, before conditions are checked. Actions are optional; leave this empty to make a condition-only step."),
+                h("div", { class: "action-empty-label" }, "Choose an action type"),
+                h("div", { class: "type-grid", style: "justify-content:center" },
+                    ...ACTION_TYPES.map(t =>
+                        h("button", { class: "type-grid-btn", onclick: () => {
+                            st.Action = blankAction(t);
+                            renderCanvas(); updatePreview(); reopenStep();
+                        }}, t)
+                    )
+                )
+            )
+        );
+        return wrap;
+    }
+
+    wrap.append(
+        h("div", { class: "section" },
+            h("div", { class: "section-title" },
+                "Action type",
+                btn("Remove", () => { st.Action = null; renderCanvas(); updatePreview(); reopenStep(); }, "danger")
+            ),
+            h("div", { class: "seg-control" },
+                ...ACTION_TYPES.map(t =>
+                    h("button", {
+                        class: "seg-btn" + (st.Action.Type === t ? " active" : ""),
+                        onclick: () => { st.Action = blankAction(t); renderCanvas(); updatePreview(); reopenStep(); }
+                    }, t)
+                )
+            )
+        )
+    );
+
+    if (st.Action.Type === "noop") {
+        wrap.append(h("div", { class: "section" },
+            hint("The noop action always succeeds — useful for condition-only steps.")));
+    } else {
+        wrap.append(h("div", { class: "section" },
+            h("div", { class: "section-title" }, "Configuration"),
+            ...actionFields(st.Action)
+        ));
+    }
+
+    return wrap;
+}
+
+// ---- Conditions tab ---------------------------------------------------------
+
+function renderStepConditionsTab(st) {
+    const wrap = h("div");
+
+    wrap.appendChild(h("div", { class: "context-banner" },
+        "Conditions are ", h("em", null, "checks"), " that must pass for the step to succeed — is an app installed? is a process running? did a file appear? They are evaluated ", h("em", null, "after"), " the action runs. Multiple conditions are AND-ed: every one must pass. If any fail and the step is ", h("b", null, "Blocking"), ", Enrollinator keeps polling until they all pass."
+    ));
+
+    if (st.Conditions.length === 0) {
+        wrap.appendChild(h("div", { class: "empty-state" },
+            "No conditions — step succeeds as soon as its action completes."));
+    } else {
+        st.Conditions.forEach((c, i) => wrap.appendChild(renderConditionCard(c, i, st)));
+    }
+
+    wrap.appendChild(
+        h("div", { class: "section" },
+            h("div", { class: "section-title" }, "Add condition"),
+            h("div", { class: "type-grid" },
+                ...CONDITION_TYPES.map(t =>
+                    h("button", { class: "type-grid-btn", onclick: () => {
+                        st.Conditions.push(blankCondition(t));
+                        reopenStep(); updatePreview();
+                    }}, `+ ${t}`)
+                )
+            )
+        )
+    );
+    return wrap;
+}
+
+// ---- Behavior tab -----------------------------------------------------------
+
+function renderStepBehaviorTab(st) {
+    const wrap = h("div");
+
+    wrap.append(
+        h("div", { class: "section" },
+            h("div", { class: "section-title" }, "Flags"),
+            h("div", { class: "behavior-flag" },
+                h("div", null,
+                    h("div", { class: "behavior-flag-label" }, "Blocking"),
+                    h("div", { class: "behavior-flag-hint" }, "Poll conditions until they pass or timeout")
+                ),
+                h("input", { type: "checkbox", checked: !!st.Blocking,
+                    style: "width:18px;height:18px;accent-color:#0a84ff;cursor:pointer;flex-shrink:0",
+                    onchange: e => { st.Blocking = e.target.checked; updatePreview(); } })
+            ),
+            h("div", { class: "behavior-flag" },
+                h("div", null,
+                    h("div", { class: "behavior-flag-label" }, "Continue on failure"),
+                    h("div", { class: "behavior-flag-hint" }, "Advance the run even if this step fails")
+                ),
+                h("input", { type: "checkbox", checked: !!st.ContinueOnFailure,
+                    style: "width:18px;height:18px;accent-color:#0a84ff;cursor:pointer;flex-shrink:0",
+                    onchange: e => { st.ContinueOnFailure = e.target.checked; updatePreview(); } })
+            )
+        ),
+        h("div", { class: "section" },
+            h("div", { class: "section-title" }, "Polling"),
+            hint("Applies only when Blocking is on. Enrollinator re-evaluates conditions every Interval seconds until they pass or Timeout expires."),
+            h("div", { class: "pair-row" },
+                row("Interval (s)", intInput(st.PollIntervalSeconds, v => st.PollIntervalSeconds = v, "5")),
+                row("Timeout (s)",  intInput(st.TimeoutSeconds,      v => st.TimeoutSeconds = v,      "0 = ∞"))
+            ),
+            row("User prompt",
+                h("textarea", {
+                    oninput: e => { st.UserPrompt = e.target.value; updatePreview(); },
+                    placeholder: "Banner shown while Enrollinator waits for the user."
+                }, st.UserPrompt || ""),
+                hint("Shown in the main window subtitle while polling.")
+            )
+        ),
+        h("div", { class: "section" },
+            h("div", { class: "section-title" },
+                "Wait window",
+                st.WaitWindow
+                    ? btn("Remove", () => { st.WaitWindow = null; reopenStep(); updatePreview(); }, "danger")
+                    : btn("Add wait window", () => { st.WaitWindow = blankWaitWindow(st.Name); reopenStep(); updatePreview(); })
+            ),
+            ...renderWaitWindowFields(st)
+        )
+    );
+    return wrap;
+}
+
+// ---- Branch tab -------------------------------------------------------------
+
+// ---- Inline branch block rendered in the flow --------------------------------
+
+function renderBranchBlock(st, pIdx, sIdx, steps) {
+    const branchKey = `${pIdx}:${sIdx}`;
+
+    function makeSelect(currentValue, opts) {
+        // opts: array of { value, label, group? }
+        const sel = h("select", { class: "branch-inline-select" });
+        let grp = null;
+        opts.forEach(o => {
+            if (o.group !== undefined) {
+                grp = document.createElement("optgroup");
+                grp.label = o.group;
+                sel.appendChild(grp);
+                return;
+            }
+            const opt = document.createElement("option");
+            opt.value = o.value;
+            opt.textContent = o.label;
+            (grp || sel).appendChild(opt);
+        });
+        sel.value = currentValue || "";
+        return sel;
+    }
+
+    function stepOptions(skipSelf) {
+        const opts = [];
+        opts.push({ group: "Jump to step" });
+        steps.forEach((s, i) => {
+            if (i === skipSelf) return;
+            opts.push({
+                value: s.Id || `step-${i}`,
+                label: `${i + 1}. ${s.Name || s.Id || `(step ${i + 1})`}`
+            });
+        });
+        return opts;
+    }
+
+    // Success select: default = next step
+    const successOpts = [
+        { value: "", label: "▶ Continue to next step" },
+        { value: "$end", label: "⏹ End run" },
+        ...stepOptions(sIdx)
+    ];
+    const successSel = makeSelect(st.OnSuccess, successOpts);
+    successSel.addEventListener("change", e => {
+        st.OnSuccess = e.target.value;
+        if (st.OnSuccess || st.OnFailure) ui.expandedBranches.add(branchKey);
+        renderCanvas(); updatePreview();
+    });
+
+    const failureOpts = [
+        { value: "",         label: "⛔ Stop run" },
+        { value: "$next",    label: "▶ Continue to next step" },
+        ...stepOptions(sIdx)
+    ];
+    const failureSel = makeSelect(st.OnFailure, failureOpts);
+    failureSel.addEventListener("change", e => {
+        st.OnFailure = e.target.value;
+        if (st.OnSuccess || st.OnFailure) ui.expandedBranches.add(branchKey);
+        renderCanvas(); updatePreview();
+    });
+
+    function removeBtn() {
+        return h("button", {
+            class: "branch-remove-btn",
+            title: "Remove branch",
+            onclick: e => {
+                e.stopPropagation();
+                st.OnSuccess = "";
+                st.OnFailure = "";
+                ui.expandedBranches.delete(branchKey);
+                renderCanvas(); updatePreview();
+            }
+        }, "✕");
+    }
+
+    return h("div", { class: "branch-block" },
+        h("div", { class: "branch-block-spine" }),
+        h("div", { class: "branch-block-body" },
+            h("div", { class: "branch-block-header" },
+                h("span", { class: "branch-block-title" }, "⎇ If / Else"),
+                h("span", { class: "branch-block-subtitle" }, "Choose where to go based on this step's outcome"),
+                removeBtn()
+            ),
+            h("div", { class: "branch-row success" },
+                h("span", { class: "branch-row-label success" }, "✓ If succeeds"),
+                successSel
+            ),
+            h("div", { class: "branch-row failure" },
+                h("span", { class: "branch-row-label failure" }, "✗ If fails"),
+                failureSel
+            )
+        )
+    );
+}
+
+function renderWaitWindowFields(st) {
+    if (!st.WaitWindow) {
+        return [hint("A secondary swiftDialog window shown while polling. Recommended for blocking steps with a multi-step user workflow.")];
+    }
+    const ww = st.WaitWindow;
+    const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:4px" });
+    if (ww.Slideshow.length === 0)
+        slidesWrap.appendChild(hint("No frames. Add one for a still image; 2+ for a 6-second cycle."));
+    ww.Slideshow.forEach((src, i) => {
+        slidesWrap.appendChild(h("div", { style: "display:flex;gap:6px;align-items:center" },
+            h("input", { type: "text", value: src, placeholder: "/path/img.png or https://…",
+                oninput: e => { ww.Slideshow[i] = e.target.value; updatePreview(); }, style: "flex:1" }),
+            btn("↑", () => { move(ww.Slideshow, i, -1); reopenStep(); }, "icon"),
+            btn("↓", () => { move(ww.Slideshow, i,  1); reopenStep(); }, "icon"),
+            btn("✕", () => { ww.Slideshow.splice(i, 1); reopenStep(); updatePreview(); }, "danger")
+        ));
+    });
+    slidesWrap.appendChild(btn("+ Add frame", () => { ww.Slideshow.push(""); reopenStep(); }));
+    return [
+        row("Title",   textInput(ww.Title, v => ww.Title = v, "Defaults to step name")),
+        row("Message", h("textarea", {
+            oninput: e => { ww.Message = e.target.value; updatePreview(); },
+            placeholder: "Markdown body."
+        }, ww.Message || "")),
+        h("div", { class: "pair-row" },
+            row("Title font size",   intInput(ww.TitleFontSize,   v => { ww.TitleFontSize   = v; updatePreview(); }, "default")),
+            row("Message font size", intInput(ww.MessageFontSize, v => { ww.MessageFontSize = v; updatePreview(); }, "14"))
+        ),
+        row("Video",   textInput(ww.Video, v => ww.Video = v, "/path/video.mp4 or https://…"),
+            hint("Optional. Wins over Slideshow when both are set.")),
+        h("div", { class: "pair-row" },
+            row("Width",  intInput(ww.Width,  v => ww.Width  = v, "520")),
+            row("Height", intInput(ww.Height, v => ww.Height = v, "420"))
+        ),
+        row("Slideshow", slidesWrap)
+    ];
+}
+
+function actionFields(a) {
+    if (a.Type === "noop") {
+        return [hint("The noop action always succeeds — useful for condition-only steps.")];
+    }
+    if (a.Type === "shell") {
+        // Infer MDM/verb from existing command on first render
+        if (a._mdmId === undefined) {
+            const match = inferMdmSelection(a.Command);
+            if (match) {
+                a._mdmId = match.mdmId;
+                a._verbId = match.verbId;
+                a._fields = match.fields;
+            } else {
+                a._mdmId = a.Command ? "custom" : null;
+                a._verbId = null;
+                a._fields = {};
+            }
+        }
+
+        const rows = [];
+        const mdmOptions = [["", "— Select MDM / source —"], ...MDM_PRESETS.map(m => [m.id, m.label])];
+        rows.push(row("MDM / source",
+            selectInput(a._mdmId || "", mdmOptions, v => {
+                a._mdmId = v || null;
+                a._verbId = null;
+                a._fields = {};
+                if (!v || v === "custom") {
+                    a.Command = "";
+                    a.TimeoutSeconds = null;
+                } else {
+                    const mdm = MDM_PRESETS.find(m => m.id === v);
+                    if (mdm && mdm.verbs.length === 1) {
+                        a._verbId = mdm.verbs[0].id;
+                        a.TimeoutSeconds = mdm.verbs[0].timeout;
+                        a.Command = assembleMdmCommand(mdm.verbs[0], {});
+                    }
+                }
+                reopenStep(); updatePreview();
+            })
+        ));
+
+        const activeMdm = MDM_PRESETS.find(m => m.id === a._mdmId);
+
+        if (activeMdm && activeMdm.id !== "custom" && activeMdm.verbs.length > 0) {
+            const verbOptions = [["", "— Select action —"], ...activeMdm.verbs.map(v => [v.id, v.label])];
+            rows.push(row("Action",
+                selectInput(a._verbId || "", verbOptions, v => {
+                    a._verbId = v || null;
+                    a._fields = {};
+                    const verb = activeMdm.verbs.find(vb => vb.id === v);
+                    if (verb) {
+                        a.TimeoutSeconds = verb.timeout;
+                        a.Command = assembleMdmCommand(verb, {});
+                    } else {
+                        a.Command = "";
+                    }
+                    reopenStep(); updatePreview();
+                })
+            ));
+        }
+
+        const activeVerb = activeMdm && activeMdm.verbs.find(v => v.id === a._verbId);
+
+        if (activeVerb && activeVerb.fields.length > 0) {
+            if (!a._fields) a._fields = {};
+            for (const f of activeVerb.fields) {
+                rows.push(row(f.label,
+                    textInput(a._fields[f.key] || "", v => {
+                        if (!a._fields) a._fields = {};
+                        a._fields[f.key] = v;
+                        a.Command = assembleMdmCommand(activeVerb, a._fields);
+                        updatePreview();
+                    }, f.placeholder)
+                ));
+            }
+        }
+
+        if (activeVerb && activeVerb.note) {
+            rows.push(hint(activeVerb.note));
+        }
+
+        if (!activeMdm || activeMdm.id === "custom") {
+            rows.push(row("Command",
+                h("textarea", { oninput: e => { a.Command = e.target.value; updatePreview(); } }, a.Command || ""),
+                hint("Passed to /bin/sh -c.")
+            ));
+        } else if (a.Command) {
+            rows.push(row("Command",
+                h("div", { class: "command-preview" }, a.Command)
+            ));
+        }
+
+        rows.push(
+            row("Run as user", textInput(a.RunAsUser, v => a.RunAsUser = v, "$CONSOLE_USER")),
+            row("Timeout (s)", intInput(a.TimeoutSeconds, v => a.TimeoutSeconds = v, "300"))
+        );
+        return rows;
+    }
+    if (a.Type === "package") {
+        return [
+            row("Path",   textInput(a.Path, v => a.Path = v, "/Library/Enrollinator/packages/GoogleChrome.pkg")),
+            row("Target", textInput(a.Target, v => a.Target = v, "/")),
+            row("Timeout (s)", intInput(a.TimeoutSeconds, v => a.TimeoutSeconds = v, "600"))
+        ];
+    }
+    if (a.Type === "wait") {
+        return [
+            row("Duration (s)",
+                intInput(a.DurationSeconds, v => a.DurationSeconds = v, "10"),
+                hint("Sleeps for this long, then succeeds. Good for letting a LaunchDaemon settle."))
+        ];
+    }
+    if (a.Type === "dialog") {
+        // Buttons editor — up to 3 pipe-delimited labels.
+        const buttonsWrap = h("div", { style: "display:flex;flex-direction:column;gap:4px" });
+        const buttons = Array.isArray(a.Buttons) ? a.Buttons : [];
+        buttons.forEach((label, i) => {
+            buttonsWrap.appendChild(h("div",
+                { style: "display:flex;gap:6px;align-items:center" },
+                h("input", { type: "text", value: label,
+                    placeholder: `Button ${i + 1}`,
+                    style: "flex:1",
+                    oninput: e => {
+                        buttons[i] = e.target.value;
+                        if (!buttons.includes(a.ExpectedButton)) {
+                            a.ExpectedButton = buttons[0] || "";
+                        }
+                        updatePreview();
+                    } }),
+                btn("↑", () => { move(buttons, i, -1); reopenStep(); }, "icon"),
+                btn("↓", () => { move(buttons, i,  1); reopenStep(); }, "icon"),
+                btn("✕", () => {
+                    buttons.splice(i, 1);
+                    if (!buttons.includes(a.ExpectedButton)) {
+                        a.ExpectedButton = buttons[0] || "";
+                    }
+                    reopenStep(); updatePreview();
+                }, "danger")
+            ));
+        });
+        if (buttons.length < 3) {
+            buttonsWrap.appendChild(btn("+ Add button", () => {
+                buttons.push("");
+                if (!a.Buttons) a.Buttons = buttons;
+                reopenStep();
+            }));
+        }
+        return [
+            row("Title",   textInput(a.Title, v => a.Title = v, "Acceptable use policy")),
+            row("Message",
+                h("textarea", {
+                    oninput: e => { a.Message = e.target.value; updatePreview(); },
+                    placeholder: "Markdown body"
+                }, a.Message || "")),
+            h("div", { class: "pair-row" },
+                row("Title font size",   intInput(a.TitleFontSize,   v => { a.TitleFontSize   = v; updatePreview(); }, "default")),
+                row("Message font size", intInput(a.MessageFontSize, v => { a.MessageFontSize = v; updatePreview(); }, "14"))
+            ),
+            h("div", { class: "pair-row" },
+                row("Width",  intInput(a.Width,  v => a.Width  = v, "520")),
+                row("Height", intInput(a.Height, v => a.Height = v, "300"))
+            ),
+            row("Buttons", buttonsWrap, hint("1–3 labels, left to right.")),
+            row("Expected",
+                selectInput(a.ExpectedButton,
+                    (buttons.length ? buttons : [""]),
+                    v => { a.ExpectedButton = v; updatePreview(); }),
+                hint("Step passes only if the user clicks this button."))
+        ];
+    }
+    return [];
+}
+
+
+function renderConditionCard(c, i, st) {
+    return h("div", { class: "sub-section" },
+        h("div", { class: "sub-section-title" },
+            h("span", null, `Condition ${i + 1}`,
+                h("span", { class: "pill", style: "margin-left:6px" }, c.Type)),
+            h("div", null,
+                btn("↑", () => { move(st.Conditions, i, -1); reopenStep(); }, "icon"),
+                btn("↓", () => { move(st.Conditions, i,  1); reopenStep(); }, "icon"),
+                btn("Delete", () => { st.Conditions.splice(i, 1); reopenStep(); updatePreview(); }, "danger"))),
+        row("Type",
+            selectInput(c.Type, CONDITION_TYPES, v => {
+                const repl = blankCondition(v);
+                st.Conditions.splice(i, 1, repl);
+                reopenStep();
+            })),
+        ...conditionFields(c)
+    );
+}
+
+function conditionFields(c) {
+    switch (c.Type) {
+        case "shell":
+            return [
+                row("Command",
+                    h("textarea", { oninput: e => { c.Command = e.target.value; updatePreview(); } }, c.Command || ""),
+                    hint("Exit 0 = pass.")),
+                row("Timeout (s)", intInput(c.TimeoutSeconds, v => c.TimeoutSeconds = v, "15"))
+            ];
+        case "app_installed":
+            return [
+                row("Bundle ID", textInput(c.BundleId, v => c.BundleId = v, "com.google.Chrome")),
+                row("Path",      textInput(c.Path, v => c.Path = v, "(optional override)")),
+                row("Min version", textInput(c.MinVersion, v => c.MinVersion = v, "120.0")),
+                hint("Supply either Bundle ID (preferred) or Path.")
+            ];
+        case "default_browser":
+            return [
+                row("Bundle ID", textInput(c.BundleId, v => c.BundleId = v, "com.google.Chrome")),
+                hint("Passes when this bundle ID owns the http/https scheme in LaunchServices for the logged-in user.")
+            ];
+        case "file_exists":
+            return [
+                row("Path", textInput(c.Path, v => c.Path = v, "/Library/Foo/bar")),
+                row("Kind", selectInput(c.Kind || "any", FILE_KINDS, v => c.Kind = v),
+                    hint("file — must be a regular file. directory — must be a folder. any — either."))
+            ];
+        case "profile_installed":
+            return [
+                row("Identifier", textInput(c.Identifier, v => c.Identifier = v, "com.example.wifi")),
+                hint("Matches against the PayloadIdentifier field shown in: profiles list -all")
+            ];
+        case "process_running":
+            return [
+                row("Name", textInput(c.Name, v => c.Name = v, "Zscaler"),
+                    hint("Matched with pgrep -x — exact process name, not the path.")),
+                row("Minimum count", intInput(c.MinimumCount, v => c.MinimumCount = v, "1"),
+                    hint("Number of matching processes that must be running. Default is 1."))
+            ];
+    }
+    return [];
+}
+
+
+// ============================================================================
+// Misc helpers + preview + download
+// ============================================================================
+
+function move(arr, i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    updatePreview();
+}
+
+function updatePreview() {
+    const el = document.getElementById("preview");
+    const status = document.getElementById("preview-status");
+    try {
+        const xml = serializeMobileconfig(state);
+        el.textContent = xml;
+        const doc = new DOMParser().parseFromString(xml, "application/xml");
+        if (doc.querySelector("parsererror")) throw new Error("XML parse error");
+        status.textContent = "valid";
+        status.classList.remove("error");
+    } catch (e) {
+        el.textContent = `Serialization error: ${e.message}`;
+        status.textContent = "error";
+        status.classList.add("error");
+    }
+}
+
+function triggerDownload(xml, fname, mime) {
+    const blob = new Blob([xml], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+}
+
+function downloadMobileconfig() {
+    const base = state.outer.PayloadIdentifier || "enrollinator";
+    triggerDownload(serializeMobileconfig(state), base + ".mobileconfig",
+                    "application/x-apple-aspen-config");
+}
+
+function downloadBareXml() {
+    const base = state.outer.PayloadIdentifier || "enrollinator";
+    triggerDownload(serializeBareXml(state), base + ".plist", "application/xml");
+}
+
+function toggleDownloadMenu(btn) {
+    const existing = document.getElementById("download-menu");
+    if (existing) { existing.remove(); return; }
+
+    const rect = btn.getBoundingClientRect();
+    const menu = document.createElement("div");
+    menu.id = "download-menu";
+    menu.className = "header-dropdown-menu";
+    menu.style.cssText = `top:${rect.bottom + 4}px;right:${document.documentElement.clientWidth - rect.right}px`;
+
+    const items = [
+        { label: "Download .mobileconfig", hint: "Deploy via MDM", action: downloadMobileconfig },
+        { label: "Download as .plist (--xml)", hint: "Use with enrollinator.sh --xml", action: downloadBareXml }
+    ];
+    items.forEach(item => {
+        const el = document.createElement("button");
+        el.className = "header-dropdown-item";
+        el.innerHTML = `<span class="ddi-label">${item.label}</span><span class="ddi-hint">${item.hint}</span>`;
+        el.addEventListener("click", () => { menu.remove(); item.action(); });
+        menu.appendChild(el);
+    });
+
+    document.body.appendChild(menu);
+    // Close on outside click
+    setTimeout(() => document.addEventListener("click", function close(e) {
+        if (!menu.contains(e.target) && e.target !== btn) { menu.remove(); }
+        document.removeEventListener("click", close);
+    }), 0);
+}
+
+// ============================================================================
+// Sample config
+// ============================================================================
+
+function loadSample() {
+    const s = defaultState();
+    s.outer.PayloadIdentifier = "com.example.enrollinator";
+    s.outer.PayloadDisplayName = "Acme Corp Onboarding";
+    s.outer.PayloadOrganization = "Acme Corp";
+    s.outer.PayloadDescription = "macOS onboarding flow powered by Enrollinator.";
+    s.Branding.Title = "Welcome to Acme Corp";
+    s.Branding.Subtitle = "We're setting up your Mac. This usually takes about 10 minutes.";
+    s.Branding.Logo = "https://example.com/enrollinator/logo.png";
+    s.Branding.Banner = "https://example.com/enrollinator/banner.png";
+    s.Branding.AccentColor = "#0A84FF";
+    s.Branding.WindowWidth = 780;
+    s.Branding.WindowHeight = 600;
+    s.AllowClose = true;
+    s.TestMode = false;
+
+    s.HardwareInfo = {
+        Enabled: true,
+        Fields: ["console_user", "computer_name", "serial_number", "model", "os_version"]
+    };
+    s.Help = {
+        Enabled: true,
+        Title: "Need help?",
+        Message: "The IT team is on standby — reach out through any of these channels.",
+        Contacts: [
+            { Label: "Slack",  Detail: "#it-help",          URL: "https://example.slack.com/channels/it-help" },
+            { Label: "Email",  Detail: "it@example.com",    URL: "mailto:it@example.com" },
+            { Label: "Portal", Detail: "help.example.com",  URL: "https://help.example.com" }
+        ]
+    };
+
+    // ── Playbook 1: Standard (default for all employees) ─────────────────────
+    const std = blankProfile();
+    std.Name        = "Standard";
+    std.Description = "Baseline setup for all employees.";
+    // No selector, no base — selected via DefaultPlaybook.
+
+    // Step 1: AUP — dialog action
+    const aup = blankStep();
+    aup.Id   = "acknowledge-aup";
+    aup.Name = "Acknowledge Acceptable Use Policy";
+    aup.Description = "Review and accept the company AUP before setup continues.";
+    aup.Icon = "SF=doc.text";
+    aup.Action = blankAction("dialog");
+    aup.Action.Title   = "Acceptable Use Policy";
+    aup.Action.Message = "By continuing you agree to the Acceptable Use Policy at https://example.com/aup. Violation may result in loss of access.";
+    aup.Action.Buttons        = ["I Agree", "Cancel"];
+    aup.Action.ExpectedButton = "I Agree";
+    aup.Action.Width  = 560;
+    aup.Action.Height = 340;
+    std.Steps.push(aup);
+
+    // Step 2: Rosetta — shell action + file_exists condition + ContinueOnFailure
+    const rosetta = blankStep();
+    rosetta.Id   = "install-rosetta";
+    rosetta.Name = "Install Rosetta 2";
+    rosetta.Icon = "SF=cpu";
+    rosetta.Action = blankAction("shell");
+    rosetta.Action.Command        = "/usr/sbin/softwareupdate --install-rosetta --agree-to-license";
+    rosetta.Action.TimeoutSeconds = 300;
+    rosetta.ContinueOnFailure = true;
+    rosetta.Conditions.push(Object.assign(blankCondition("file_exists"),
+        { Path: "/usr/libexec/rosetta/rosetta", Kind: "file" }));
+    std.Steps.push(rosetta);
+
+    // Step 3: Chrome — shell action + app_installed condition
+    const chrome = blankStep();
+    chrome.Id   = "install-chrome";
+    chrome.Name = "Install Google Chrome";
+    chrome.Icon = "/Library/Enrollinator/assets/chrome.png";
+    chrome.Action = blankAction("shell");
+    chrome.Action.Command        = "/usr/local/bin/jamf policy -event install-chrome";
+    chrome.Action.TimeoutSeconds = 600;
+    chrome.Conditions.push(Object.assign(blankCondition("app_installed"),
+        { BundleId: "com.google.Chrome", MinVersion: "120.0" }));
+    std.Steps.push(chrome);
+
+    // Step 4: Slack — package action + app_installed condition
+    const slack = blankStep();
+    slack.Id   = "install-slack";
+    slack.Name = "Install Slack";
+    slack.Icon = "SF=bubble.left.and.bubble.right";
+    slack.Action = blankAction("package");
+    slack.Action.Path   = "/Library/Enrollinator/packages/Slack.pkg";
+    slack.Action.Target = "/Applications";
+    slack.Conditions.push(Object.assign(blankCondition("app_installed"),
+        { BundleId: "com.tinyspeck.slackmacgap" }));
+    std.Steps.push(slack);
+
+    // Step 5: MDM enrollment — wait action + profile_installed condition
+    const mdm = blankStep();
+    mdm.Id   = "wait-mdm-enrollment";
+    mdm.Name = "Wait for MDM enrollment";
+    mdm.Description = "Pauses until the device management profile is installed.";
+    mdm.Icon = "SF=network.badge.shield.half.filled";
+    mdm.Action = blankAction("wait");
+    mdm.Action.DurationSeconds = 15;
+    mdm.Conditions.push(Object.assign(blankCondition("profile_installed"),
+        { Identifier: "com.example.mdm.enrollment" }));
+    std.Steps.push(mdm);
+
+    // Step 6: Default browser — noop action + default_browser condition (blocking)
+    const defBrowser = blankStep();
+    defBrowser.Id   = "set-default-browser";
+    defBrowser.Name = "Set Chrome as default browser";
+    defBrowser.Icon = "SF=globe";
+    defBrowser.Blocking           = true;
+    defBrowser.PollIntervalSeconds = 5;
+    defBrowser.TimeoutSeconds      = 300;
+    defBrowser.UserPrompt = "Open System Settings → General → Default web browser and select Google Chrome, then click Done.";
+    defBrowser.Conditions.push(Object.assign(blankCondition("default_browser"),
+        { BundleId: "com.google.Chrome" }));
+    std.Steps.push(defBrowser);
+
+    // Step 7: ZScaler VPN — shell action + process_running + shell conditions (blocking, WaitWindow)
+    const vpn = blankStep();
+    vpn.Id   = "connect-vpn";
+    vpn.Name = "Connect to ZScaler VPN";
+    vpn.Description = "Required for corporate network and intranet access.";
+    vpn.Icon = "SF=lock.shield";
+    vpn.Blocking            = true;
+    vpn.PollIntervalSeconds = 5;
+    vpn.TimeoutSeconds      = 1800;
+    vpn.UserPrompt = "Click the ZScaler menu-bar icon and sign in with your @example.com address.";
+    vpn.Action = blankAction("shell");
+    vpn.Action.Command        = "/usr/bin/open -a ZScaler";
+    vpn.Action.TimeoutSeconds = 10;
+    vpn.Action.RunAsUser      = "console";
+    vpn.WaitWindow = blankWaitWindow("Connect to ZScaler VPN");
+    vpn.WaitWindow.Message = "### Connect to ZScaler\n\n1. Click the **ZScaler** icon in your menu bar.\n2. Enter your `@example.com` email address.\n3. Approve the MFA prompt in your authenticator app.";
+    vpn.WaitWindow.Slideshow = [
+        "https://example.com/enrollinator/zscaler-step1.png",
+        "https://example.com/enrollinator/zscaler-step2.png",
+        "https://example.com/enrollinator/zscaler-step3.png"
+    ];
+    vpn.WaitWindow.Width  = 560;
+    vpn.WaitWindow.Height = 480;
+    vpn.Conditions.push(Object.assign(blankCondition("process_running"),
+        { Name: "ZscalerTunnel", MinimumCount: 1 }));
+    vpn.Conditions.push(Object.assign(blankCondition("shell"),
+        { Command: "/sbin/ifconfig 2>/dev/null | /usr/bin/grep -qE '^utun[0-9]+:.*flags.*UP'", TimeoutSeconds: 5 }));
+    std.Steps.push(vpn);
+
+    // ── Playbook 2: Engineering (extends Standard, file-flag selector) ────────
+    const eng = blankProfile();
+    eng.Name        = "Engineering";
+    eng.Description = "Developer machines — inherits Standard, then adds dev toolchain.";
+    eng.Selector    = { HostnameRegex: "", ModelIdentifierGlob: "", FileExists: "/Library/Enrollinator/flags/engineering" };
+
+    // Step 1: Xcode CLI — shell action + file_exists condition + ContinueOnFailure
+    const xcli = blankStep();
+    xcli.Id   = "install-xcli";
+    xcli.Name = "Install Xcode Command Line Tools";
+    xcli.Icon = "SF=hammer";
+    xcli.Action = blankAction("shell");
+    xcli.Action.Command        = "/usr/bin/xcode-select --install 2>/dev/null; /usr/bin/xcode-select --print-path";
+    xcli.Action.TimeoutSeconds = 600;
+    xcli.ContinueOnFailure = true;
+    xcli.Conditions.push(Object.assign(blankCondition("file_exists"),
+        { Path: "/Library/Developer/CommandLineTools/usr/bin/clang", Kind: "file" }));
+    eng.Steps.push(xcli);
+
+    // Step 2: Homebrew — shell action + shell condition (checks brew binary)
+    const brew = blankStep();
+    brew.Id   = "install-homebrew";
+    brew.Name = "Install Homebrew";
+    brew.Icon = "SF=shippingbox";
+    brew.Action = blankAction("shell");
+    brew.Action.Command        = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
+    brew.Action.TimeoutSeconds = 900;
+    brew.Conditions.push(Object.assign(blankCondition("shell"),
+        { Command: "[ -x /usr/local/bin/brew ] || [ -x /opt/homebrew/bin/brew ]", TimeoutSeconds: 5 }));
+    eng.Steps.push(brew);
+
+    // Step 3: VS Code — package action + app_installed condition
+    const vscode = blankStep();
+    vscode.Id   = "install-vscode";
+    vscode.Name = "Install Visual Studio Code";
+    vscode.Icon = "SF=curlybraces";
+    vscode.Action = blankAction("package");
+    vscode.Action.Path   = "/Library/Enrollinator/packages/VSCode.pkg";
+    vscode.Action.Target = "/Applications";
+    vscode.Conditions.push(Object.assign(blankCondition("app_installed"),
+        { BundleId: "com.microsoft.VSCode" }));
+    eng.Steps.push(vscode);
+
+    // Step 4: Settle — wait action
+    const settle = blankStep();
+    settle.Id   = "settle-dev-env";
+    settle.Name = "Let the environment settle";
+    settle.Icon = "SF=hourglass";
+    settle.Action = blankAction("wait");
+    settle.Action.DurationSeconds = 8;
+    eng.Steps.push(settle);
+
+    // ── Playbook 3: Xcode Full (addon — user-selectable after base run) ───────
+    const xcode = blankProfile();
+    xcode.Name        = "Xcode Full";
+    xcode.Description = "Full Xcode IDE and iOS Simulator runtimes.";
+    xcode.Addon       = true;
+    xcode.TestMode    = false;
+
+    // Step 1: Install Xcode — shell action + profile_installed condition (MDM pushes Xcode policy)
+    const xcodeApp = blankStep();
+    xcodeApp.Id   = "install-xcode";
+    xcodeApp.Name = "Install Xcode";
+    xcodeApp.Description = "Triggered via Jamf policy. May take 30–60 minutes.";
+    xcodeApp.Icon = "SF=hammer.circle";
+    xcodeApp.Blocking            = true;
+    xcodeApp.PollIntervalSeconds = 60;
+    xcodeApp.TimeoutSeconds      = 7200;
+    xcodeApp.Action = blankAction("shell");
+    xcodeApp.Action.Command        = "/usr/local/bin/jamf policy -event install-xcode";
+    xcodeApp.Action.TimeoutSeconds = 7200;
+    xcodeApp.Conditions.push(Object.assign(blankCondition("profile_installed"),
+        { Identifier: "com.example.mdm.xcode-license" }));
+    xcodeApp.Conditions.push(Object.assign(blankCondition("app_installed"),
+        { BundleId: "com.apple.dt.Xcode", MinVersion: "15.0" }));
+    xcode.Steps.push(xcodeApp);
+
+    // Step 2: Accept Xcode license — shell action + file_exists condition
+    const xcodeLicense = blankStep();
+    xcodeLicense.Id   = "accept-xcode-license";
+    xcodeLicense.Name = "Accept Xcode license agreement";
+    xcodeLicense.Icon = "SF=doc.badge.checkmark";
+    xcodeLicense.Action = blankAction("shell");
+    xcodeLicense.Action.Command        = "/usr/bin/xcodebuild -license accept";
+    xcodeLicense.Action.RunAsUser      = "root";
+    xcodeLicense.Action.TimeoutSeconds = 30;
+    xcodeLicense.Conditions.push(Object.assign(blankCondition("file_exists"),
+        { Path: "/Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild", Kind: "file" }));
+    xcode.Steps.push(xcodeLicense);
+
+    // Step 3: iOS Simulator — shell action + ContinueOnFailure
+    const simulator = blankStep();
+    simulator.Id   = "install-ios-simulator";
+    simulator.Name = "Install iOS Simulator runtime";
+    simulator.Icon = "SF=iphone";
+    simulator.ContinueOnFailure = true;
+    simulator.Action = blankAction("shell");
+    simulator.Action.Command        = "/usr/bin/xcodebuild -downloadPlatform iOS";
+    simulator.Action.TimeoutSeconds = 3600;
+    xcode.Steps.push(simulator);
+
+    s.Playbooks      = [std, eng, xcode];
+    s.DefaultPlaybook = "Standard";
+
+    state = s;
+    resetUiForNewState();
+    renderCanvas(); updatePreview();
+}
+
+// Reset all per-state transient UI — call whenever state is fully replaced.
+function resetUiForNewState() {
+    ui.openStep          = null;
+    ui.draftStep         = null;
+    ui.stepTab           = "info";
+    ui.pendingStep       = null;
+    ui.expandedOptional  = new Set();
+    ui.expandedBranches  = new Set();
+    ui.selectedPlaybook  = 0;
+    // Leave settingsOpen, settingsTab, sidebarCollapsed — those are user
+    // window-layout preferences, not content-specific state.
+}
+
+// ============================================================================
+// Boot
+// ============================================================================
+
+document.getElementById("download-btn").addEventListener("click", function(e) {
+    toggleDownloadMenu(this);
+});
+document.getElementById("sample-btn").addEventListener("click", loadSample);
+document.getElementById("import-btn").addEventListener("click",
+    () => document.getElementById("import-file").click());
+document.getElementById("import-file").addEventListener("change", async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try {
+        const xml = await f.text();
+        state = importFromMobileconfig(xml);
+        resetUiForNewState();
+        renderCanvas(); updatePreview();
+    } catch (err) {
+        alert(`Import failed: ${err.message}`);
+    }
+    e.target.value = "";
+});
+
+// Close modal on Esc.
+window.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+// ============================================================================
+// Getting Started
+// ============================================================================
+
+const GS_CARDS = [
+    {
+        icon: "🗂",
+        title: "Sidebar — Playbooks",
+        body: "Each playbook is a list of steps run in sequence. Click a name to switch to it, drag to reorder. Drop a step row onto a playbook name to move it across."
+    },
+    {
+        icon: "⚡",
+        title: "Steps",
+        body: "Click any step row to open its editor. Set a name, ID, icon, action (shell, package, wait…), conditions, and blocking behaviour. Drag the ⋮⋮ handle to reorder."
+    },
+    {
+        icon: "⚙",
+        title: "Profile Settings",
+        body: "Click the ⚙ Profile Settings button to configure branding (title, logo, accent colour), hardware info panel, help contacts, and MDM profile identity."
+    },
+    {
+        icon: "📄",
+        title: "Export",
+        body: "The right pane shows a live .mobileconfig preview. Click <strong>Download .mobileconfig</strong> when done, then deploy it via your MDM to enrol Macs."
+    }
+];
+
+function showGettingStarted() {
+    const existing = document.getElementById("gs-root");
+    if (existing) { existing.remove(); return; }
+
+    const root = document.createElement("div");
+    root.id = "gs-root";
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "gs-backdrop";
+    backdrop.addEventListener("click", e => { if (e.target === backdrop) root.remove(); });
+
+    const modal = document.createElement("div");
+    modal.className = "gs-modal";
+
+    // Header
+    const header = document.createElement("div");
+    header.className = "gs-header";
+    header.innerHTML = `
+        <h2>👋 Welcome to Profile Builder</h2>
+        <p>Build Enrollinator <code>.mobileconfig</code> profiles visually — no XML required.</p>`;
+    modal.appendChild(header);
+
+    // Grid of cards
+    const grid = document.createElement("div");
+    grid.className = "gs-grid";
+    GS_CARDS.forEach(c => {
+        const card = document.createElement("div");
+        card.className = "gs-card";
+        card.innerHTML = `
+            <div class="gs-card-icon">${c.icon}</div>
+            <h3>${c.title}</h3>
+            <p>${c.body}</p>`;
+        grid.appendChild(card);
+    });
+    modal.appendChild(grid);
+
+    // Footer
+    const footer = document.createElement("div");
+    footer.className = "gs-footer";
+    const skipLabel = document.createElement("label");
+    const skipCheck = document.createElement("input");
+    skipCheck.type = "checkbox";
+    skipCheck.id = "gs-skip";
+    skipLabel.appendChild(skipCheck);
+    skipLabel.appendChild(document.createTextNode(" Don't show again"));
+    footer.appendChild(skipLabel);
+    const doneBtn = document.createElement("button");
+    doneBtn.className = "btn primary";
+    doneBtn.style.cssText = "height:34px;padding:0 22px;font-size:13px";
+    doneBtn.textContent = "Got it";
+    doneBtn.addEventListener("click", () => {
+        if (skipCheck.checked) localStorage.setItem("enrollinator-gs-seen", "1");
+        root.remove();
+    });
+    footer.appendChild(doneBtn);
+    modal.appendChild(footer);
+
+    backdrop.appendChild(modal);
+    root.appendChild(backdrop);
+    document.body.appendChild(root);
+}
+
+document.getElementById("help-btn").addEventListener("click", showGettingStarted);
+
+// Show on first visit.
+if (!localStorage.getItem("enrollinator-gs-seen")) showGettingStarted();
+
+renderCanvas();
+updatePreview();
+
+// ---- preview collapse toggle
+(function() {
+    const btn = document.getElementById("preview-toggle");
+    const pane = document.getElementById("preview-pane");
+    const mainEl = document.querySelector("main");
+    const COLLAPSED_W = "36px";
+
+    btn.addEventListener("click", () => {
+        const isCollapsed = pane.classList.toggle("collapsed");
+        if (isCollapsed) {
+            pane._savedCols = mainEl.style.gridTemplateColumns || "";
+            mainEl.style.gridTemplateColumns = `1fr 5px ${COLLAPSED_W}`;
+            btn.setAttribute("data-tooltip", "Expand preview");
+            btn.title = "Expand preview";
+        } else {
+            mainEl.style.gridTemplateColumns = pane._savedCols || "";
+            btn.setAttribute("data-tooltip", "Collapse preview");
+            btn.title = "Collapse preview";
+        }
+    });
+})();
+
+// ---- resize handle
+(function() {
+    const handle = document.getElementById("resize-handle");
+    const mainEl = document.querySelector("main");
+    let active = false, startX = 0, startW = 0;
+    handle.addEventListener("mousedown", e => {
+        active = true;
+        startX = e.clientX;
+        startW = document.getElementById("canvas").getBoundingClientRect().width;
+        handle.classList.add("resizing");
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        e.preventDefault();
+    });
+    document.addEventListener("mousemove", e => {
+        if (!active) return;
+        const w = Math.max(320, Math.min(startW + (e.clientX - startX), window.innerWidth - 220));
+        mainEl.style.gridTemplateColumns = `${w}px 5px 1fr`;
+    });
+    document.addEventListener("mouseup", () => {
+        if (!active) return;
+        active = false;
+        handle.classList.remove("resizing");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+    });
+})();
+</script>
+</body>
+</html>

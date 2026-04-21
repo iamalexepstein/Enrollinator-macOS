@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchDaemon for Enrollinator.
+
+  Enrollinator runs as root because it installs pkgs, touches /var/lib/enrollinator,
+  and needs to launchctl-asuser into the login session to draw UI. The
+  daemon waits for a console user (enrollinator.sh's wait_for_console_user), and
+  lib/ui.sh wraps swiftDialog with `launchctl asuser <uid>` so it appears
+  in that user's session.
+
+  Deploy to:
+    /Library/LaunchDaemons/com.enrollinator.app.plist   (mode 644, owner root:wheel)
+
+  Logs land at /var/log/enrollinator.log.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.enrollinator.app</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/enrollinator/enrollinator.sh</string>
+    </array>
+
+    <!-- Run once at boot. enrollinator.sh will wait for a console user before
+         showing UI. The /var/lib/enrollinator/completed flag prevents re-runs. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Don't restart if Enrollinator exits; it's a one-shot per machine. -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Crash diagnostics only; Enrollinator does its own structured logging. -->
+    <key>StandardOutPath</key>
+    <string>/var/log/enrollinator.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/enrollinator.stderr.log</string>
+
+    <!-- Stable CWD prevents launchctl asuser getcwd errors. -->
+    <key>WorkingDirectory</key>
+    <string>/</string>
+
+    <!-- Minimal, deterministic PATH for installer, defaults, profiles, etc. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+</dict>
+</plist>

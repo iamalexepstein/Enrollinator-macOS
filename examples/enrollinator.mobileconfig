@@ -1,0 +1,552 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Enrollinator configuration profile.
+
+  This ONE file configures everything Enrollinator does: branding, profile
+  selection, and every step of the onboarding flow. The script at
+  /usr/local/enrollinator/enrollinator.sh reads these managed preferences and
+  executes the chosen profile.
+
+  Before deploying, replace `com.example` in the Payload identifiers with
+  your org's reverse-DNS identifier, and adjust the steps for your fleet.
+  See docs/mobileconfig-schema.md for the full schema reference and
+  docs/recipes.md for copy-pasteable step examples.
+-->
+<plist version="1.0">
+<dict>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+    <key>PayloadIdentifier</key>
+    <string>com.example.enrollinator</string>
+    <key>PayloadUUID</key>
+    <string>013274A2-FB60-4190-AE9E-264DB7FE2391</string>
+    <key>PayloadDisplayName</key>
+    <string>Enrollinator</string>
+    <key>PayloadDescription</key>
+    <string>macOS onboarding flow driven by Enrollinator.</string>
+    <key>PayloadOrganization</key>
+    <string>Example, Inc.</string>
+    <key>PayloadScope</key>
+    <string>System</string>
+
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <!-- Target Enrollinator's preferences domain directly. -->
+            <key>PayloadType</key>
+            <string>com.enrollinator.app</string>
+            <key>PayloadIdentifier</key>
+            <string>com.example.enrollinator.config</string>
+            <key>PayloadUUID</key>
+            <string>F549EE1A-ED30-4F2D-BCAE-0FD4411D3988</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+            <key>PayloadDisplayName</key>
+            <string>Enrollinator configuration</string>
+
+            <!-- =========================================================== -->
+            <!-- Branding                                                    -->
+            <!-- =========================================================== -->
+            <key>Branding</key>
+            <dict>
+                <key>Title</key>
+                <string>Welcome to your new Mac</string>
+                <key>Subtitle</key>
+                <string>We're getting a few things ready for you.</string>
+                <!-- Absolute path on disk, or an https:// URL — Enrollinator and
+                     swiftDialog both accept either. Deploy local images in
+                     the same pkg that installs Enrollinator. -->
+                <key>Logo</key>
+                <string>/Library/Enrollinator/assets/logo.png</string>
+                <!-- Optional banner image strapped across the top. Leave
+                     unset for a title-only header. -->
+                <key>Banner</key>
+                <string>https://static.example.com/branding/enrollinator-banner.png</string>
+                <key>AccentColor</key>
+                <string>#0A84FF</string>
+                <!-- Window size. Defaults are 720x560. -->
+                <key>WindowWidth</key>
+                <integer>780</integer>
+                <key>WindowHeight</key>
+                <integer>600</integer>
+            </dict>
+
+            <!-- =========================================================== -->
+            <!-- Hardware info panel                                         -->
+            <!-- Shown to the right of the step list. Handy when IT needs    -->
+            <!-- the user to read their serial over the phone.               -->
+            <!-- =========================================================== -->
+            <key>HardwareInfo</key>
+            <dict>
+                <key>Enabled</key>
+                <true/>
+                <key>Fields</key>
+                <array>
+                    <string>console_user</string>
+                    <string>computer_name</string>
+                    <string>serial_number</string>
+                    <string>model</string>
+                    <string>os_version</string>
+                </array>
+            </dict>
+
+            <!-- =========================================================== -->
+            <!-- Help button                                                 -->
+            <!-- Adds a "?" button to the window that pops up contact info.  -->
+            <!-- =========================================================== -->
+            <key>Help</key>
+            <dict>
+                <key>Enabled</key>
+                <true/>
+                <key>Title</key>
+                <string>Need help?</string>
+                <key>Message</key>
+                <string>Reach out to IT — we're happy to help.</string>
+                <key>Contacts</key>
+                <array>
+                    <dict>
+                        <key>Label</key>
+                        <string>Slack</string>
+                        <key>Detail</key>
+                        <string>#it-help</string>
+                        <key>URL</key>
+                        <string>slack://channel?team=TEXAMPLE&amp;id=CEXAMPLE</string>
+                    </dict>
+                    <dict>
+                        <key>Label</key>
+                        <string>Email</string>
+                        <key>Detail</key>
+                        <string>it@example.com</string>
+                        <key>URL</key>
+                        <string>mailto:it@example.com</string>
+                    </dict>
+                    <dict>
+                        <key>Label</key>
+                        <string>Phone</string>
+                        <key>Detail</key>
+                        <string>+1 (555) 555-0123</string>
+                    </dict>
+                </array>
+            </dict>
+
+            <!-- =========================================================== -->
+            <!-- Run-time behavior                                           -->
+            <!-- =========================================================== -->
+            <key>DefaultPlaybook</key>
+            <string>Standard Employee</string>
+
+            <!-- If false (default), the user can't close the window before
+                 the run finishes. Set true for non-blocking onboarding. -->
+            <key>AllowClose</key>
+            <false/>
+
+            <!-- Global test-mode switch. When true, Enrollinator still evaluates
+                 conditions and draws the UI, but skips every Action. Flip
+                 this on for staging rings, then off for production. The
+                 CLI test flag overrides this field. -->
+            <key>TestMode</key>
+            <false/>
+
+            <!-- =========================================================== -->
+            <!-- Playbooks                                                   -->
+            <!-- The first playbook whose Selector matches wins. If none     -->
+            <!-- match, DefaultPlaybook is used. Scope this mobileconfig to  -->
+            <!-- a specific smart group in your MDM to force a playbook      -->
+            <!-- without needing selectors.                                  -->
+            <!-- =========================================================== -->
+            <key>Playbooks</key>
+            <array>
+
+                <!-- ========================= Engineering ================== -->
+                <dict>
+                    <key>Name</key>
+                    <string>Engineering</string>
+                    <key>Description</key>
+                    <string>Developer machines.</string>
+
+                    <!-- Selector: matches if the flag file exists. The MDM
+                         drops this file on Macs assigned to the Engineering
+                         group. -->
+                    <key>Selector</key>
+                    <dict>
+                        <key>FileExists</key>
+                        <string>/Library/Enrollinator/flags/engineering</string>
+                    </dict>
+
+                    <key>Steps</key>
+                    <array>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>install-rosetta</string>
+                            <key>Name</key>
+                            <string>Install Rosetta 2</string>
+                            <!-- Icon examples: a built-in SF Symbol. Other
+                                 forms accepted: /absolute/path.png, or
+                                 https://example.com/icon.png. -->
+                            <key>Icon</key>
+                            <string>SF=cpu</string>
+                            <key>Action</key>
+                            <dict>
+                                <key>Type</key>
+                                <string>shell</string>
+                                <key>Command</key>
+                                <string>/usr/sbin/softwareupdate --install-rosetta --agree-to-license</string>
+                                <key>TimeoutSeconds</key>
+                                <integer>900</integer>
+                            </dict>
+                            <key>ContinueOnFailure</key>
+                            <true/>
+                        </dict>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>install-xcode-clt</string>
+                            <key>Name</key>
+                            <string>Install Xcode Command Line Tools</string>
+                            <key>Action</key>
+                            <dict>
+                                <key>Type</key>
+                                <string>shell</string>
+                                <key>Command</key>
+                                <string>/usr/bin/xcode-select --install || true</string>
+                            </dict>
+                        </dict>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>install-chrome</string>
+                            <key>Name</key>
+                            <string>Install Google Chrome</string>
+                            <!-- Local asset shipped in the Enrollinator pkg. -->
+                            <key>Icon</key>
+                            <string>/Library/Enrollinator/assets/chrome.png</string>
+                            <key>Action</key>
+                            <dict>
+                                <key>Type</key>
+                                <string>package</string>
+                                <key>Path</key>
+                                <string>/Library/Enrollinator/packages/GoogleChrome.pkg</string>
+                            </dict>
+                            <key>Conditions</key>
+                            <array>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>app_installed</string>
+                                    <key>BundleId</key>
+                                    <string>com.google.Chrome</string>
+                                    <key>MinVersion</key>
+                                    <string>110.0</string>
+                                </dict>
+                            </array>
+                        </dict>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>chrome-default</string>
+                            <key>Name</key>
+                            <string>Set Chrome as your default browser</string>
+                            <key>Blocking</key>
+                            <true/>
+                            <key>PollIntervalSeconds</key>
+                            <integer>4</integer>
+                            <key>UserPrompt</key>
+                            <string>Open System Settings → Desktop &amp; Dock → Default web browser, and pick Google Chrome.</string>
+                            <key>Conditions</key>
+                            <array>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>default_browser</string>
+                                    <key>BundleId</key>
+                                    <string>com.google.Chrome</string>
+                                </dict>
+                            </array>
+                        </dict>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>acknowledge-aup</string>
+                            <key>Name</key>
+                            <string>Acknowledge Acceptable Use Policy</string>
+                            <key>Icon</key>
+                            <string>SF=doc.text.magnifyingglass</string>
+                            <!-- dialog action: spawns a swiftDialog popup.
+                                 The step passes iff the user clicks the
+                                 expected button. -->
+                            <key>Action</key>
+                            <dict>
+                                <key>Type</key>
+                                <string>dialog</string>
+                                <key>Title</key>
+                                <string>Acceptable Use Policy</string>
+                                <key>Message</key>
+                                <string>By continuing, you agree to the Example, Inc. Acceptable Use Policy.
+
+- Company data stays on company devices.
+- You will report suspicious activity to IT.
+- You'll reboot when asked.
+
+Full text: https://intranet.example.com/policies/aup</string>
+                                <key>Width</key>
+                                <integer>560</integer>
+                                <key>Height</key>
+                                <integer>360</integer>
+                                <key>Buttons</key>
+                                <array>
+                                    <string>I agree</string>
+                                    <string>Cancel</string>
+                                </array>
+                                <key>ExpectedButton</key>
+                                <string>I agree</string>
+                            </dict>
+                        </dict>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>zscaler-signin</string>
+                            <key>Name</key>
+                            <string>Sign in to ZScaler</string>
+                            <key>Description</key>
+                            <string>Required for corporate network access.</string>
+                            <!-- Remote URL. swiftDialog will fetch it once at
+                                 launch. -->
+                            <key>Icon</key>
+                            <string>https://static.example.com/icons/zscaler.png</string>
+                            <key>Blocking</key>
+                            <true/>
+                            <key>PollIntervalSeconds</key>
+                            <integer>5</integer>
+                            <key>TimeoutSeconds</key>
+                            <integer>1800</integer>
+                            <!-- UserPrompt is still honored as a fallback
+                                 banner when no WaitWindow is set. -->
+                            <key>UserPrompt</key>
+                            <string>Click the ZScaler menu-bar icon and sign in with your @example.com address.</string>
+                            <!-- WaitWindow opens a second swiftDialog that
+                                 sits alongside the main run window and
+                                 closes automatically when the conditions
+                                 below pass. -->
+                            <key>WaitWindow</key>
+                            <dict>
+                                <key>Title</key>
+                                <string>Sign in to ZScaler</string>
+                                <key>Message</key>
+                                <string>We need you to sign in to ZScaler before we continue. Click the ZScaler icon in the menu bar and sign in with your **@example.com** address.
+
+This window will close itself as soon as you're connected.</string>
+                                <key>Slideshow</key>
+                                <array>
+                                    <string>https://static.example.com/onboarding/zscaler-step-1.png</string>
+                                    <string>https://static.example.com/onboarding/zscaler-step-2.png</string>
+                                    <string>https://static.example.com/onboarding/zscaler-step-3.png</string>
+                                </array>
+                                <key>Width</key>
+                                <integer>560</integer>
+                                <key>Height</key>
+                                <integer>500</integer>
+                            </dict>
+                            <!-- Vendor-specific gate expressed from generic
+                                 primitives. All conditions must pass (AND). -->
+                            <key>Conditions</key>
+                            <array>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>app_installed</string>
+                                    <key>BundleId</key>
+                                    <string>com.zscaler.Zscaler</string>
+                                </dict>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>process_running</string>
+                                    <key>Name</key>
+                                    <string>Zscaler</string>
+                                </dict>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>shell</string>
+                                    <key>Command</key>
+                                    <string>/sbin/ifconfig 2&gt;/dev/null | /usr/bin/grep -qE '^utun[0-9]+:.*UP'</string>
+                                    <key>TimeoutSeconds</key>
+                                    <integer>5</integer>
+                                </dict>
+                            </array>
+                        </dict>
+
+                    </array>
+                </dict>
+
+                <!-- ========================= Standard Employee ============ -->
+                <dict>
+                    <key>Name</key>
+                    <string>Standard Employee</string>
+                    <key>Description</key>
+                    <string>Default profile.</string>
+                    <!-- No Selector — used as the fallback via DefaultPlaybook. -->
+
+                    <key>Steps</key>
+                    <array>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>install-chrome</string>
+                            <key>Name</key>
+                            <string>Install Google Chrome</string>
+                            <key>Action</key>
+                            <dict>
+                                <key>Type</key>
+                                <string>package</string>
+                                <key>Path</key>
+                                <string>/Library/Enrollinator/packages/GoogleChrome.pkg</string>
+                            </dict>
+                            <key>Conditions</key>
+                            <array>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>app_installed</string>
+                                    <key>BundleId</key>
+                                    <string>com.google.Chrome</string>
+                                </dict>
+                            </array>
+                        </dict>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>install-slack</string>
+                            <key>Name</key>
+                            <string>Install Slack</string>
+                            <key>Action</key>
+                            <dict>
+                                <key>Type</key>
+                                <string>package</string>
+                                <key>Path</key>
+                                <string>/Library/Enrollinator/packages/Slack.pkg</string>
+                            </dict>
+                            <key>Conditions</key>
+                            <array>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>app_installed</string>
+                                    <key>BundleId</key>
+                                    <string>com.tinyspeck.slackmacgap</string>
+                                </dict>
+                            </array>
+                        </dict>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>chrome-default</string>
+                            <key>Name</key>
+                            <string>Set Chrome as your default browser</string>
+                            <key>Blocking</key>
+                            <true/>
+                            <key>UserPrompt</key>
+                            <string>Open System Settings → Desktop &amp; Dock → Default web browser.</string>
+                            <key>Conditions</key>
+                            <array>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>default_browser</string>
+                                    <key>BundleId</key>
+                                    <string>com.google.Chrome</string>
+                                </dict>
+                            </array>
+                        </dict>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>zscaler-signin</string>
+                            <key>Name</key>
+                            <string>Sign in to ZScaler</string>
+                            <key>Blocking</key>
+                            <true/>
+                            <key>UserPrompt</key>
+                            <string>Click the ZScaler menu-bar icon and sign in.</string>
+                            <key>Conditions</key>
+                            <array>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>app_installed</string>
+                                    <key>BundleId</key>
+                                    <string>com.zscaler.Zscaler</string>
+                                </dict>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>process_running</string>
+                                    <key>Name</key>
+                                    <string>Zscaler</string>
+                                </dict>
+                            </array>
+                        </dict>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>settle</string>
+                            <key>Name</key>
+                            <string>Let background items settle</string>
+                            <!-- wait action: handy after a package install
+                                 kicks off a LaunchDaemon. -->
+                            <key>Action</key>
+                            <dict>
+                                <key>Type</key>
+                                <string>wait</string>
+                                <key>DurationSeconds</key>
+                                <integer>10</integer>
+                            </dict>
+                        </dict>
+
+                        <dict>
+                            <key>Id</key>
+                            <string>wifi-profile-check</string>
+                            <key>Name</key>
+                            <string>Verify corporate Wi-Fi profile</string>
+                            <key>Conditions</key>
+                            <array>
+                                <dict>
+                                    <key>Type</key>
+                                    <string>profile_installed</string>
+                                    <key>Identifier</key>
+                                    <string>com.example.wifi</string>
+                                </dict>
+                            </array>
+                        </dict>
+
+                    </array>
+                </dict>
+
+            </array>
+        </dict>
+
+        <!-- =================================================================
+             Service Management payload — prevents the user from disabling
+             Enrollinator's LaunchDaemon in System Settings → Login Items &
+             Extensions → Allow in Background. Keep this even though Enrollinator
+             is a daemon, because macOS surfaces daemons in the same UI.
+             ================================================================= -->
+        <dict>
+            <key>PayloadType</key>
+            <string>com.apple.servicemanagement</string>
+            <key>PayloadIdentifier</key>
+            <string>com.example.enrollinator.servicemanagement</string>
+            <key>PayloadUUID</key>
+            <string>E3560CB9-915D-4059-A0A8-7C7C411EAB61</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+            <key>PayloadDisplayName</key>
+            <string>Enrollinator background item</string>
+            <key>Rules</key>
+            <array>
+                <dict>
+                    <key>RuleType</key>
+                    <string>LabelPrefix</string>
+                    <key>RuleValue</key>
+                    <string>com.enrollinator</string>
+                </dict>
+            </array>
+        </dict>
+
+    </array>
+</dict>
+</plist>

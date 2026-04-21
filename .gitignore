@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# Editor cruft
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Enrollinator runtime artifacts (from dry-run / local testing)
+/.plist
+/enrollinator.log
+/var/
+
+# Packaging output — regenerate with scripts/build-pkg.sh
+pkg/dist/
+*.pkg.bak
