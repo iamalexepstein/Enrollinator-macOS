@@ -51,6 +51,25 @@ header.top button.primary {
     box-shadow: 0 1px 4px rgba(10,132,255,0.4);
 }
 header.top button.primary:hover { background: #0070e0; }
+header.top .header-title { display: flex; flex-direction: column; gap: 1px; }
+header.top .header-subtitle {
+    font-size: 10.5px; font-weight: 400; color: rgba(255,255,255,0.42);
+    letter-spacing: 0;
+}
+header.top .header-subtitle a {
+    color: rgba(255,255,255,0.52); text-decoration: none;
+}
+header.top .header-subtitle a:hover { color: rgba(255,255,255,0.8); text-decoration: underline; }
+.github-btn {
+    display: flex; align-items: center; justify-content: center;
+    width: 30px; height: 30px; padding: 0 !important;
+    background: rgba(255,255,255,0.09) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
+    border-radius: 7px; cursor: pointer; text-decoration: none;
+    transition: background 0.15s;
+}
+.github-btn:hover { background: rgba(255,255,255,0.18) !important; }
+.github-btn svg { width: 16px; height: 16px; fill: #e8e8ed; display: block; }
 
 main {
     display: grid;
@@ -917,7 +936,7 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 .playbook-content-actions { display: flex; gap: 5px; flex-shrink: 0; }
 
 /* --------------------------------------------------------------- step list */
-.step-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.step-list { display: flex; flex-direction: column; gap: 0; margin-bottom: 14px; }
 .step-list-empty {
     padding: 36px 20px; text-align: center; color: #8e8e93;
     border: 1.5px dashed #d1d1d6; border-radius: 11px;
@@ -933,6 +952,27 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     transition: background 0.12s, border-color 0.12s;
 }
 .step-list-add:hover { background: #e2efff; border-color: #0a84ff; }
+
+/* ------------------------------------------------- between-step insert row */
+.step-insert {
+    display: flex; align-items: center; gap: 0;
+    padding: 0; margin: 0 2px;
+    height: 20px; opacity: 0;
+    transition: opacity 0.15s;
+}
+.step-list:hover .step-insert { opacity: 1; }
+.step-insert::before, .step-insert::after {
+    content: ''; flex: 1; height: 1px; background: #d1d1d6;
+}
+.step-insert-btn {
+    flex-shrink: 0; width: 18px; height: 18px;
+    border-radius: 50%; border: 1.5px solid #c7c7cc;
+    background: #fff; color: #8e8e93;
+    font-size: 13px; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0; margin: 0 5px; transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.step-insert-btn:hover { border-color: #0a84ff; color: #0a84ff; background: #f0f6ff; }
 
 .step-row {
     display: flex; align-items: center; gap: 11px;
@@ -1111,12 +1151,33 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 <body>
 
 <header class="top">
-    <h1>Enrollinator Profile Builder</h1>
+    <h1>
+        <div class="header-title">
+            Enrollinator Profile Builder
+            <span class="header-subtitle">
+                Visual config editor for
+                <a href="https://github.com/iamalexepstein/Enrollinator-macOS" target="_blank" rel="noopener">Enrollinator</a>
+                — MDM-agnostic macOS onboarding
+            </span>
+        </div>
+    </h1>
     <div class="actions">
         <button id="import-btn" data-tooltip="Load an existing .mobileconfig">Import…</button>
         <input type="file" id="import-file" hidden accept=".mobileconfig,.plist,.xml">
         <button id="sample-btn" data-tooltip="Fill with example playbooks">Load sample</button>
         <button id="download-btn" class="primary" data-tooltip="Export the finished profile">Download ▾</button>
+        <a class="github-btn" href="https://github.com/iamalexepstein/Enrollinator-macOS" target="_blank" rel="noopener" data-tooltip="Enrollinator on GitHub">
+            <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
+                0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
+                -.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66
+                .07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15
+                -.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09
+                2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82
+                2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01
+                2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+        </a>
         <button class="header-help-btn" id="help-btn" data-tooltip="Getting started guide">?</button>
     </div>
 </header>
@@ -2356,6 +2417,25 @@ function renderPlaybookContent(pIdx) {
     return content;
 }
 
+function insertStepAt(profile, pIdx, insertIdx) {
+    const st = blankStep();
+    st.Id   = `step-${profile.Steps.length + 1}`;
+    st.Name = "New step";
+    profile.Steps.splice(insertIdx, 0, st);
+    ui.pendingStep = { pIdx, sIdx: insertIdx };
+    openStepEditor(pIdx, insertIdx);
+}
+
+function renderStepInsertBtn(profile, pIdx, insertIdx) {
+    const wrap = h("div", { class: "step-insert" });
+    wrap.appendChild(h("button", {
+        class: "step-insert-btn",
+        "data-tooltip": "Insert step here",
+        onclick: e => { e.stopPropagation(); insertStepAt(profile, pIdx, insertIdx); }
+    }, "+"));
+    return wrap;
+}
+
 function renderStepList(profile, pIdx) {
     const list = h("div", { class: "step-list" });
 
@@ -2370,6 +2450,10 @@ function renderStepList(profile, pIdx) {
         const branchKey = `${pIdx}:${sIdx}`;
         if (st.OnSuccess || st.OnFailure || ui.expandedBranches.has(branchKey)) {
             list.appendChild(renderBranchBlock(st, pIdx, sIdx, profile.Steps));
+        }
+        // Insert button between this step and the next.
+        if (sIdx < profile.Steps.length - 1) {
+            list.appendChild(renderStepInsertBtn(profile, pIdx, sIdx + 1));
         }
     });
 
