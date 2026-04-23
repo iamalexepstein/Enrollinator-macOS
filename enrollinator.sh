@@ -156,12 +156,17 @@ wait_for_console_user() {
 # Returns a path to a plist containing just Enrollinator's config. Handles:
 #   * --xml file.plist           (bare plist, schema rooted at the top level)
 #   * --config file.mobileconfig (extracts the inner com.enrollinator.app payload)
+#   * enrollinator.xml alongside the script (bundled pkg config, no flags needed)
 #   * managed defaults domain    (snapshots via `defaults export`)
+ENROLLINATOR_BUNDLED_XML="${ENROLLINATOR_ROOT}/enrollinator.xml"
 load_config() {
     if [ -n "$CLI_XML" ]; then
         load_bare_xml "$CLI_XML"
     elif [ -n "$CLI_CONFIG" ]; then
         extract_mobileconfig_payload "$CLI_CONFIG"
+    elif [ -f "$ENROLLINATOR_BUNDLED_XML" ]; then
+        log info "Using bundled config: $ENROLLINATOR_BUNDLED_XML"
+        load_bare_xml "$ENROLLINATOR_BUNDLED_XML"
     else
         plist_export_managed "$ENROLLINATOR_DOMAIN"
     fi
@@ -1175,6 +1180,16 @@ main() {
     fi
 
     log info "Enrollinator finished (any_fail=$any_fail test_mode=$ENROLLINATOR_TEST_MODE)"
+
+    # Push an inventory update so Jamf Pro reflects the new state immediately.
+    # Run in the background so we don't block; skip in test/dry-run mode and
+    # when Jamf isn't present (the script is MDM-agnostic).
+    if [ "$CLI_DRY_RUN" -eq 0 ] && [ "$ENROLLINATOR_TEST_MODE" != "1" ] \
+       && [ -x /usr/local/jamf/bin/jamf ]; then
+        log info "Triggering jamf recon"
+        /usr/local/jamf/bin/jamf recon &
+    fi
+
     [ $any_fail -eq 0 ]
 }
 

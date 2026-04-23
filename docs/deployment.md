@@ -2,27 +2,68 @@
 
 This document covers what you put on disk, where, and how Enrollinator starts.
 
+## Config delivery: MDM profile vs. bundled XML
+
+Enrollinator supports two ways to receive its configuration. Choose one per
+deployment:
+
+**Option A — MDM profile (recommended)**
+Deploy a `.mobileconfig` via your MDM as a custom configuration profile.
+macOS writes it into the `com.enrollinator.app` managed preferences domain;
+Enrollinator reads it at runtime. The pkg and the config are independent — you
+can update steps, branding, or playbooks by pushing a new profile without
+rebuilding or redeploying the pkg.
+
+**Option B — Bundled XML**
+Export a bare `.plist` from the Profile Builder (**Download ▾ → Download as
+.plist**), save it as `enrollinator.xml` in the repo root, and run
+`./pkg/build.sh`. The file is installed at
+`/usr/local/enrollinator/enrollinator.xml` and auto-discovered at runtime — no
+MDM profile needed. This is useful when a configuration profile isn't
+practical (e.g. testing, or environments where profile scoping is awkward).
+
+Config resolution order (first match wins):
+
+1. `--xml <path>` CLI flag
+2. `--config <path>` CLI flag
+3. `/usr/local/enrollinator/enrollinator.xml` (bundled, Option B)
+4. `com.enrollinator.app` managed preferences domain (MDM profile, Option A)
+
 ## Artifacts
 
-A typical deployment consists of four artifacts, each pushed by your MDM:
+| Artifact | Required | Notes |
+|---|---|---|
+| `Enrollinator-<version>.pkg` | Yes | Built by `./pkg/build.sh`. Installs scripts + LaunchDaemon. |
+| swiftDialog `.pkg` | Yes | From [swiftDialog releases](https://github.com/swiftDialog/swiftDialog/releases). Installs `dialog` to `/usr/local/bin/dialog`. |
+| `.mobileconfig` | Option A only | Custom configuration profile, scoped to target devices in your MDM. |
+| App packages (Chrome, Slack, …) | As needed | Any `.pkg` referenced by an `Action: Type=package` step. |
 
-1. **`Enrollinator-<version>.pkg`** — installs the script, the `lib/` helpers,
-   and the LaunchDaemon. Built by `./pkg/build.sh`.
-2. **swiftDialog `.pkg`** — from
-   [swiftDialog](https://github.com/swiftDialog/swiftDialog/releases). Must
-   land `dialog` at `/usr/local/bin/dialog`.
-3. **`.mobileconfig`** — your Enrollinator configuration profile. Deliver it as
-   a signed custom configuration profile scoped to the devices you want
-   Enrollinator to run on.
-4. **App packages** (Chrome, Slack, …) — any `.pkg` referenced by an
-   `Action: Type=package` step. Drop them at the path the config
-   expects (e.g. `/Library/Enrollinator/packages/`).
+### Building the pkg
+
+```bash
+# Standard build — config delivered via MDM profile (Option A)
+./pkg/build.sh 1.0.0
+
+# Bundled XML build — config baked in (Option B)
+cp /path/to/exported-config.plist enrollinator.xml
+./pkg/build.sh 1.0.0
+```
+
+Packages do not need to be signed for deployment via Jamf or other MDMs — the
+MDM agent validates packages using its own checksum. A signing identity
+(`"Developer ID Installer: …"`) is only needed if you distribute the pkg
+outside of MDM (e.g. direct download). Pass it as the second argument:
+
+```bash
+./pkg/build.sh 1.0.0 "Developer ID Installer: Example, Inc. (ABCDE12345)"
+```
 
 ## Paths after install
 
 ```
 /usr/local/enrollinator/
 ├── enrollinator.sh                        # runs as root, from the LaunchDaemon
+├── enrollinator.xml                       # only present for Option B (bundled XML)
 └── lib/
     ├── plist.sh
     ├── ui.sh
@@ -31,10 +72,10 @@ A typical deployment consists of four artifacts, each pushed by your MDM:
 /Library/LaunchDaemons/com.enrollinator.app.plist
 
 /var/log/enrollinator.log                  # structured run log
-/var/log/enrollinator.stdout.log           # daemon stdout (swiftDialog spawn)
+/var/log/enrollinator.stdout.log           # daemon stdout
 /var/log/enrollinator.stderr.log           # daemon stderr
 /var/tmp/enrollinator/                     # runtime scratch space
-/var/tmp/dialog.log                    # swiftDialog command file — Enrollinator writes real-time update commands here; swiftDialog tails it. World-writable by design.
+/var/tmp/dialog.log                        # swiftDialog command file (world-writable by design)
 /var/lib/enrollinator/completed            # present after a successful run; gates re-runs
 ```
 
@@ -104,6 +145,96 @@ sudo /usr/local/enrollinator/enrollinator.sh --dry-run
 /usr/local/enrollinator/enrollinator.sh --skip-root-check --test
 ```
 
+## Jamf Pro
+
+### Running order
+
+Deploy these artifacts in this order for new machine enrollment:
+
+1. swiftDialog pkg
+2. Enrollinator pkg
+3. `.mobileconfig` configuration profile (Option A) — scope to the same devices
+
+The LaunchDaemon fires at boot after the pkg lands. It calls
+`wait_for_console_user` internally and will not try to display UI until a real
+user has logged in, so exact policy ordering is not critical as long as all
+three arrive before first login.
+
+### Re-running via Jamf
+
+Do not run `enrollinator.sh` directly as a Jamf script policy — Jamf passes
+positional arguments (`$1`–`$3`) that the script does not expect, and there
+may be no user session for the UI to land in. Instead, create a policy with a
+small script that removes the completed flag and kicks the existing
+LaunchDaemon:
+
+```bash
+#!/bin/bash
+rm -f /var/lib/enrollinator/completed
+launchctl kickstart -k system/com.enrollinator.app
+```
+
+This exits immediately; `launchd` relaunches Enrollinator in its normal
+context.
+
+### Reporting back to Jamf
+
+Because Enrollinator runs via LaunchDaemon rather than a Jamf policy, its
+output never appears in the Jamf policy log. Instead:
+
+**Automatic inventory update** — Enrollinator calls `jamf recon` in the
+background when it finishes (skipped in test/dry-run mode and when Jamf is not
+present). This pushes an inventory update to Jamf Pro as soon as the run
+completes.
+
+**Extension Attributes** — Create these in Jamf Pro → Settings → Computer
+Management → Extension Attributes (data type: String, input: Script). They are
+evaluated during every recon and their values appear on the computer record and
+can drive Smart Groups.
+
+*Enrollinator Status* — primary EA for Smart Groups:
+
+```bash
+#!/bin/bash
+COMPLETED=/var/lib/enrollinator/completed
+LOG=/var/log/enrollinator.log
+if [ ! -f "$LOG" ]; then
+    echo "<result>Never run</result>"; exit 0
+fi
+if grep -q 'any_fail=1' "$LOG" 2>/dev/null; then
+    last_fail=$(grep 'Enrollinator finished.*any_fail=1' "$LOG" | tail -1 | cut -d' ' -f1)
+    echo "<result>Failed ($last_fail)</result>"
+elif [ -f "$COMPLETED" ]; then
+    echo "<result>Complete</result>"
+else
+    echo "<result>In progress</result>"
+fi
+```
+
+*Enrollinator Last Run* — timestamp:
+
+```bash
+#!/bin/bash
+ts=$(grep 'Enrollinator finished' /var/log/enrollinator.log 2>/dev/null | tail -1 | awk '{print $1}')
+echo "<result>${ts:-Never}</result>"
+```
+
+*Enrollinator Last Error* — most recent `[error]` or `[warn]` line:
+
+```bash
+#!/bin/bash
+last=$(grep -E '\[(error|warn)\]' /var/log/enrollinator.log 2>/dev/null | tail -1)
+echo "<result>${last:-None}</result>"
+```
+
+Suggested Smart Groups:
+
+| Name | Criteria |
+|---|---|
+| Enrollinator — Complete | Status `is` `Complete` |
+| Enrollinator — Failed | Status `is` `Failed (…)` (use `like` `Failed`) |
+| Enrollinator — Pending | Status `is not` `Complete` AND `is not` `Failed (…)` |
+
 ## Logging
 
 Enrollinator writes structured lines to `/var/log/enrollinator.log`:
@@ -111,10 +242,12 @@ Enrollinator writes structured lines to `/var/log/enrollinator.log`:
 ```
 2026-04-19T09:14:22-0700 [info]  Enrollinator starting (root=/usr/local/enrollinator domain=com.enrollinator.app pid=842)
 2026-04-19T09:14:22-0700 [info]  Console user: alex
-2026-04-19T09:14:22-0700 [info]  Config loaded: /var/folders/…/enrollinator-prefs.plist
+2026-04-19T09:14:22-0700 [info]  Using bundled config: /usr/local/enrollinator/enrollinator.xml
 2026-04-19T09:14:22-0700 [info]  Selected profile: Standard Employee (index 1)
 2026-04-19T09:14:22-0700 [info]  step=install-chrome name=Install Google Chrome blocking=false
 2026-04-19T09:14:44-0700 [info]  step=chrome-default name=Set Chrome as your default browser blocking=true
+2026-04-19T09:15:10-0700 [info]  Enrollinator finished (any_fail=0 test_mode=0)
+2026-04-19T09:15:10-0700 [info]  Triggering jamf recon
 ```
 
 swiftDialog's own output goes to `/var/log/enrollinator.stdout.log` and
@@ -122,16 +255,17 @@ swiftDialog's own output goes to `/var/log/enrollinator.stdout.log` and
 
 ## Updating the config
 
-Edit your config in the [Profile Builder](../tools/profile-builder.html)
-(open it in any browser, click **Import** to load the current file, make
-your changes, then **Download**), or edit the XML directly. Push the new
-`.mobileconfig` through your MDM. On next boot, Enrollinator reads the fresh
-managed preferences and runs the new steps. There is no need to rebuild or
-redeploy the pkg when only the config changes — that's the whole point.
+**Option A (MDM profile):** Edit your config in the
+[Profile Builder](../tools/profile-builder.html), click **Import** to load
+the current file, make your changes, then **Download .mobileconfig**. Push the
+new profile through your MDM. On next boot, Enrollinator reads the fresh
+managed preferences. There is no need to rebuild or redeploy the pkg.
 
-If the completed flag is in the way and you need to re-run after a config
-change, wipe `/var/lib/enrollinator/completed` from your MDM, or deploy a new
-`.mobileconfig` with a step that does so as an `Action: Type=shell`.
+**Option B (bundled XML):** Re-export the `.plist` from the Profile Builder,
+overwrite `enrollinator.xml` in the repo root, and rebuild + redeploy the pkg.
+
+If the completed flag is in the way, wipe `/var/lib/enrollinator/completed`
+from your MDM, or add a step with `Action: Type=shell` that removes it.
 
 ## Uninstalling
 

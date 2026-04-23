@@ -1,5 +1,5 @@
 #!/bin/bash
-# pkg/build.sh — build a signed distribution .pkg that lays down Enrollinator.
+# pkg/build.sh — build a distribution .pkg that lays down Enrollinator.
 #
 # Layout of the produced pkg:
 #   /usr/local/enrollinator/enrollinator.sh
@@ -8,13 +8,23 @@
 #   /usr/local/enrollinator/lib/plugins.sh
 #   /Library/LaunchDaemons/com.enrollinator.app.plist
 #
-# The .mobileconfig is deployed separately via your MDM. That's the whole
-# point: swap configs without rebuilding the pkg.
+# Config options (mutually exclusive; MDM profile takes priority if both present):
+#   Option A — MDM profile (recommended):
+#     Deploy a .mobileconfig via your MDM separately. The script reads managed
+#     prefs from com.enrollinator.app at runtime. Swap configs without rebuilding.
+#
+#   Option B — Bundled XML:
+#     Drop enrollinator.xml next to this script before building:
+#       cp /path/to/config.xml enrollinator.xml && pkg/build.sh 1.0.0
+#     The file is installed at /usr/local/enrollinator/enrollinator.xml and
+#     auto-discovered at runtime (no flags needed). Useful when MDM profile
+#     deployment isn't available or for self-contained test packages.
 #
 # Usage:
 #   pkg/build.sh <version> [signing-identity]
 #
 # Example:
+#   pkg/build.sh 1.0.0
 #   pkg/build.sh 1.0.0 "Developer ID Installer: Example, Inc. (ABCDE12345)"
 
 set -euo pipefail
@@ -41,6 +51,15 @@ echo "==> Staging files"
 /usr/bin/install -m 0644 "$ROOT/lib/plugins.sh"       "$ROOTFS/usr/local/enrollinator/lib/plugins.sh"
 /usr/bin/install -m 0644 "$ROOT/launchd/com.enrollinator.app.plist" \
                          "$ROOTFS/Library/LaunchDaemons/com.enrollinator.app.plist"
+
+# Bundle enrollinator.xml if present alongside this script (Option B above).
+if [ -f "${ROOT}/enrollinator.xml" ]; then
+    echo "==> Bundling enrollinator.xml"
+    /usr/bin/install -m 0644 "${ROOT}/enrollinator.xml" \
+                             "$ROOTFS/usr/local/enrollinator/enrollinator.xml"
+else
+    echo "==> No enrollinator.xml found — config will be read from managed prefs at runtime"
+fi
 
 echo "==> Building component pkg"
 /usr/bin/pkgbuild \

@@ -117,45 +117,73 @@ which you deploy alongside Enrollinator via your MDM.
 Open [`tools/profile-builder.html`](tools/profile-builder.html) in any
 browser. Click **Load sample** to start from a working example, or
 **Import** to load an existing `.mobileconfig`. When you're done, click
-**Download ▾ → Download .mobileconfig**.
+**Download ▾** and choose your format:
+
+- **Download .mobileconfig** — deploy via your MDM as a configuration profile
+- **Download as .plist (--xml)** — bundle directly in the pkg (see step 2B)
 
 No XML editing required — but if you prefer to work directly in the schema,
 see [docs/mobileconfig-schema.md](docs/mobileconfig-schema.md).
 
 ### 2. Install Enrollinator on each Mac
 
-Option A: build and deploy a pkg.
+**Option A — MDM profile (recommended):** Build the pkg without a config baked in,
+deploy it via your MDM, then deploy the `.mobileconfig` from step 1 as a
+separate configuration profile. The config and the code are independent — you
+can update the config without rebuilding the pkg.
 
 ```bash
-./pkg/build.sh 1.0.0 "Developer ID Installer: You, Inc. (ABCDE12345)"
+./pkg/build.sh 1.0.0
 # Upload build/Enrollinator-1.0.0.pkg to your MDM.
 ```
 
-Option B: from a dev machine, just run it.
+Packages deployed via Jamf (and most MDMs) do not need to be signed. A signing
+identity is only required if you're distributing the pkg outside of MDM.
+
+**Option B — Bundled XML:** Export a `.plist` from the Profile Builder
+(**Download ▾ → Download as .plist**), save it as `enrollinator.xml` in the
+repo root, then build. The file is bundled into the pkg and auto-discovered at
+runtime — no MDM profile needed.
+
+```bash
+cp /path/to/your-config.plist enrollinator.xml
+./pkg/build.sh 1.0.0
+# Upload build/Enrollinator-1.0.0.pkg to your MDM.
+```
+
+**Option C — dev/testing:** Run directly against a local config file.
 
 ```bash
 sudo /usr/local/enrollinator/enrollinator.sh --config ./examples/enrollinator.mobileconfig
 ```
 
-### 3. Deploy the `.mobileconfig`
+### 3. Deploy the `.mobileconfig` (Option A only)
 
-Upload the file from the Profile Builder to your MDM as a custom
-configuration profile scoped to the devices you want Enrollinator to run on.
+Upload the file from the Profile Builder to your MDM as a custom configuration
+profile scoped to the devices you want Enrollinator to run on. Skip this step
+if you used Option B.
 
 ### 4. Deploy swiftDialog
 
 Enrollinator won't start without it. Grab the
 [latest release](https://github.com/swiftDialog/swiftDialog/releases) and
-push it to `/usr/local/bin/dialog` via your MDM.
+push it to `/usr/local/bin/dialog` via your MDM, or enable **Install
+swiftDialog** in the Profile Builder's global settings to have Enrollinator
+install it automatically on first run.
 
 ### 5. Boot
 
 The LaunchDaemon (`com.enrollinator.app`) starts Enrollinator as root at
-boot. Enrollinator waits for a console user, reads the managed config, picks
-the matching playbook, and walks the steps. The UI is rendered into the
-user's session via `launchctl asuser`. A `/var/lib/enrollinator/completed`
-flag prevents it from running again; delete the flag (or pass `--force`) to
-re-run.
+boot. Enrollinator waits for a console user, reads the config (bundled XML if
+present, otherwise managed prefs), picks the matching playbook, and walks the
+steps. The UI is rendered into the user's session via `launchctl asuser`. A
+`/var/lib/enrollinator/completed` flag prevents re-runs; delete the flag (or
+pass `--force`) to re-run.
+
+On Jamf, Enrollinator triggers a `jamf recon` when it finishes so the machine's
+inventory reflects the completed state immediately. See
+[docs/deployment.md](docs/deployment.md) for Extension Attributes that surface
+run status, last run timestamp, and last error in Jamf Pro.
 
 ## The schema in brief
 
