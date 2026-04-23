@@ -47,6 +47,38 @@ ui_require_dialog() {
     fi
 }
 
+# _ui_valid_dialog_pid <pid>
+# Returns 0 only if pid is a positive integer belonging to a live process
+# named "dialog" owned by the console user (or root when running without a
+# session). Prevents a local user from spoofing world-readable PID files with
+# an arbitrary PID to make root send signals to unrelated processes.
+_ui_valid_dialog_pid() {
+    local pid="$1"
+    # Must be a positive integer.
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    # Process must be named "dialog".
+    local comm
+    comm="$(/bin/ps -o comm= -p "$pid" 2>/dev/null | /usr/bin/xargs /usr/bin/basename 2>/dev/null)"
+    [ "$comm" = "dialog" ] || return 1
+    # Process must be owned by the console user or root.
+    local owner
+    owner="$(/bin/ps -o user= -p "$pid" 2>/dev/null | /usr/bin/tr -d ' ')"
+    [ "$owner" = "root" ] || [ "$owner" = "${ENROLLINATOR_CONSOLE_USER:-root}" ] || return 1
+    return 0
+}
+
+# _ui_valid_root_pid <pid>
+# Returns 0 only if pid is a positive integer for a live root-owned process.
+# Used to validate PID files for Enrollinator's own background subshells.
+_ui_valid_root_pid() {
+    local pid="$1"
+    [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+    local uid
+    uid="$(/bin/ps -o uid= -p "$pid" 2>/dev/null | /usr/bin/tr -d ' ')"
+    [ "$uid" = "0" ] || return 1
+    return 0
+}
+
 # Invoke argv as the console user when we're root; otherwise invoke directly.
 _ui_user_exec() {
     local uid=""
@@ -123,6 +155,9 @@ _ui_normalize_video() {
 # then appends --video and optionally --videoautoplay to the named array.
 _ui_add_video_arg() {
     local _arr="$1" _url="$2" _autoplay="${3:-}"
+    # Restrict array name to safe identifier characters before eval to prevent
+    # injection if this function is ever called with a derived first argument.
+    [[ "$_arr" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 1
     local _resolved
     _resolved="$(_ui_normalize_video "$_url" "$_autoplay")"
     if [ -n "$_resolved" ]; then
@@ -146,10 +181,12 @@ _ui_add_video_arg() {
 ui_start() {
     local title="$1" subtitle="$2" accent="$3" logo="$4" steps_file="$5"
 
-    # The command file needs to be writable by both root (Enrollinator) and the
-    # user-session swiftDialog process. /var/tmp is sticky world-writable.
+    # The command file is written by root (Enrollinator) and read by the
+    # user-session swiftDialog process. 0644 gives swiftDialog read access
+    # without allowing local users to inject commands.
     : > "$DIALOG_COMMAND_FILE"
-    /bin/chmod 0666 "$DIALOG_COMMAND_FILE" 2>/dev/null || true
+    /bin/chmod 0644 "$DIALOG_COMMAND_FILE" 2>/dev/null || true
+    /usr/sbin/chown root:wheel "$DIALOG_COMMAND_FILE" 2>/dev/null || true
 
     # Build the --listitem arguments from the manifest.
     local listitems=()
@@ -383,7 +420,7 @@ ui_stop() {
         /bin/sleep 0.3
         local pid
         pid="$(cat "$DIALOG_PID_FILE")"
-        if [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then
+        if _ui_valid_dialog_pid "$pid"; then
             /bin/kill "$pid" 2>/dev/null || true
         fi
         /bin/rm -f "$DIALOG_PID_FILE"
@@ -430,7 +467,8 @@ ui_wait_open() {
     [ "${ENROLLINATOR_UI_BLUR:-0}" = "1" ] && [ -z "$video" ] && [[ "$slideshow" == *"|"* ]] && _ww_use_keeper=1
     if [ "$_ww_use_keeper" = "1" ]; then
         : > "$WAIT_BLUR_KEEPER_CMD"
-        /bin/chmod 0666 "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
+        /bin/chmod 0644 "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
+        /usr/sbin/chown root:wheel "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
         local _wbk_args=(
             --title " " --message " "
             --messagefont "size=1"
@@ -513,7 +551,8 @@ ui_wait_open() {
     fi
 
     : > "$WAIT_COMMAND_FILE"
-    /bin/chmod 0666 "$WAIT_COMMAND_FILE" 2>/dev/null || true
+    /bin/chmod 0644 "$WAIT_COMMAND_FILE" 2>/dev/null || true
+    /usr/sbin/chown root:wheel "$WAIT_COMMAND_FILE" 2>/dev/null || true
 
     local args=(
         --title "$title"
@@ -550,6 +589,18 @@ ui_wait_open() {
 
     _ui_user_exec "$DIALOG_BIN" "${args[@]}" &
     echo $! > "$WAIT_PID_FILE"
+    # When running as root, the PID above is the launchctl wrapper which exits
+    # immediately after handing the dialog off to the user session.  Poll pgrep
+    # to get the real swiftDialog PID so the watcher can track it correctly.
+    if [ "$(/usr/bin/id -u)" -eq 0 ]; then
+        local _wwpid="" _wwi
+        for (( _wwi=0; _wwi<40; _wwi++ )); do
+            _wwpid="$(/bin/pgrep -nx dialog 2>/dev/null)"
+            [ -n "$_wwpid" ] && break
+            /bin/sleep 0.1
+        done
+        [ -n "$_wwpid" ] && printf '%s\n' "$_wwpid" > "$WAIT_PID_FILE"
+    fi
 
     # ── Back-navigation watcher ─────────────────────────────────────────────
     # When the slideshow has more than one frame, a background subshell watches
@@ -577,8 +628,9 @@ ui_wait_open() {
 
             while true; do
                 # Poll until the persistent window PID is no longer alive.
+                # Validate the PID is actually a dialog process before polling.
                 _w_pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
-                while [ -n "$_w_pid" ] && /bin/kill -0 "$_w_pid" 2>/dev/null; do
+                while _ui_valid_dialog_pid "$_w_pid" && /bin/kill -0 "$_w_pid" 2>/dev/null; do
                     /bin/sleep 0.3
                     _w_pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
                 done
@@ -638,9 +690,21 @@ ui_wait_open() {
                 # Clear the navigation flag first so the timeout clock resumes.
                 /bin/rm -f "$WAIT_NAVIGATING_FILE" 2>/dev/null || true
                 : > "$WAIT_COMMAND_FILE"
-                /bin/chmod 0666 "$WAIT_COMMAND_FILE" 2>/dev/null || true
+                /bin/chmod 0644 "$WAIT_COMMAND_FILE" 2>/dev/null || true
+                /usr/sbin/chown root:wheel "$WAIT_COMMAND_FILE" 2>/dev/null || true
                 _ui_user_exec "$DIALOG_BIN" "${args[@]}" &
                 echo $! > "$WAIT_PID_FILE"
+                # Same as the initial launch: resolve the real swiftDialog PID
+                # so the next poll iteration can track the live process.
+                if [ "$(/usr/bin/id -u)" -eq 0 ]; then
+                    local _rw_pid="" _ri
+                    for (( _ri=0; _ri<40; _ri++ )); do
+                        _rw_pid="$(/bin/pgrep -nx dialog 2>/dev/null)"
+                        [ -n "$_rw_pid" ] && break
+                        /bin/sleep 0.1
+                    done
+                    [ -n "$_rw_pid" ] && printf '%s\n' "$_rw_pid" > "$WAIT_PID_FILE"
+                fi
                 # Loop back to watch this new PID.
             done
         ) &
@@ -690,14 +754,15 @@ ui_wait_close() {
     if [ -f "$WAIT_SLIDESHOW_PID_FILE" ]; then
         local spid
         spid="$(cat "$WAIT_SLIDESHOW_PID_FILE" 2>/dev/null)"
-        [ -n "$spid" ] && /bin/kill "$spid" 2>/dev/null || true
+        # Slideshow PID is a root-owned subshell; validate before killing.
+        _ui_valid_root_pid "$spid" && /bin/kill "$spid" 2>/dev/null || true
         /bin/rm -f "$WAIT_SLIDESHOW_PID_FILE"
     fi
     if [ -f "$WAIT_PID_FILE" ]; then
         /bin/sleep 0.2
         local pid
         pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
-        if [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; then
+        if _ui_valid_dialog_pid "$pid"; then
             /bin/kill "$pid" 2>/dev/null || true
         fi
         /bin/rm -f "$WAIT_PID_FILE"
@@ -708,9 +773,13 @@ ui_wait_close() {
     if [ -f "$WAIT_BLUR_KEEPER_PID_FILE" ]; then
         local _bkpid
         _bkpid="$(cat "$WAIT_BLUR_KEEPER_PID_FILE" 2>/dev/null)"
-        if [ -n "$_bkpid" ]; then
-            printf 'quit:\n' >> "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
-            /bin/sleep 0.1
+        # Write quit: unconditionally — it's a safe command-file write that
+        # works regardless of whether we can validate the PID.  The PID in the
+        # file may be the launchctl wrapper (already dead) rather than the real
+        # swiftDialog process, so gate only the SIGTERM on PID validation.
+        printf 'quit:\n' >> "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
+        /bin/sleep 0.1
+        if _ui_valid_dialog_pid "$_bkpid"; then
             /bin/kill "$_bkpid" 2>/dev/null || true
         fi
         /bin/rm -f "$WAIT_BLUR_KEEPER_PID_FILE"
@@ -794,7 +863,8 @@ ui_dialog_popup() {
 
     local popup_cmd="/var/tmp/enrollinator.popup.log"
     : > "$popup_cmd"
-    /bin/chmod 0666 "$popup_cmd" 2>/dev/null || true
+    /bin/chmod 0644 "$popup_cmd" 2>/dev/null || true
+    /usr/sbin/chown root:wheel "$popup_cmd" 2>/dev/null || true
 
     local args=(
         --title "$_final_title"
@@ -843,7 +913,8 @@ ui_dialog_popup() {
     if [ "$_use_keeper" = "1" ]; then
         _bk_cmd="/var/tmp/enrollinator.blur-keeper.log"
         : > "$_bk_cmd"
-        /bin/chmod 0666 "$_bk_cmd" 2>/dev/null || true
+        /bin/chmod 0644 "$_bk_cmd" 2>/dev/null || true
+        /usr/sbin/chown root:wheel "$_bk_cmd" 2>/dev/null || true
         local _bk_args=(
             --title " " --message " "
             --messagefont "size=1"
@@ -896,11 +967,16 @@ ui_dialog_popup() {
                 0)  dlg_i=$(( dlg_i + 1 )) ;;
                 2)  [ "$dlg_i" -gt 0 ] && dlg_i=$(( dlg_i - 1 )) ;;
                 *)  /bin/rm -f "$popup_cmd" 2>/dev/null || true
-                    # Close the blur keeper before exiting.
-                    if [ -n "$_bk_pid" ]; then
+                    # Close the blur keeper before exiting.  Write quit: to the
+                    # command file unconditionally (safe write); only gate the
+                    # kill on PID validation — _bk_pid may be the dead launchctl
+                    # wrapper rather than the real swiftDialog process.
+                    if [ -n "$_bk_cmd" ]; then
                         printf 'quit:\n' >> "$_bk_cmd" 2>/dev/null || true
                         /bin/sleep 0.1
-                        /bin/kill "$_bk_pid" 2>/dev/null || true
+                        if _ui_valid_dialog_pid "$_bk_pid"; then
+                            /bin/kill "$_bk_pid" 2>/dev/null || true
+                        fi
                         /bin/rm -f "$_bk_cmd" 2>/dev/null || true
                     fi
                     return "$_drc" ;;
@@ -916,10 +992,13 @@ ui_dialog_popup() {
             fi
             /bin/rm -f "$popup_cmd" 2>/dev/null || true
             # Close the blur keeper now that the dialog sequence is done.
-            if [ -n "$_bk_pid" ]; then
+            # Same as the error-exit path: quit: is unconditional, kill is gated.
+            if [ -n "$_bk_cmd" ]; then
                 printf 'quit:\n' >> "$_bk_cmd" 2>/dev/null || true
                 /bin/sleep 0.1
-                /bin/kill "$_bk_pid" 2>/dev/null || true
+                if _ui_valid_dialog_pid "$_bk_pid"; then
+                    /bin/kill "$_bk_pid" 2>/dev/null || true
+                fi
                 /bin/rm -f "$_bk_cmd" 2>/dev/null || true
             fi
             # swiftDialog return codes: 0=button1, 2=button2, 3=infobutton, etc.

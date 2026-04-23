@@ -52,6 +52,17 @@ echo "==> Staging files"
 /usr/bin/install -m 0644 "$ROOT/launchd/com.enrollinator.app.plist" \
                          "$ROOTFS/Library/LaunchDaemons/com.enrollinator.app.plist"
 
+# Enforce root:wheel ownership on all staged files. pkgbuild --ownership
+# recommended inherits build-time metadata, which may be wrong in CI
+# environments that run as an unprivileged user. Explicit chown ensures the
+# sourced lib/*.sh files are not world-writable after installation.
+if [ "$(/usr/bin/id -u)" -eq 0 ]; then
+    /usr/sbin/chown -R root:wheel "$ROOTFS"
+else
+    echo "==> WARNING: not running as root — file ownership in the pkg may be wrong."
+    echo "==>          Run 'sudo pkg/build.sh' for a production build."
+fi
+
 # Bundle enrollinator.xml if present alongside this script (Option B above).
 if [ -f "${ROOT}/enrollinator.xml" ]; then
     echo "==> Bundling enrollinator.xml"

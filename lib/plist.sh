@@ -16,7 +16,10 @@ PLB=/usr/libexec/PlistBuddy
 plist_export_managed() {
     local domain="${1:-com.enrollinator.app}"
     local tmp
-    tmp="$(/usr/bin/mktemp -t enrollinator-prefs).plist"
+    # Do NOT append an extension after mktemp — that produces a second,
+    # non-atomically-created path that is vulnerable to a symlink race.
+    # defaults export and PlistBuddy work fine without a .plist suffix.
+    tmp="$(/usr/bin/mktemp -t enrollinator-prefs)"
     # `defaults export` writes a plist to the given path.
     /usr/bin/defaults export "$domain" "$tmp" 2>/dev/null || {
         # If nothing is set, defaults export exits non-zero; create an empty plist.

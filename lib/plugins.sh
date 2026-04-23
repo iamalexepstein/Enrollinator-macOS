@@ -289,7 +289,7 @@ cond_app_installed() {
     if [ -n "$path" ]; then
         app_path="$path"
     elif [ -n "$bundle_id" ]; then
-        app_path="$(/usr/bin/mdfind "kMDItemCFBundleIdentifier == $bundle_id" 2>/dev/null | /usr/bin/head -n1)"
+        app_path="$(/usr/bin/mdfind "kMDItemCFBundleIdentifier == \"$bundle_id\"" 2>/dev/null | /usr/bin/head -n1)"
     else
         echo "app_installed: need BundleId or Path"
         return 2

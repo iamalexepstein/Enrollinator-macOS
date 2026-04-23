@@ -182,7 +182,10 @@ load_bare_xml() {
         exit 2
     fi
     local out
-    out="$(/usr/bin/mktemp -t enrollinator-cfg).plist"
+    # Do NOT append .plist after mktemp — that produces a second,
+    # non-atomic path vulnerable to a symlink race. plutil and PlistBuddy
+    # identify file format from content, not extension.
+    out="$(/usr/bin/mktemp -t enrollinator-cfg)"
     if ! /bin/cp "$src" "$out"; then
         log error "Failed to read $src"
         exit 2
@@ -207,7 +210,10 @@ extract_mobileconfig_payload() {
     fi
 
     local out
-    out="$(/usr/bin/mktemp -t enrollinator-cfg).plist"
+    # Do NOT append .plist after mktemp — that produces a second,
+    # non-atomic path vulnerable to a symlink race. plutil and PlistBuddy
+    # identify file format from content, not extension.
+    out="$(/usr/bin/mktemp -t enrollinator-cfg)"
 
     # If there's no :PayloadContent, treat the file as an already-bare
     # com.enrollinator.app prefs plist.
@@ -781,7 +787,8 @@ ensure_swiftdialog() {
 
     log info "Downloading swiftDialog from: $pkg_url"
     local tmp_pkg
-    tmp_pkg="$(/usr/bin/mktemp -t swiftdialog).pkg"
+    # No extension appended — installer identifies pkg format from content.
+    tmp_pkg="$(/usr/bin/mktemp -t swiftdialog)"
 
     if ! /usr/bin/curl -fsSL -o "$tmp_pkg" "$pkg_url"; then
         log warn "Failed to download swiftDialog pkg."
@@ -789,6 +796,20 @@ ensure_swiftdialog() {
         _dismiss_osa
         return 1
     fi
+
+    # Verify the package is signed before installing as root.
+    # A MITM or supply-chain attacker could substitute an unsigned pkg; we
+    # refuse to install anything that doesn't carry a valid Developer ID.
+    local sig_check
+    sig_check="$(/usr/sbin/pkgutil --check-signature "$tmp_pkg" 2>&1)"
+    if ! printf '%s\n' "$sig_check" | /usr/bin/grep -q "Status: signed by"; then
+        log warn "swiftDialog pkg failed signature check — aborting install."
+        log warn "pkgutil output: $sig_check"
+        /bin/rm -f "$tmp_pkg"
+        _dismiss_osa
+        return 1
+    fi
+    log info "swiftDialog pkg signature OK: $(printf '%s\n' "$sig_check" | /usr/bin/grep 'Developer ID' | /usr/bin/head -1 | /usr/bin/xargs)"
 
     log info "Installing swiftDialog…"
     /usr/sbin/installer -pkg "$tmp_pkg" -target / >/dev/null 2>&1
@@ -1161,10 +1182,12 @@ main() {
         ui_enable_done
         ui_set_banner "All done. You can close this window."
         # Wait for the dialog process to exit naturally (user clicks Done).
+        # Validate the PID before polling — the file is world-readable and a
+        # local user could pre-create it with an arbitrary PID.
         if [ -f "$DIALOG_PID_FILE" ]; then
             local pid
             pid="$(cat "$DIALOG_PID_FILE")"
-            while [ -n "$pid" ] && /bin/kill -0 "$pid" 2>/dev/null; do
+            while _ui_valid_dialog_pid "$pid" && /bin/kill -0 "$pid" 2>/dev/null; do
                 /bin/sleep 0.5
             done
         fi
