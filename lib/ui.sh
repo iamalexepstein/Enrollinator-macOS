@@ -28,6 +28,15 @@ DIALOG_PID_FILE="/var/tmp/enrollinator.dialog.pid"
 WAIT_COMMAND_FILE="/var/tmp/enrollinator.wait.log"
 WAIT_PID_FILE="/var/tmp/enrollinator.wait.pid"
 WAIT_SLIDESHOW_PID_FILE="/var/tmp/enrollinator.wait-slideshow.pid"
+# Created while the watcher is showing interactive back-slides; removed when
+# the persistent window is re-launched.  The polling loop pauses the timeout
+# clock while this file exists so the timer doesn't fire mid-review.
+WAIT_NAVIGATING_FILE="/var/tmp/enrollinator.wait-navigating"
+# Blur-keeper for multi-slide wait windows: a background dialog that holds
+# --blurscreen open continuously so the blur never flickers during transitions
+# between the interactive instruction slides and the persistent wait window.
+WAIT_BLUR_KEEPER_CMD="/var/tmp/enrollinator.wait-blur-keeper.log"
+WAIT_BLUR_KEEPER_PID_FILE="/var/tmp/enrollinator.wait-blur-keeper.pid"
 
 # Abort with a helpful message if swiftDialog isn't present.
 ui_require_dialog() {
@@ -410,6 +419,33 @@ ui_wait_open() {
 
     ui_wait_close   # clean up any prior wait window
 
+    # ── Blur keeper ─────────────────────────────────────────────────────────
+    # When blur is enabled and the slideshow has multiple frames, launch a
+    # tiny background dialog that holds --blurscreen open for the whole
+    # sequence.  Individual slide dialogs appear on top (they're created later,
+    # so macOS stacks them in front); the keeper fills the ~200 ms gap between
+    # transitions so the blur never flickers.  _ww_use_keeper is set here so
+    # every --blurscreen flag in this function can check it.
+    local _ww_use_keeper=0
+    [ "${ENROLLINATOR_UI_BLUR:-0}" = "1" ] && [ -z "$video" ] && [[ "$slideshow" == *"|"* ]] && _ww_use_keeper=1
+    if [ "$_ww_use_keeper" = "1" ]; then
+        : > "$WAIT_BLUR_KEEPER_CMD"
+        /bin/chmod 0666 "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
+        local _wbk_args=(
+            --title " " --message " "
+            --messagefont "size=1"
+            --position center
+            --width "$width" --height "$height"
+            --blurscreen
+            --button1disabled --button1text " "
+            --commandfile "$WAIT_BLUR_KEEPER_CMD"
+            --hideicon --moveable --ignorednd
+        )
+        [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && _wbk_args+=( --ontop )
+        _ui_user_exec "$DIALOG_BIN" "${_wbk_args[@]}" &
+        echo $! > "$WAIT_BLUR_KEEPER_PID_FILE"
+    fi
+
     # ── User-clicked instruction slides ────────────────────────────────────
     # Frames 0..N-2 are shown as interactive dialogs (Next + Back after first).
     # The last frame becomes the persistent wait window with button1 disabled
@@ -449,7 +485,7 @@ ui_wait_open() {
             [ -n "$title_fontsize" ] && ww_slide_args+=( --titlefont "size=${title_fontsize}" )
             [ -n "$ww_resolved" ]    && ww_slide_args+=( --image "$ww_resolved" )
             [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && ww_slide_args+=( --ontop )
-            [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && ww_slide_args+=( --blurscreen )
+            [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && ww_slide_args+=( --blurscreen )
             _ui_user_exec "$DIALOG_BIN" "${ww_slide_args[@]}"
             local ww_rc=$?
             case "$ww_rc" in
@@ -510,7 +546,7 @@ ui_wait_open() {
 
     [ -n "$title_fontsize" ] && args+=( --titlefont "size=${title_fontsize}" )
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
-    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
+    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && args+=( --blurscreen )
 
     _ui_user_exec "$DIALOG_BIN" "${args[@]}" &
     echo $! > "$WAIT_PID_FILE"
@@ -530,7 +566,15 @@ ui_wait_open() {
         # ww_frames, ww_stitle_arr, ww_smsg_arr, ww_total, and all display
         # vars are inherited by the subshell because it is a fork.
         (
-            local _w_pid _w_back_i
+            # Track the PID of any interactive slide dialog we open so we can
+            # kill it cleanly if ui_wait_close sends SIGTERM to this watcher.
+            local _w_pid _w_back_i _w_child_pid=""
+            trap '
+                [ -n "$_w_child_pid" ] && /bin/kill "$_w_child_pid" 2>/dev/null || true
+                /bin/rm -f "$WAIT_NAVIGATING_FILE" 2>/dev/null || true
+                exit 0
+            ' TERM INT
+
             while true; do
                 # Poll until the persistent window PID is no longer alive.
                 _w_pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
@@ -539,7 +583,7 @@ ui_wait_open() {
                     _w_pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
                 done
 
-                # If WAIT_PID_FILE was already removed, ui_wait_close ran → done.
+                # If WAIT_PID_FILE was removed, ui_wait_close already ran → done.
                 [ ! -f "$WAIT_PID_FILE" ] && exit 0
 
                 # If WAIT_COMMAND_FILE contains "quit:", condition was met → done.
@@ -547,6 +591,8 @@ ui_wait_open() {
 
                 # Otherwise the user clicked "← Back".  Re-run interactive
                 # slides starting from the second-to-last frame.
+                # Signal the polling loop to pause its timeout clock.
+                touch "$WAIT_NAVIGATING_FILE" 2>/dev/null || true
                 _w_back_i=$(( ww_total - 2 ))
                 while true; do
                     local _wf _wr _wt _wm
@@ -566,23 +612,31 @@ ui_wait_open() {
                         --moveable --ignorednd --hideicon
                         --button1text "Next →  ($(( _w_back_i + 1 )) of ${ww_total})"
                     )
-                    [ "$_w_back_i" -gt 0 ]                   && _wa+=( --button2text "← Back" )
-                    [ -n "$title_fontsize" ]                  && _wa+=( --titlefont "size=${title_fontsize}" )
-                    [ -n "$_wr" ]                             && _wa+=( --image "$_wr" )
-                    [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ]   && _wa+=( --ontop )
-                    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ]   && _wa+=( --blurscreen )
-                    _ui_user_exec "$DIALOG_BIN" "${_wa[@]}"
+                    [ "$_w_back_i" -gt 0 ]                  && _wa+=( --button2text "← Back" )
+                    [ -n "$title_fontsize" ]                 && _wa+=( --titlefont "size=${title_fontsize}" )
+                    [ -n "$_wr" ]                            && _wa+=( --image "$_wr" )
+                    [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ]  && _wa+=( --ontop )
+                    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && _wa+=( --blurscreen )
+                    # Run in background so the TERM trap can kill it mid-slide.
+                    _ui_user_exec "$DIALOG_BIN" "${_wa[@]}" &
+                    _w_child_pid=$!
+                    wait "$_w_child_pid" 2>/dev/null
                     local _wrc=$?
+                    _w_child_pid=""
                     case "$_wrc" in
                         0)  _w_back_i=$(( _w_back_i + 1 ))
-                            # Reached the persistent window slot → break inner loop
-                            [ "$_w_back_i" -ge "$ww_total" ] && break ;;
+                            # Break when we've passed the last interactive
+                            # frame (index N-2); frame N-1 is the persistent
+                            # window, relaunched below — not shown here.
+                            [ "$_w_back_i" -ge $(( ww_total - 1 )) ] && break ;;
                         2)  [ "$_w_back_i" -gt 0 ] && _w_back_i=$(( _w_back_i - 1 )) ;;
-                        *)  exit "$_wrc" ;;
+                        *)  exit 0 ;;   # killed externally — exit quietly
                     esac
                 done
 
                 # Re-launch the persistent wait window and update the PID file.
+                # Clear the navigation flag first so the timeout clock resumes.
+                /bin/rm -f "$WAIT_NAVIGATING_FILE" 2>/dev/null || true
                 : > "$WAIT_COMMAND_FILE"
                 /bin/chmod 0666 "$WAIT_COMMAND_FILE" 2>/dev/null || true
                 _ui_user_exec "$DIALOG_BIN" "${args[@]}" &
@@ -590,7 +644,11 @@ ui_wait_open() {
                 # Loop back to watch this new PID.
             done
         ) &
-        echo $! > "$WAIT_SLIDESHOW_PID_FILE"
+        local _watcher_pid=$!
+        echo "$_watcher_pid" > "$WAIT_SLIDESHOW_PID_FILE"
+        # disown removes it from bash's job table so SIGTERM doesn't produce
+        # a noisy "Terminated: 15" message when ui_wait_close kills it.
+        disown "$_watcher_pid" 2>/dev/null || true
     fi
 
     /bin/sleep 0.3
@@ -644,7 +702,20 @@ ui_wait_close() {
         fi
         /bin/rm -f "$WAIT_PID_FILE"
     fi
-    /bin/rm -f "$WAIT_COMMAND_FILE" 2>/dev/null || true
+    /bin/rm -f "$WAIT_COMMAND_FILE"    2>/dev/null || true
+    /bin/rm -f "$WAIT_NAVIGATING_FILE" 2>/dev/null || true
+    # Close the blur keeper (if one was launched for a multi-slide wait window).
+    if [ -f "$WAIT_BLUR_KEEPER_PID_FILE" ]; then
+        local _bkpid
+        _bkpid="$(cat "$WAIT_BLUR_KEEPER_PID_FILE" 2>/dev/null)"
+        if [ -n "$_bkpid" ]; then
+            printf 'quit:\n' >> "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
+            /bin/sleep 0.1
+            /bin/kill "$_bkpid" 2>/dev/null || true
+        fi
+        /bin/rm -f "$WAIT_BLUR_KEEPER_PID_FILE"
+    fi
+    /bin/rm -f "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -682,62 +753,24 @@ ui_dialog_popup() {
     b2="${barr[1]:-}"
     b3="${barr[2]:-}"
 
-    # ── User-clicked slideshow ──────────────────────────────────────────────
-    # When multiple images are in the Slideshow array, display each one as
-    # its own dialog that the user must explicitly click through before the
-    # final action dialog (with the real buttons) appears.
+    # ── Parse slideshow frames ──────────────────────────────────────────────
+    local -a dlg_frames dlg_stitle_arr dlg_smsg_arr
+    local dlg_total=1 dlg_has_slides=0
+    # Decided before args are built so every --blurscreen flag can use it.
+    local _use_keeper=0
+
     if [ -z "$video" ] && [[ "$slideshow" == *"|"* ]]; then
-        local -a ss_frames ss_stitle_arr ss_smsg_arr
+        dlg_has_slides=1
         local IFS='|'
         # shellcheck disable=SC2206
-        ss_frames=( $slideshow )
-        [ -n "$slide_titles" ] && ss_stitle_arr=( $slide_titles ) || ss_stitle_arr=()
-        [ -n "$slide_msgs"   ] && ss_smsg_arr=(   $slide_msgs   ) || ss_smsg_arr=()
+        dlg_frames=( $slideshow )
+        [ -n "$slide_titles" ] && dlg_stitle_arr=( $slide_titles ) || dlg_stitle_arr=()
+        [ -n "$slide_msgs"   ] && dlg_smsg_arr=(   $slide_msgs   ) || dlg_smsg_arr=()
         unset IFS
-        local ss_total=${#ss_frames[@]}
-        # While loop so the user can navigate back (button2) as well as forward.
-        local ss_i=0
-        while [ "$ss_i" -lt $(( ss_total - 1 )) ]; do
-            local ss_frame ss_resolved ss_stitle ss_smsg
-            ss_frame="${ss_frames[$ss_i]}"
-            ss_resolved="$(_ui_normalize_icon "$ss_frame")"
-            ss_stitle="${ss_stitle_arr[$ss_i]:-}"
-            ss_smsg="${ss_smsg_arr[$ss_i]:-}"
-            [ -z "$ss_stitle" ] && ss_stitle="$title"
-            [ -z "$ss_smsg"   ] && ss_smsg="$message"
-            local ss_args=(
-                --title "$ss_stitle"
-                --message "$ss_smsg"
-                --messagefont "size=${msg_fontsize}"
-                --position "center"
-                --width "$width"
-                --height "$height"
-                --moveable
-                --hideicon
-                --button1text "Next →  ($(( ss_i + 1 )) of ${ss_total})"
-            )
-            [ "$ss_i" -gt 0 ] && ss_args+=( --button2text "← Back" )
-            [ -n "$title_fontsize" ]  && ss_args+=( --titlefont "size=${title_fontsize}" )
-            [ -n "$ss_resolved" ]     && ss_args+=( --image "$ss_resolved" )
-            [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && ss_args+=( --ontop )
-            [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && ss_args+=( --blurscreen )
-            _ui_user_exec "$DIALOG_BIN" "${ss_args[@]}"
-            local ss_rc=$?
-            case "$ss_rc" in
-                0) ss_i=$(( ss_i + 1 )) ;;                               # Next
-                2) [ "$ss_i" -gt 0 ] && ss_i=$(( ss_i - 1 )) ;;         # Back
-                *) return "$ss_rc" ;;
-            esac
-        done
-        # Replace slideshow with just the last frame; carry over its per-slide overrides.
-        local ss_last=$(( ss_total - 1 ))
-        slideshow="${ss_frames[$ss_last]}"
-        local _last_ss_t="${ss_stitle_arr[$ss_last]:-}"
-        local _last_ss_m="${ss_smsg_arr[$ss_last]:-}"
-        [ -n "$_last_ss_t" ] && title="$_last_ss_t"
-        [ -n "$_last_ss_m" ] && message="$_last_ss_m"
+        dlg_total=${#dlg_frames[@]}
+        [ "${ENROLLINATOR_UI_BLUR:-0}" = "1" ] && _use_keeper=1
     elif [ -z "$video" ] && [ -n "$slideshow" ]; then
-        # Single-frame slideshow — apply per-slide overrides to the final dialog
+        # Single-frame slideshow — resolve per-slide overrides once.
         local IFS='|'
         local -a _s1_t _s1_m
         [ -n "$slide_titles" ] && _s1_t=( $slide_titles ) || _s1_t=()
@@ -747,14 +780,25 @@ ui_dialog_popup() {
         [ -n "${_s1_m[0]:-}" ] && message="${_s1_m[0]}"
     fi
 
-    # ── Final (or only) dialog ──────────────────────────────────────────────
+    # ── Build final action-dialog args (used in every iteration of the loop) ─
+    # The last slideshow frame's per-slide title/message/image override the
+    # dialog-level values for the action dialog.
+    local _final_title="$title" _final_message="$message" _final_img=""
+    if [ "$dlg_has_slides" -eq 1 ]; then
+        local dlg_last=$(( dlg_total - 1 ))
+        local _lt="${dlg_stitle_arr[$dlg_last]:-}" _lm="${dlg_smsg_arr[$dlg_last]:-}"
+        [ -n "$_lt" ] && _final_title="$_lt"
+        [ -n "$_lm" ] && _final_message="$_lm"
+        _final_img="${dlg_frames[$dlg_last]}"
+    fi
+
     local popup_cmd="/var/tmp/enrollinator.popup.log"
     : > "$popup_cmd"
     /bin/chmod 0666 "$popup_cmd" 2>/dev/null || true
 
     local args=(
-        --title "$title"
-        --message "$message"
+        --title "$_final_title"
+        --message "$_final_message"
         --messagefont "size=${msg_fontsize}"
         --position "center"
         --width "$width"
@@ -765,30 +809,126 @@ ui_dialog_popup() {
         --commandfile "$popup_cmd"
     )
     [ -n "$title_fontsize" ] && args+=( --titlefont "size=${title_fontsize}" )
-    [ -n "$b2" ] && args+=( --button2text "$b2" )
-    [ -n "$b3" ] && args+=( --infobuttontext "$b3" )   # 3rd = info button slot
+    # Use b2 slot for ← Back when there are preceding slides and the caller
+    # hasn't defined a secondary action button; otherwise pass b2 through.
+    local _nav_back=0
+    if [ "$dlg_total" -gt 1 ] && [ -z "$b2" ]; then
+        _nav_back=1
+        args+=( --button2text "← Back" )
+    else
+        [ -n "$b2" ] && args+=( --button2text "$b2" )
+    fi
+    [ -n "$b3" ] && args+=( --infobuttontext "$b3" )
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
-    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
+    # Skip --blurscreen on individual slides when the keeper owns the blur.
+    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_use_keeper" = "0" ] && args+=( --blurscreen )
 
-    # Video (with YouTube support) wins over a single remaining slideshow frame.
+    # Video (with YouTube support) wins over a slideshow image on the final dialog.
     if [ -n "$video" ]; then
         _ui_add_video_arg args "$video" "$video_autoplay"
+    elif [ -n "$_final_img" ]; then
+        local _fi_r
+        _fi_r="$(_ui_normalize_icon "$_final_img")"
+        [ -n "$_fi_r" ] && args+=( --image "$_fi_r" )
     elif [ -n "$slideshow" ]; then
-        local single_resolved
-        single_resolved="$(_ui_normalize_icon "$slideshow")"
-        [ -n "$single_resolved" ] && args+=( --image "$single_resolved" )
+        local _ss_r
+        _ss_r="$(_ui_normalize_icon "$slideshow")"
+        [ -n "$_ss_r" ] && args+=( --image "$_ss_r" )
     fi
 
-    local rc
-    _ui_user_exec "$DIALOG_BIN" "${args[@]}"
-    rc=$?
-    /bin/rm -f "$popup_cmd" 2>/dev/null || true
+    # ── Blur keeper ─────────────────────────────────────────────────────────
+    # Same principle as the wait-window keeper: a background dialog holds
+    # --blurscreen open so the blur doesn't flicker between slide transitions.
+    local _bk_cmd="" _bk_pid=""
+    if [ "$_use_keeper" = "1" ]; then
+        _bk_cmd="/var/tmp/enrollinator.blur-keeper.log"
+        : > "$_bk_cmd"
+        /bin/chmod 0666 "$_bk_cmd" 2>/dev/null || true
+        local _bk_args=(
+            --title " " --message " "
+            --messagefont "size=1"
+            --position center
+            --width "$width" --height "$height"
+            --blurscreen
+            --button1disabled --button1text " "
+            --commandfile "$_bk_cmd"
+            --hideicon --moveable
+        )
+        [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && _bk_args+=( --ontop )
+        _ui_user_exec "$DIALOG_BIN" "${_bk_args[@]}" &
+        _bk_pid=$!
+    fi
 
-    # swiftDialog return codes: 0=button1, 2=button2, 3=infobutton, 10=timeout, etc.
-    case "$rc" in
-        0)  printf '%s' "$b1"; return 0 ;;
-        2)  printf '%s' "$b2"; return 0 ;;
-        3)  printf '%s' "$b3"; return 0 ;;
-        *)  return "$rc" ;;
-    esac
+    # ── Unified navigation loop ──────────────────────────────────────────────
+    # Frames 0..N-2 are interactive "Next / ← Back" slides; frame N-1 is the
+    # action dialog.  ← Back on the action dialog (when b2 is not already a
+    # real action) returns to frame N-2 so the user can re-read before acting.
+    local dlg_i=0
+    while true; do
+        if [ "$dlg_has_slides" -eq 1 ] && [ "$dlg_i" -lt $(( dlg_total - 1 )) ]; then
+            # ── Interactive slide ────────────────────────────────────────────
+            local _df _dr _dt _dm
+            _df="${dlg_frames[$dlg_i]}"
+            _dr="$(_ui_normalize_icon "$_df")"
+            _dt="${dlg_stitle_arr[$dlg_i]:-}"
+            _dm="${dlg_smsg_arr[$dlg_i]:-}"
+            [ -z "$_dt" ] && _dt="$title"
+            [ -z "$_dm" ] && _dm="$message"
+            local _da=(
+                --title "$_dt"
+                --message "$_dm"
+                --messagefont "size=${msg_fontsize}"
+                --position "center"
+                --width "$width"
+                --height "$height"
+                --moveable
+                --hideicon
+                --button1text "Next →  ($(( dlg_i + 1 )) of ${dlg_total})"
+            )
+            [ "$dlg_i" -gt 0 ]                  && _da+=( --button2text "← Back" )
+            [ -n "$title_fontsize" ]             && _da+=( --titlefont "size=${title_fontsize}" )
+            [ -n "$_dr" ]                        && _da+=( --image "$_dr" )
+            [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && _da+=( --ontop )
+            [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_use_keeper" = "0" ] && _da+=( --blurscreen )
+            _ui_user_exec "$DIALOG_BIN" "${_da[@]}"
+            local _drc=$?
+            case "$_drc" in
+                0)  dlg_i=$(( dlg_i + 1 )) ;;
+                2)  [ "$dlg_i" -gt 0 ] && dlg_i=$(( dlg_i - 1 )) ;;
+                *)  /bin/rm -f "$popup_cmd" 2>/dev/null || true
+                    # Close the blur keeper before exiting.
+                    if [ -n "$_bk_pid" ]; then
+                        printf 'quit:\n' >> "$_bk_cmd" 2>/dev/null || true
+                        /bin/sleep 0.1
+                        /bin/kill "$_bk_pid" 2>/dev/null || true
+                        /bin/rm -f "$_bk_cmd" 2>/dev/null || true
+                    fi
+                    return "$_drc" ;;
+            esac
+        else
+            # ── Final action dialog ─────────────────────────────────────────
+            _ui_user_exec "$DIALOG_BIN" "${args[@]}"
+            local rc=$?
+            # ← Back on the action dialog: return to the last interactive slide.
+            if [ "$rc" -eq 2 ] && [ "$_nav_back" -eq 1 ]; then
+                dlg_i=$(( dlg_total - 2 ))
+                continue
+            fi
+            /bin/rm -f "$popup_cmd" 2>/dev/null || true
+            # Close the blur keeper now that the dialog sequence is done.
+            if [ -n "$_bk_pid" ]; then
+                printf 'quit:\n' >> "$_bk_cmd" 2>/dev/null || true
+                /bin/sleep 0.1
+                /bin/kill "$_bk_pid" 2>/dev/null || true
+                /bin/rm -f "$_bk_cmd" 2>/dev/null || true
+            fi
+            # swiftDialog return codes: 0=button1, 2=button2, 3=infobutton, etc.
+            case "$rc" in
+                0)  printf '%s' "$b1"; return 0 ;;
+                2)  printf '%s' "$b2"; return 0 ;;
+                3)  printf '%s' "$b3"; return 0 ;;
+                *)  return "$rc" ;;
+            esac
+        fi
+    done
 }

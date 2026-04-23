@@ -527,6 +527,11 @@ run_step() {
 
         if [ "$timeout" -gt 0 ]; then
             now_ts="$(/bin/date +%s)"
+            # Pause the clock while the user is reviewing back-slides so a
+            # mid-navigation timer expiry doesn't end the step under their feet.
+            if [ -f "${WAIT_NAVIGATING_FILE:-}" ]; then
+                start_ts="$now_ts"
+            fi
             elapsed=$((now_ts - start_ts))
             if [ "$elapsed" -ge "$timeout" ]; then
                 log warn "step=$id blocking timeout after ${elapsed}s"

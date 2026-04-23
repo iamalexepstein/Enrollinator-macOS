@@ -3498,7 +3498,7 @@ function renderStepBehaviorTab(st) {
                 ),
                 h("input", { type: "checkbox", checked: !!st.Blocking,
                     style: "width:18px;height:18px;accent-color:#0a84ff;cursor:pointer;flex-shrink:0",
-                    onchange: e => { st.Blocking = e.target.checked; updatePreview(); } })
+                    onchange: e => { st.Blocking = e.target.checked; updatePreview(); reopenStep(); } })
             ),
             h("div", { class: "behavior-flag" },
                 h("div", null,
@@ -3510,30 +3510,32 @@ function renderStepBehaviorTab(st) {
                     onchange: e => { st.ContinueOnFailure = e.target.checked; updatePreview(); } })
             )
         ),
-        h("div", { class: "section" },
-            h("div", { class: "section-title" }, "Polling"),
-            hint("Applies only when Blocking is on. Enrollinator re-evaluates conditions every Interval seconds until they pass or Timeout expires."),
-            h("div", { class: "pair-row" },
-                row("Interval (s)", intInput(st.PollIntervalSeconds, v => st.PollIntervalSeconds = v, "5")),
-                row("Timeout (s)",  intInput(st.TimeoutSeconds,      v => st.TimeoutSeconds = v,      "0 = ∞"))
+        ...(!!st.Blocking ? [
+            h("div", { class: "section" },
+                h("div", { class: "section-title" }, "Polling"),
+                hint("Enrollinator re-evaluates conditions every Interval seconds until they pass or Timeout expires."),
+                h("div", { class: "pair-row" },
+                    row("Interval (s)", intInput(st.PollIntervalSeconds, v => st.PollIntervalSeconds = v, "5")),
+                    row("Timeout (s)",  intInput(st.TimeoutSeconds,      v => st.TimeoutSeconds = v,      "0 = ∞"))
+                ),
+                row("User prompt",
+                    h("textarea", {
+                        oninput: e => { st.UserPrompt = e.target.value; updatePreview(); },
+                        placeholder: "Banner shown while Enrollinator waits for the user."
+                    }, st.UserPrompt || ""),
+                    hint("Shown in the main window subtitle while polling.")
+                )
             ),
-            row("User prompt",
-                h("textarea", {
-                    oninput: e => { st.UserPrompt = e.target.value; updatePreview(); },
-                    placeholder: "Banner shown while Enrollinator waits for the user."
-                }, st.UserPrompt || ""),
-                hint("Shown in the main window subtitle while polling.")
+            h("div", { class: "section" },
+                h("div", { class: "section-title" },
+                    "Wait window",
+                    st.WaitWindow
+                        ? btn("Remove", () => { st.WaitWindow = null; reopenStep(); updatePreview(); }, "danger")
+                        : btn("Add wait window", () => { st.WaitWindow = blankWaitWindow(st.Name); reopenStep(); updatePreview(); })
+                ),
+                ...renderWaitWindowFields(st)
             )
-        ),
-        h("div", { class: "section" },
-            h("div", { class: "section-title" },
-                "Wait window",
-                st.WaitWindow
-                    ? btn("Remove", () => { st.WaitWindow = null; reopenStep(); updatePreview(); }, "danger")
-                    : btn("Add wait window", () => { st.WaitWindow = blankWaitWindow(st.Name); reopenStep(); updatePreview(); })
-            ),
-            ...renderWaitWindowFields(st)
-        )
+        ] : [])
     );
     return wrap;
 }
@@ -3644,12 +3646,40 @@ function renderWaitWindowFields(st) {
     }
     const ww = st.WaitWindow;
     // Normalize any legacy plain-string entries in-place before rendering
-    ww.Slideshow = ww.Slideshow.map(normalizeSlide);
-    const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:8px" });
+    ww.Slideshow = (ww.Slideshow || []).map(normalizeSlide);
+
+    // Derive or restore media mode (transient — ignored by serializer)
+    if (!ww._mediaMode) {
+        ww._mediaMode = ww.Video ? "video" : (ww.Slideshow.length > 0 ? "slideshow" : "off");
+    }
+    const mode = ww._mediaMode;
+
+    function switchWwMode(val) {
+        if      (val === "off")       { ww.Video = ""; ww.Slideshow = []; }
+        else if (val === "slideshow") { ww.Video = ""; }
+        else if (val === "video")     { ww.Slideshow = []; }
+        ww._mediaMode = val;
+        updatePreview(); reopenStep();
+    }
+
+    // Segmented media picker
+    const mediaModes = [["off", "None"], ["slideshow", "Slideshow"], ["video", "Video"]];
+    const mediaPicker = h("div", { style: "display:inline-flex;border-radius:7px;overflow:hidden;border:1px solid #d1d1d6" },
+        ...mediaModes.map(([val, label], idx) =>
+            h("button", {
+                class: "btn" + (mode === val ? " btn--active" : ""),
+                style: "border-radius:0;border:none;" + (idx < mediaModes.length - 1 ? "border-right:1px solid #d1d1d6;" : ""),
+                onclick: () => switchWwMode(val)
+            }, label)
+        )
+    );
+
+    // Slideshow frame editor
+    const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:8px;margin-top:8px" });
     if (ww.Slideshow.length === 0)
         slidesWrap.appendChild(hint("No frames. Add one for a still image; 2+ for a user-clicked slideshow."));
     ww.Slideshow.forEach((slide, i) => {
-        const frameCard = h("div", {
+        slidesWrap.appendChild(h("div", {
             style: "display:flex;flex-direction:column;gap:6px;padding:10px 10px 8px;background:rgba(0,0,0,0.03);border-radius:7px;border:1px solid rgba(0,0,0,0.07)"
         },
             h("div", { style: "display:flex;align-items:center;gap:6px;margin-bottom:2px" },
@@ -3669,29 +3699,25 @@ function renderWaitWindowFields(st) {
                 placeholder: "Overrides message for this slide (Markdown, optional)",
                 oninput: e => { slide.Message = e.target.value; }
             }, slide.Message || ""))
-        );
-        slidesWrap.appendChild(frameCard);
+        ));
     });
     slidesWrap.appendChild(btn("+ Add frame", () => {
         ww.Slideshow.push({ Image: "", Title: "", Message: "" }); reopenStep();
     }));
 
-    // Video field with autoplay toggle and live YouTube embed preview
+    // Video URL + autoplay
     const wwVideoInput = h("input", { type: "text", value: ww.Video || "",
         placeholder: "/path/video.mp4, https://… or YouTube URL", style: "flex:1",
-        oninput: e => { ww.Video = e.target.value; updatePreview(); reopenStep(); } });
+        oninput: e => { ww.Video = e.target.value; updatePreview(); } });
     const wwAutoplayBtn = h("button", {
         class: "btn" + (ww.VideoAutoplay === true ? " btn--active" : ""),
         style: "white-space:nowrap;flex-shrink:0",
-        onclick: () => {
-            ww.VideoAutoplay = ww.VideoAutoplay === true ? null : true;
-            updatePreview(); reopenStep();
-        }
+        onclick: () => { ww.VideoAutoplay = ww.VideoAutoplay === true ? null : true; updatePreview(); reopenStep(); }
     }, "▶ Autoplay");
-    const wwVideoInputRow = h("div", { style: "display:flex;gap:6px;align-items:center" },
-        wwVideoInput, wwAutoplayBtn);
-    const wwVideoWrap = h("div", { style: "display:flex;flex-direction:column;gap:4px;flex:1" },
-        wwVideoInputRow, ...youTubePreviewNodes(ww.Video || ""));
+    const wwVideoSection = h("div", { style: "display:flex;flex-direction:column;gap:4px;margin-top:8px" },
+        h("div", { style: "display:flex;gap:6px;align-items:center" }, wwVideoInput, wwAutoplayBtn),
+        ...youTubePreviewNodes(ww.Video || "")
+    );
 
     return [
         row("Title",   textInput(ww.Title, v => ww.Title = v, "Defaults to step name")),
@@ -3699,21 +3725,39 @@ function renderWaitWindowFields(st) {
             oninput: e => { ww.Message = e.target.value; updatePreview(); },
             placeholder: "Markdown body."
         }, ww.Message || "")),
-        h("div", { class: "pair-row" },
-            row("Title font size",   intInput(ww.TitleFontSize,   v => { ww.TitleFontSize   = v; updatePreview(); }, "default")),
-            row("Message font size", intInput(ww.MessageFontSize, v => { ww.MessageFontSize = v; updatePreview(); }, "14"))
+        row("Font sizes",
+            h("div", { style: "display:flex;gap:8px;align-items:center" },
+                h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap" }, "Title"),
+                h("input", { type: "number", min: "0", style: "width:58px",
+                    value: ww.TitleFontSize == null ? "" : String(ww.TitleFontSize), placeholder: "def",
+                    oninput: e => { const v = parseInt(e.target.value, 10); ww.TitleFontSize = Number.isFinite(v) ? v : null; updatePreview(); } }),
+                h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap;margin-left:4px" }, "Body"),
+                h("input", { type: "number", min: "0", style: "width:58px",
+                    value: ww.MessageFontSize == null ? "" : String(ww.MessageFontSize), placeholder: "14",
+                    oninput: e => { const v = parseInt(e.target.value, 10); ww.MessageFontSize = Number.isFinite(v) ? v : null; updatePreview(); } })
+            )
         ),
-        row("Video", wwVideoWrap,
-            hint("Optional. YouTube URLs/IDs supported natively via --video. Wins over slideshow when set.")),
-        h("div", { class: "pair-row" },
-            row("Width",  intInput(ww.Width,  v => ww.Width  = v, "520")),
-            row("Height", intInput(ww.Height, v => ww.Height = v, "420"))
+        row("Size",
+            h("div", { style: "display:flex;gap:8px;align-items:center" },
+                h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap" }, "W"),
+                h("input", { type: "number", min: "0", style: "width:62px",
+                    value: ww.Width == null ? "" : String(ww.Width), placeholder: "520",
+                    oninput: e => { const v = parseInt(e.target.value, 10); ww.Width = Number.isFinite(v) ? v : null; updatePreview(); } }),
+                h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap;margin-left:4px" }, "H"),
+                h("input", { type: "number", min: "0", style: "width:62px",
+                    value: ww.Height == null ? "" : String(ww.Height), placeholder: "420",
+                    oninput: e => { const v = parseInt(e.target.value, 10); ww.Height = Number.isFinite(v) ? v : null; updatePreview(); } })
+            )
         ),
         h("div", { class: "pair-row" },
             row("Blur screen",   triStateSelect(ww.Blur,        v => { ww.Blur        = v; updatePreview(); })),
             row("Always on top", triStateSelect(ww.AlwaysOnTop, v => { ww.AlwaysOnTop = v; updatePreview(); }))
         ),
-        row("Slideshow", slidesWrap)
+        row("Media", h("div", null,
+            mediaPicker,
+            ...(mode === "slideshow" ? [slidesWrap]    : []),
+            ...(mode === "video"     ? [wwVideoSection] : [])
+        ))
     ];
 }
 
@@ -3884,25 +3928,69 @@ function actionFields(a) {
                     oninput: e => { a.Message = e.target.value; updatePreview(); },
                     placeholder: "Markdown body"
                 }, a.Message || "")),
-            h("div", { class: "pair-row" },
-                row("Title font size",   intInput(a.TitleFontSize,   v => { a.TitleFontSize   = v; updatePreview(); }, "default")),
-                row("Message font size", intInput(a.MessageFontSize, v => { a.MessageFontSize = v; updatePreview(); }, "14"))
+            row("Font sizes",
+                h("div", { style: "display:flex;gap:8px;align-items:center" },
+                    h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap" }, "Title"),
+                    h("input", { type: "number", min: "0", style: "width:58px",
+                        value: a.TitleFontSize == null ? "" : String(a.TitleFontSize), placeholder: "def",
+                        oninput: e => { const v = parseInt(e.target.value, 10); a.TitleFontSize = Number.isFinite(v) ? v : null; updatePreview(); } }),
+                    h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap;margin-left:4px" }, "Body"),
+                    h("input", { type: "number", min: "0", style: "width:58px",
+                        value: a.MessageFontSize == null ? "" : String(a.MessageFontSize), placeholder: "14",
+                        oninput: e => { const v = parseInt(e.target.value, 10); a.MessageFontSize = Number.isFinite(v) ? v : null; updatePreview(); } })
+                )
             ),
-            h("div", { class: "pair-row" },
-                row("Width",  intInput(a.Width,  v => a.Width  = v, "520")),
-                row("Height", intInput(a.Height, v => a.Height = v, "300"))
+            row("Size",
+                h("div", { style: "display:flex;gap:8px;align-items:center" },
+                    h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap" }, "W"),
+                    h("input", { type: "number", min: "0", style: "width:62px",
+                        value: a.Width == null ? "" : String(a.Width), placeholder: "520",
+                        oninput: e => { const v = parseInt(e.target.value, 10); a.Width = Number.isFinite(v) ? v : null; updatePreview(); } }),
+                    h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap;margin-left:4px" }, "H"),
+                    h("input", { type: "number", min: "0", style: "width:62px",
+                        value: a.Height == null ? "" : String(a.Height), placeholder: "300",
+                        oninput: e => { const v = parseInt(e.target.value, 10); a.Height = Number.isFinite(v) ? v : null; updatePreview(); } })
+                )
             ),
             row("Buttons", buttonsWrap, hint("1–3 labels, left to right.")),
-            row("Expected",
+            ...(buttons.length > 0 ? [row("Expected",
                 selectInput(a.ExpectedButton,
-                    (buttons.length ? buttons : [""]),
+                    buttons,
                     v => { a.ExpectedButton = v; updatePreview(); }),
-                hint("Step passes only if the user clicks this button.")),
+                hint("Step passes only if the user clicks this button."))] : []),
             ...(() => {
                 if (!Array.isArray(a.Slideshow)) a.Slideshow = [];
                 // Normalize any legacy plain-string entries in-place before rendering
                 a.Slideshow = a.Slideshow.map(normalizeSlide);
-                const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:8px" });
+
+                // Derive or restore media mode (transient — ignored by serializer)
+                if (!a._mediaMode) {
+                    a._mediaMode = a.Video ? "video" : (a.Slideshow.length > 0 ? "slideshow" : "off");
+                }
+                const mode = a._mediaMode;
+
+                function switchDlgMode(val) {
+                    if      (val === "off")       { a.Video = ""; a.Slideshow = []; }
+                    else if (val === "slideshow") { a.Video = ""; }
+                    else if (val === "video")     { a.Slideshow = []; }
+                    a._mediaMode = val;
+                    updatePreview(); reopenStep();
+                }
+
+                // Segmented media picker
+                const mediaModes = [["off", "None"], ["slideshow", "Slideshow"], ["video", "Video"]];
+                const mediaPicker = h("div", { style: "display:inline-flex;border-radius:7px;overflow:hidden;border:1px solid #d1d1d6" },
+                    ...mediaModes.map(([val, label], idx) =>
+                        h("button", {
+                            class: "btn" + (mode === val ? " btn--active" : ""),
+                            style: "border-radius:0;border:none;" + (idx < mediaModes.length - 1 ? "border-right:1px solid #d1d1d6;" : ""),
+                            onclick: () => switchDlgMode(val)
+                        }, label)
+                    )
+                );
+
+                // Slideshow frame editor
+                const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:8px;margin-top:8px" });
                 if (a.Slideshow.length === 0)
                     slidesWrap.appendChild(hint("No frames. Add one for a still image; 2+ for a user-clicked slideshow."));
                 a.Slideshow.forEach((slide, i) => {
@@ -3932,28 +4020,25 @@ function actionFields(a) {
                     a.Slideshow.push({ Image: "", Title: "", Message: "" }); reopenStep();
                 }));
 
-                // Video field with autoplay toggle and live YouTube embed preview
+                // Video URL + autoplay
                 const dlgVideoInput = h("input", { type: "text", value: a.Video || "",
                     placeholder: "/path/video.mp4, https://… or YouTube URL", style: "flex:1",
-                    oninput: e => { a.Video = e.target.value; updatePreview(); reopenStep(); } });
+                    oninput: e => { a.Video = e.target.value; updatePreview(); } });
                 const dlgAutoplayBtn = h("button", {
                     class: "btn" + (a.VideoAutoplay === true ? " btn--active" : ""),
                     style: "white-space:nowrap;flex-shrink:0",
-                    onclick: () => {
-                        a.VideoAutoplay = a.VideoAutoplay === true ? null : true;
-                        updatePreview(); reopenStep();
-                    }
+                    onclick: () => { a.VideoAutoplay = a.VideoAutoplay === true ? null : true; updatePreview(); reopenStep(); }
                 }, "▶ Autoplay");
-                const dlgVideoInputRow = h("div", { style: "display:flex;gap:6px;align-items:center" },
-                    dlgVideoInput, dlgAutoplayBtn);
-                const dlgVideoWrap = h("div", { style: "display:flex;flex-direction:column;gap:4px;flex:1" },
-                    dlgVideoInputRow, ...youTubePreviewNodes(a.Video || ""));
+                const dlgVideoSection = h("div", { style: "display:flex;flex-direction:column;gap:4px;margin-top:8px" },
+                    h("div", { style: "display:flex;gap:6px;align-items:center" }, dlgVideoInput, dlgAutoplayBtn),
+                    ...youTubePreviewNodes(a.Video || "")
+                );
 
-                return [
-                    row("Video", dlgVideoWrap,
-                        hint("Optional. YouTube URLs/IDs supported natively via --video. Wins over slideshow when set.")),
-                    row("Slideshow", slidesWrap)
-                ];
+                return [row("Media", h("div", null,
+                    mediaPicker,
+                    ...(mode === "slideshow" ? [slidesWrap]      : []),
+                    ...(mode === "video"     ? [dlgVideoSection] : [])
+                ))];
             })(),
             h("div", { class: "pair-row" },
                 row("Blur screen",   triStateSelect(a.Blur,        v => { a.Blur        = v; updatePreview(); })),
