@@ -78,39 +78,52 @@ _ui_normalize_icon() {
 # Detect YouTube URLs and convert them to an embeddable form for swiftDialog's
 # Normalise a video URL/identifier for swiftDialog's --video flag.
 # swiftDialog accepts file paths, https:// URLs, and bare YouTube video IDs
-# directly via --video.  Full YouTube watch/short URLs are reduced to just the
-# 11-character video ID so --video can play them natively.
-# Echoes the normalised value (ID or original URL); empty input echoes nothing.
+# via --video youtubeid=ID.  Full YouTube watch/short URLs are reduced to just
+# the 11-character ID.  When autoplay is "true" the YouTube embed URL gets
+# ?autoplay=1 appended so the web-view renderer starts it automatically.
+# Echoes the normalised value; empty input echoes nothing.
 _ui_normalize_video() {
-    local url="$1"
+    local url="$1" autoplay="${2:-}"
     [ -z "$url" ] && return 0
     # Store regex in variables — bash 3.2 can't parse [?&] or {n} as bare
     # literals inside [[ =~ ]] without a syntax error.
     local _re_watch='[?&]v=([A-Za-z0-9_-]{11})'
     local _re_short='youtu\.be/([A-Za-z0-9_-]{11})'
-    if [[ "$url" =~ $_re_watch ]]; then
-        printf 'youtubeid=%s' "${BASH_REMATCH[1]}"   # youtube.com/watch?v=ID
-        return 0
-    elif [[ "$url" =~ $_re_short ]]; then
-        printf 'youtubeid=%s' "${BASH_REMATCH[1]}"   # youtu.be/ID
-        return 0
-    fi
-    # Also accept a bare 11-char YouTube ID passed directly
     local _re_bare='^[A-Za-z0-9_-]{11}$'
-    if [[ "$url" =~ $_re_bare ]]; then
-        printf 'youtubeid=%s' "$url"
+    local _yt_id=""
+    if [[ "$url" =~ $_re_watch ]]; then
+        _yt_id="${BASH_REMATCH[1]}"
+    elif [[ "$url" =~ $_re_short ]]; then
+        _yt_id="${BASH_REMATCH[1]}"
+    elif [[ "$url" =~ $_re_bare ]]; then
+        _yt_id="$url"
+    fi
+    if [ -n "$_yt_id" ]; then
+        if [ "$autoplay" = "true" ]; then
+            printf 'youtubeid=%s?autoplay=1&rel=0' "$_yt_id"
+        else
+            printf 'youtubeid=%s' "$_yt_id"
+        fi
         return 0
     fi
     printf '%s' "$url"
 }
 
-# _ui_add_video_arg <array_name_ref> <video_url_or_id>
-# Resolves YouTube URLs to bare IDs, then appends --video to the named array.
+# _ui_add_video_arg <array_name_ref> <video_url_or_id> [autoplay:true|""]
+# Resolves YouTube URLs to the youtubeid= form (with autoplay param when set),
+# then appends --video and optionally --videoautoplay to the named array.
 _ui_add_video_arg() {
-    local _arr="$1" _url="$2"
+    local _arr="$1" _url="$2" _autoplay="${3:-}"
     local _resolved
-    _resolved="$(_ui_normalize_video "$_url")"
-    [ -n "$_resolved" ] && eval "${_arr}+=( --video \"\$_resolved\" )"
+    _resolved="$(_ui_normalize_video "$_url" "$_autoplay")"
+    if [ -n "$_resolved" ]; then
+        eval "${_arr}+=( --video \"\$_resolved\" )"
+        # For non-YouTube URLs also pass --videoautoplay for AVPlayer autoplay.
+        local _re_yt='^youtubeid='
+        if [ "$_autoplay" = "true" ] && ! [[ "$_resolved" =~ $_re_yt ]]; then
+            eval "${_arr}+=( --videoautoplay )"
+        fi
+    fi
 }
 
 # ui_start — launches the main run window.
@@ -398,10 +411,10 @@ ui_wait_open() {
     ui_wait_close   # clean up any prior wait window
 
     # ── User-clicked instruction slides ────────────────────────────────────
-    # Every frame — including the last — is shown as an interactive dialog
-    # the user must click through.  The last frame uses "Got it" instead of
-    # "Next →" and clicking it breaks the loop so the persistent wait window
-    # can launch.  All frames after the first show a "← Back" button.
+    # Frames 0..N-2 are shown as interactive dialogs (Next + Back after first).
+    # The last frame becomes the persistent wait window with button1 disabled
+    # ("Waiting…") and — when there are prior frames to return to — an active
+    # "← Back" button (button2).
     if [ -z "$video" ] && [[ "$slideshow" == *"|"* ]]; then
         local -a ww_frames ww_stitle_arr ww_smsg_arr
         local IFS='|'
@@ -412,15 +425,14 @@ ui_wait_open() {
         unset IFS
         local ww_total=${#ww_frames[@]}
         local ww_i=0
-        while true; do
-            local ww_frame ww_resolved ww_stitle ww_smsg ww_is_last
+        while [ "$ww_i" -lt $(( ww_total - 1 )) ]; do
+            local ww_frame ww_resolved ww_stitle ww_smsg
             ww_frame="${ww_frames[$ww_i]}"
             ww_resolved="$(_ui_normalize_icon "$ww_frame")"
             ww_stitle="${ww_stitle_arr[$ww_i]:-}"
             ww_smsg="${ww_smsg_arr[$ww_i]:-}"
             [ -z "$ww_stitle" ] && ww_stitle="$title"
             [ -z "$ww_smsg"   ] && ww_smsg="$message"
-            [ "$ww_i" -eq $(( ww_total - 1 )) ] && ww_is_last=1 || ww_is_last=0
             local ww_slide_args=(
                 --title "$ww_stitle"
                 --message "$ww_smsg"
@@ -431,12 +443,8 @@ ui_wait_open() {
                 --moveable
                 --ignorednd
                 --hideicon
+                --button1text "Next →  ($(( ww_i + 1 )) of ${ww_total})"
             )
-            if [ "$ww_is_last" -eq 1 ]; then
-                ww_slide_args+=( --button1text "Got it  ($(( ww_i + 1 )) of ${ww_total})" )
-            else
-                ww_slide_args+=( --button1text "Next →  ($(( ww_i + 1 )) of ${ww_total})" )
-            fi
             [ "$ww_i" -gt 0 ] && ww_slide_args+=( --button2text "← Back" )
             [ -n "$title_fontsize" ] && ww_slide_args+=( --titlefont "size=${title_fontsize}" )
             [ -n "$ww_resolved" ]    && ww_slide_args+=( --image "$ww_resolved" )
@@ -445,15 +453,12 @@ ui_wait_open() {
             _ui_user_exec "$DIALOG_BIN" "${ww_slide_args[@]}"
             local ww_rc=$?
             case "$ww_rc" in
-                0)  if [ "$ww_is_last" -eq 1 ]; then
-                        break   # user confirmed the last slide; launch wait window
-                    fi
-                    ww_i=$(( ww_i + 1 )) ;;
-                2)  [ "$ww_i" -gt 0 ] && ww_i=$(( ww_i - 1 )) ;;        # Back
-                *)  return "$ww_rc" ;;
+                0) ww_i=$(( ww_i + 1 )) ;;
+                2) [ "$ww_i" -gt 0 ] && ww_i=$(( ww_i - 1 )) ;;
+                *) return "$ww_rc" ;;
             esac
         done
-        # The last frame's image and per-slide text carry into the persistent window.
+        # Carry the last frame's image and per-slide text into the persistent window.
         local ww_last=$(( ww_total - 1 ))
         slideshow="${ww_frames[$ww_last]}"
         local _last_stitle="${ww_stitle_arr[$ww_last]:-}"
@@ -491,10 +496,12 @@ ui_wait_open() {
         --hidetimerbar
         --progresstext "Watching for your action…"
     )
+    # Show an active Back button on the persistent window when the slideshow
+    # had prior frames the user can return to.
+    [ "${ww_total:-0}" -gt 1 ] && args+=( --button2text "← Back" )
 
     if [ -n "$video" ]; then
-        _ui_add_video_arg args "$video"
-        [ "$video_autoplay" = "true" ] && args+=( --videoautoplay )
+        _ui_add_video_arg args "$video" "$video_autoplay"
     elif [ -n "$slideshow" ]; then
         local single_resolved
         single_resolved="$(_ui_normalize_icon "$slideshow")"
@@ -507,6 +514,84 @@ ui_wait_open() {
 
     _ui_user_exec "$DIALOG_BIN" "${args[@]}" &
     echo $! > "$WAIT_PID_FILE"
+
+    # ── Back-navigation watcher ─────────────────────────────────────────────
+    # When the slideshow has more than one frame, a background subshell watches
+    # the persistent window's PID.  If it exits because the user clicked
+    # "← Back" (rather than because ui_wait_close sent "quit:"), the watcher
+    # re-runs the interactive slides from the second-to-last frame, then
+    # re-launches the persistent window.  This loops so the user can go back
+    # and forward as many times as they like while condition polling continues.
+    #
+    # Detection: ui_wait_close writes "quit:" into WAIT_COMMAND_FILE before
+    # killing the PID; a natural Back-click exit leaves the file empty.
+    if [ "${ww_total:-0}" -gt 1 ]; then
+        # Capture persistent-window args in the subshell (copy at fork time).
+        # ww_frames, ww_stitle_arr, ww_smsg_arr, ww_total, and all display
+        # vars are inherited by the subshell because it is a fork.
+        (
+            local _w_pid _w_back_i
+            while true; do
+                # Poll until the persistent window PID is no longer alive.
+                _w_pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
+                while [ -n "$_w_pid" ] && /bin/kill -0 "$_w_pid" 2>/dev/null; do
+                    /bin/sleep 0.3
+                    _w_pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
+                done
+
+                # If WAIT_PID_FILE was already removed, ui_wait_close ran → done.
+                [ ! -f "$WAIT_PID_FILE" ] && exit 0
+
+                # If WAIT_COMMAND_FILE contains "quit:", condition was met → done.
+                grep -q 'quit:' "$WAIT_COMMAND_FILE" 2>/dev/null && exit 0
+
+                # Otherwise the user clicked "← Back".  Re-run interactive
+                # slides starting from the second-to-last frame.
+                _w_back_i=$(( ww_total - 2 ))
+                while true; do
+                    local _wf _wr _wt _wm
+                    _wf="${ww_frames[$_w_back_i]}"
+                    _wr="$(_ui_normalize_icon "$_wf")"
+                    _wt="${ww_stitle_arr[$_w_back_i]:-}"
+                    _wm="${ww_smsg_arr[$_w_back_i]:-}"
+                    [ -z "$_wt" ] && _wt="$title"
+                    [ -z "$_wm" ] && _wm="$message"
+                    local _wa=(
+                        --title "$_wt"
+                        --message "$_wm"
+                        --messagefont "size=${msg_fontsize}"
+                        --position "center"
+                        --width "$width"
+                        --height "$height"
+                        --moveable --ignorednd --hideicon
+                        --button1text "Next →  ($(( _w_back_i + 1 )) of ${ww_total})"
+                    )
+                    [ "$_w_back_i" -gt 0 ]                   && _wa+=( --button2text "← Back" )
+                    [ -n "$title_fontsize" ]                  && _wa+=( --titlefont "size=${title_fontsize}" )
+                    [ -n "$_wr" ]                             && _wa+=( --image "$_wr" )
+                    [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ]   && _wa+=( --ontop )
+                    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ]   && _wa+=( --blurscreen )
+                    _ui_user_exec "$DIALOG_BIN" "${_wa[@]}"
+                    local _wrc=$?
+                    case "$_wrc" in
+                        0)  _w_back_i=$(( _w_back_i + 1 ))
+                            # Reached the persistent window slot → break inner loop
+                            [ "$_w_back_i" -ge "$ww_total" ] && break ;;
+                        2)  [ "$_w_back_i" -gt 0 ] && _w_back_i=$(( _w_back_i - 1 )) ;;
+                        *)  exit "$_wrc" ;;
+                    esac
+                done
+
+                # Re-launch the persistent wait window and update the PID file.
+                : > "$WAIT_COMMAND_FILE"
+                /bin/chmod 0666 "$WAIT_COMMAND_FILE" 2>/dev/null || true
+                _ui_user_exec "$DIALOG_BIN" "${args[@]}" &
+                echo $! > "$WAIT_PID_FILE"
+                # Loop back to watch this new PID.
+            done
+        ) &
+        echo $! > "$WAIT_SLIDESHOW_PID_FILE"
+    fi
 
     /bin/sleep 0.3
 }
@@ -687,8 +772,7 @@ ui_dialog_popup() {
 
     # Video (with YouTube support) wins over a single remaining slideshow frame.
     if [ -n "$video" ]; then
-        _ui_add_video_arg args "$video"
-        [ "$video_autoplay" = "true" ] && args+=( --videoautoplay )
+        _ui_add_video_arg args "$video" "$video_autoplay"
     elif [ -n "$slideshow" ]; then
         local single_resolved
         single_resolved="$(_ui_normalize_icon "$slideshow")"
