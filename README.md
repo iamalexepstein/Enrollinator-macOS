@@ -253,8 +253,9 @@ Enrollinator/
 ## Documentation
 
 - [**Profile Builder**](tools/profile-builder.html) — visual editor; open in any browser.
+- [Profile Builder guide](docs/profile-builder.md) — walkthrough of every panel, field, and feature in the builder.
 - [Mobileconfig schema](docs/mobileconfig-schema.md) — every key, every handler.
-- [Deployment](docs/deployment.md) — pkg, LaunchDaemon, MDM, logging.
+- [Deployment](docs/deployment.md) — pkg, LaunchDaemon, MDM, Jamf reporting.
 - [Recipes](docs/recipes.md) — copy-pasteable gates for VPNs, EDRs, etc.
 
 ## License
