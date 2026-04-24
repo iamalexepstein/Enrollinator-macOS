@@ -133,6 +133,58 @@
             </dict>
 
             <!-- =========================================================== -->
+            <!-- Welcome screen                                              -->
+            <!-- Shown once before the onboarding window opens. The user    -->
+            <!-- can proceed immediately or defer up to MaxDeferrals times.  -->
+            <!-- Remove this dict (or set Enabled to false) to skip it.     -->
+            <!-- =========================================================== -->
+            <key>WelcomeScreen</key>
+            <dict>
+                <key>Enabled</key>
+                <true/>
+                <!-- Headline shown in large type at the top of the dialog. -->
+                <key>Title</key>
+                <string>Welcome to your new Mac</string>
+                <!-- Body copy — supports Markdown. -->
+                <key>Message</key>
+                <string>## Before we get started\n\nThis assistant will set up everything you need — software, security settings, and company apps. The whole process takes about **10–15 minutes**.\n\nPlug in to power if you haven't already, then click **Get Started** whenever you're ready.</string>
+                <!-- Label for the primary proceed button. -->
+                <key>Button</key>
+                <string>Get Started</string>
+                <!-- Label for the optional defer button. Remove this key
+                     (and MaxDeferrals) to prevent deferral entirely. -->
+                <key>DeferButton</key>
+                <string>Not Now</string>
+                <!-- How many times the user may defer before the screen
+                     becomes mandatory. -->
+                <key>MaxDeferrals</key>
+                <integer>3</integer>
+                <!-- Logo shown in the dialog. Falls back to Branding:Logo
+                     when unset. -->
+                <key>Logo</key>
+                <string>/Library/Enrollinator/assets/logo.png</string>
+                <!-- Dialog dimensions. Defaults are swiftDialog's built-in
+                     popup size when unset. -->
+                <key>Width</key>
+                <integer>680</integer>
+                <key>Height</key>
+                <integer>440</integer>
+                <!-- Optional: blur the desktop behind the dialog. -->
+                <key>Blur</key>
+                <true/>
+                <!-- Optional: keep the dialog above all other windows. -->
+                <key>AlwaysOnTop</key>
+                <true/>
+                <!-- Optional: Slideshow replaces the static message with a swipeable
+                     image deck. Add a Slideshow array of dicts with Image, Title,
+                     and Message keys to use it. Remove this comment and add the
+                     key when ready. -->
+                <!-- Optional: Video shows an mp4 or YouTube URL instead of static
+                     content. Add Video (string) and VideoAutoplay (bool) keys to
+                     use it. Slideshow takes priority if both are present. -->
+            </dict>
+
+            <!-- =========================================================== -->
             <!-- Run-time behavior                                           -->
             <!-- =========================================================== -->
             <key>DefaultPlaybook</key>

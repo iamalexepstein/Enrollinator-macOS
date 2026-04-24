@@ -37,6 +37,14 @@ WAIT_NAVIGATING_FILE="/var/tmp/enrollinator.wait-navigating"
 # between the interactive instruction slides and the persistent wait window.
 WAIT_BLUR_KEEPER_CMD="/var/tmp/enrollinator.wait-blur-keeper.log"
 WAIT_BLUR_KEEPER_PID_FILE="/var/tmp/enrollinator.wait-blur-keeper.pid"
+# Session token written by ui_wait_open just before forking the back-navigation
+# watcher.  The watcher inherits the token at fork time and checks it on every
+# outer-loop iteration; if the file has changed or disappeared the watcher knows
+# it has been superseded by a newer step and exits quietly.  This prevents a
+# stale watcher (one that survived because the SIGTERM in ui_wait_close failed
+# under a non-root run) from mistaking a fresh empty WAIT_COMMAND_FILE as a
+# "← Back" click and reopening the previous step's persistent window.
+WAIT_SESSION_FILE="/var/tmp/enrollinator.wait.session"
 
 # Abort with a helpful message if swiftDialog isn't present.
 ui_require_dialog() {
@@ -56,14 +64,32 @@ _ui_valid_dialog_pid() {
     local pid="$1"
     # Must be a positive integer.
     [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
-    # Process must be named "dialog".
-    local comm
-    comm="$(/bin/ps -o comm= -p "$pid" 2>/dev/null | /usr/bin/xargs /usr/bin/basename 2>/dev/null)"
-    [ "$comm" = "dialog" ] || return 1
-    # Process must be owned by the console user or root.
-    local owner
+    # Process name must match the binary we launched (case-insensitive).
+    # swiftDialog's Mach-O is literally `Dialog` (capital D) under
+    # /Library/Application Support/Dialog/Dialog.app/Contents/MacOS/Dialog;
+    # /usr/local/bin/dialog is a symlink to it.  ps -o comm= reports the
+    # real binary name, so a literal "dialog" == "Dialog" test fails.
+    local comm _want
+    comm="$(/bin/ps -o comm= -p "$pid" 2>/dev/null | /usr/bin/xargs /usr/bin/basename 2>/dev/null | /usr/bin/tr '[:upper:]' '[:lower:]')"
+    _want="$(/usr/bin/basename "$DIALOG_BIN" 2>/dev/null | /usr/bin/tr '[:upper:]' '[:lower:]')"
+    [ "$comm" = "$_want" ] || return 1
+    # Process must be owned by one of the three launch personas used by
+    # _ui_user_exec:
+    #   1. root                        — daemon mode without a console user
+    #   2. $ENROLLINATOR_CONSOLE_USER  — daemon mode with launchctl asuser
+    #   3. the current user            — dev/interactive mode (direct invocation)
+    # The old version fell back to "root" when CONSOLE_USER was unset, which
+    # mis-rejected dialogs legitimately owned by the current user during dev
+    # runs.  That caused the back-navigation watcher to mistake the freshly
+    # launched dialog as dead and immediately fire "← Back", reopening the
+    # previous step's slideshow.
+    local owner current_user
     owner="$(/bin/ps -o user= -p "$pid" 2>/dev/null | /usr/bin/tr -d ' ')"
-    [ "$owner" = "root" ] || [ "$owner" = "${ENROLLINATOR_CONSOLE_USER:-root}" ] || return 1
+    current_user="$(/usr/bin/id -un 2>/dev/null)"
+    [ "$owner" = "root" ] \
+        || { [ -n "${ENROLLINATOR_CONSOLE_USER:-}" ] && [ "$owner" = "$ENROLLINATOR_CONSOLE_USER" ]; } \
+        || [ "$owner" = "$current_user" ] \
+        || return 1
     return 0
 }
 
@@ -77,6 +103,22 @@ _ui_valid_root_pid() {
     uid="$(/bin/ps -o uid= -p "$pid" 2>/dev/null | /usr/bin/tr -d ' ')"
     [ "$uid" = "0" ] || return 1
     return 0
+}
+
+# List all live dialog PIDs (one per line).  Case-insensitive exact match on
+# process name, using the basename of $DIALOG_BIN — swiftDialog's Mach-O is
+# `Dialog` (capital D), so `pgrep -x dialog` misses it entirely.  We use
+# `pgrep -i` which is case-insensitive, combined with `-x` for exact match.
+_ui_list_dialog_pids() {
+    local _n
+    _n="$(/usr/bin/basename "$DIALOG_BIN" 2>/dev/null)"
+    [ -z "$_n" ] && _n="dialog"
+    # pgrep on macOS is at /usr/bin/pgrep, NOT /bin/pgrep.  The original code
+    # in this file invoked /bin/pgrep, which silently produces no output on
+    # macOS (no such binary) — so every PID-resolution site thought "no live
+    # dialogs", which is what ultimately caused the back-nav watcher's inner
+    # poll condition to fail instantly and fire the bogus "← Back" branch.
+    /usr/bin/pgrep -ix "$_n" 2>/dev/null
 }
 
 # Invoke argv as the console user when we're root; otherwise invoke directly.
@@ -191,7 +233,7 @@ ui_start() {
     # Build the --listitem arguments from the manifest.
     local listitems=()
     local id name desc icon entry resolved_icon
-    while IFS='|' read -r id name desc icon; do
+    while IFS=$'\x1f' read -r id name desc icon; do
         [ -z "$id" ] && continue
         entry="title=$name,statustext=Pending,status=pending"
         resolved_icon="$(_ui_normalize_icon "$icon")"
@@ -264,23 +306,33 @@ ui_start() {
 
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
     [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
+
+    # Snapshot live dialog PIDs before launch so we can identify ours.
+    local _pre_pids
+    _pre_pids=",$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/tr '\n' ',')"
+
     _ui_user_exec "$DIALOG_BIN" "${args[@]}" "${listitems[@]}" &
     echo $! > "$DIALOG_PID_FILE"
     # Give the dialog a moment to open the command file for reading.
     /bin/sleep 0.5
 
-    # When root, the PID above belongs to launchctl (exits immediately after
-    # handing swiftDialog off to the user session). Poll pgrep to find the
-    # real dialog PID and overwrite the file so callers can wait on it.
-    if [ "$(/usr/bin/id -u)" -eq 0 ]; then
-        local _dpid="" _i
-        for (( _i=0; _i<40; _i++ )); do
-            _dpid="$(/bin/pgrep -nx dialog 2>/dev/null)"
-            [ -n "$_dpid" ] && break
-            /bin/sleep 0.1
+    # Find the dialog PID that wasn't alive before launch.  See ui_wait_open
+    # for the rationale — pgrep -nx alone picks up older dialogs as false
+    # positives when one is already running.
+    local _dpid="" _i _all _p
+    for (( _i=0; _i<40; _i++ )); do
+        _all="$(_ui_list_dialog_pids 2>/dev/null)"
+        for _p in $_all; do
+            case "$_pre_pids" in
+                *",$_p,"*) continue ;;
+            esac
+            _dpid="$_p"
+            break
         done
-        [ -n "$_dpid" ] && printf '%s\n' "$_dpid" > "$DIALOG_PID_FILE"
-    fi
+        [ -n "$_dpid" ] && break
+        /bin/sleep 0.1
+    done
+    [ -n "$_dpid" ] && printf '%s\n' "$_dpid" > "$DIALOG_PID_FILE"
 }
 
 # Write a raw command to swiftDialog's command file.
@@ -587,20 +639,38 @@ ui_wait_open() {
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
     [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && args+=( --blurscreen )
 
+    # Snapshot the set of live dialog PIDs BEFORE launching so we can identify
+    # which one is ours.  `pgrep -nx dialog` alone returns the newest live
+    # dialog, which for the wait window is a race: the main Enrollinator list
+    # dialog from ui_start is already alive, so pgrep would return its PID on
+    # the first iteration before our new one has even spawned.  Latching onto
+    # the main window here corrupts the back-nav watcher because when the
+    # watcher's inner poll sees "main window still alive" it never exits, and
+    # worse, when the new wait dialog dies the poll is still watching a wrong
+    # target — the subtle symptom being the back-nav slideshow reopening.
+    local _pre_pids
+    _pre_pids=",$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/tr '\n' ',')"
+
     _ui_user_exec "$DIALOG_BIN" "${args[@]}" &
     echo $! > "$WAIT_PID_FILE"
-    # When running as root, the PID above is the launchctl wrapper which exits
-    # immediately after handing the dialog off to the user session.  Poll pgrep
-    # to get the real swiftDialog PID so the watcher can track it correctly.
-    if [ "$(/usr/bin/id -u)" -eq 0 ]; then
-        local _wwpid="" _wwi
-        for (( _wwi=0; _wwi<40; _wwi++ )); do
-            _wwpid="$(/bin/pgrep -nx dialog 2>/dev/null)"
-            [ -n "$_wwpid" ] && break
-            /bin/sleep 0.1
+
+    # Poll for a dialog PID that wasn't alive before our launch.  Works in both
+    # modes: in dev mode the new dialog is a child of the `&` subshell; in root
+    # mode it's a detached launchctl-asuser descendant.  Either way, it's new.
+    local _wwpid="" _wwi _all_pids _pid
+    for (( _wwi=0; _wwi<40; _wwi++ )); do
+        _all_pids="$(_ui_list_dialog_pids 2>/dev/null)"
+        for _pid in $_all_pids; do
+            case "$_pre_pids" in
+                *",$_pid,"*) continue ;;   # was already alive → not ours
+            esac
+            _wwpid="$_pid"
+            break
         done
-        [ -n "$_wwpid" ] && printf '%s\n' "$_wwpid" > "$WAIT_PID_FILE"
-    fi
+        [ -n "$_wwpid" ] && break
+        /bin/sleep 0.1
+    done
+    [ -n "$_wwpid" ] && printf '%s\n' "$_wwpid" > "$WAIT_PID_FILE"
 
     # ── Back-navigation watcher ─────────────────────────────────────────────
     # When the slideshow has more than one frame, a background subshell watches
@@ -613,6 +683,15 @@ ui_wait_open() {
     # Detection: ui_wait_close writes "quit:" into WAIT_COMMAND_FILE before
     # killing the PID; a natural Back-click exit leaves the file empty.
     if [ "${ww_total:-0}" -gt 1 ]; then
+        # Write a unique session token before forking so the subshell inherits
+        # it.  Any watcher from a prior step will see a different (or absent)
+        # token on its next outer-loop check and exit quietly, even if the
+        # SIGTERM we sent via ui_wait_close never arrived (non-root run).
+        local _ww_session
+        _ww_session="$(/bin/date +%s)${RANDOM}${RANDOM}"
+        printf '%s\n' "$_ww_session" > "$WAIT_SESSION_FILE"
+        /bin/chmod 0644 "$WAIT_SESSION_FILE" 2>/dev/null || true
+
         # Capture persistent-window args in the subshell (copy at fork time).
         # ww_frames, ww_stitle_arr, ww_smsg_arr, ww_total, and all display
         # vars are inherited by the subshell because it is a fork.
@@ -627,16 +706,39 @@ ui_wait_open() {
             ' TERM INT
 
             while true; do
+                # Exit immediately if our session token is no longer current.
+                # ui_wait_close removes WAIT_SESSION_FILE, and any subsequent
+                # ui_wait_open overwrites it with a fresh token.  Either event
+                # means this watcher has been superseded and must not re-launch
+                # the previous step's persistent window.
+                local _cur_session
+                _cur_session="$(cat "$WAIT_SESSION_FILE" 2>/dev/null)"
+                [ "$_cur_session" != "$_ww_session" ] && exit 0
+
                 # Poll until the persistent window PID is no longer alive.
                 # Validate the PID is actually a dialog process before polling.
                 _w_pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
                 while _ui_valid_dialog_pid "$_w_pid" && /bin/kill -0 "$_w_pid" 2>/dev/null; do
                     /bin/sleep 0.3
+                    # Check session on every cycle: if ui_wait_close ran and a new
+                    # step has already written a fresh token (or the file is gone),
+                    # exit immediately rather than continuing to poll the wrong PID.
+                    _cur_session="$(cat "$WAIT_SESSION_FILE" 2>/dev/null)"
+                    [ "$_cur_session" != "$_ww_session" ] && exit 0
                     _w_pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
                 done
 
                 # If WAIT_PID_FILE was removed, ui_wait_close already ran → done.
                 [ ! -f "$WAIT_PID_FILE" ] && exit 0
+
+                # Re-check session here: the inner loop above may have exited
+                # because the dialog process died, but in the time between the
+                # last 0.3 s sleep and now, ui_wait_close could have removed
+                # WAIT_SESSION_FILE and a new step's ui_wait_open could have
+                # recreated WAIT_PID_FILE (so the file-exists check above passed).
+                # Without this check we would incorrectly conclude "← Back".
+                _cur_session="$(cat "$WAIT_SESSION_FILE" 2>/dev/null)"
+                [ "$_cur_session" != "$_ww_session" ] && exit 0
 
                 # If WAIT_COMMAND_FILE contains "quit:", condition was met → done.
                 grep -q 'quit:' "$WAIT_COMMAND_FILE" 2>/dev/null && exit 0
@@ -692,19 +794,27 @@ ui_wait_open() {
                 : > "$WAIT_COMMAND_FILE"
                 /bin/chmod 0644 "$WAIT_COMMAND_FILE" 2>/dev/null || true
                 /usr/sbin/chown root:wheel "$WAIT_COMMAND_FILE" 2>/dev/null || true
+                # Same pgrep-diff resolution as the initial launch in
+                # ui_wait_open — picking pgrep -nx alone races against the
+                # main Enrollinator list dialog (also a `dialog` process).
+                local _pre_pids_rl
+                _pre_pids_rl=",$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/tr '\n' ',')"
                 _ui_user_exec "$DIALOG_BIN" "${args[@]}" &
                 echo $! > "$WAIT_PID_FILE"
-                # Same as the initial launch: resolve the real swiftDialog PID
-                # so the next poll iteration can track the live process.
-                if [ "$(/usr/bin/id -u)" -eq 0 ]; then
-                    local _rw_pid="" _ri
-                    for (( _ri=0; _ri<40; _ri++ )); do
-                        _rw_pid="$(/bin/pgrep -nx dialog 2>/dev/null)"
-                        [ -n "$_rw_pid" ] && break
-                        /bin/sleep 0.1
+                local _rw_pid="" _ri _all_rl _p_rl
+                for (( _ri=0; _ri<40; _ri++ )); do
+                    _all_rl="$(_ui_list_dialog_pids 2>/dev/null)"
+                    for _p_rl in $_all_rl; do
+                        case "$_pre_pids_rl" in
+                            *",$_p_rl,"*) continue ;;
+                        esac
+                        _rw_pid="$_p_rl"
+                        break
                     done
-                    [ -n "$_rw_pid" ] && printf '%s\n' "$_rw_pid" > "$WAIT_PID_FILE"
-                fi
+                    [ -n "$_rw_pid" ] && break
+                    /bin/sleep 0.1
+                done
+                [ -n "$_rw_pid" ] && printf '%s\n' "$_rw_pid" > "$WAIT_PID_FILE"
                 # Loop back to watch this new PID.
             done
         ) &
@@ -754,8 +864,17 @@ ui_wait_close() {
     if [ -f "$WAIT_SLIDESHOW_PID_FILE" ]; then
         local spid
         spid="$(cat "$WAIT_SLIDESHOW_PID_FILE" 2>/dev/null)"
-        # Slideshow PID is a root-owned subshell; validate before killing.
-        _ui_valid_root_pid "$spid" && /bin/kill "$spid" 2>/dev/null || true
+        # Slideshow PID is Enrollinator's own watcher subshell.  Validate that
+        # the process is owned by either root (daemon mode) or the current user
+        # (interactive/test mode) before sending SIGTERM, so a local user cannot
+        # spoof the PID file to kill an unrelated process when running as root.
+        if [[ "$spid" =~ ^[1-9][0-9]*$ ]]; then
+            local _sp_uid
+            _sp_uid="$(/bin/ps -o uid= -p "$spid" 2>/dev/null | /usr/bin/tr -d ' ')"
+            if [ "$_sp_uid" = "0" ] || [ "$_sp_uid" = "$(/usr/bin/id -u)" ]; then
+                /bin/kill "$spid" 2>/dev/null || true
+            fi
+        fi
         /bin/rm -f "$WAIT_SLIDESHOW_PID_FILE"
     fi
     if [ -f "$WAIT_PID_FILE" ]; then
@@ -769,6 +888,10 @@ ui_wait_close() {
     fi
     /bin/rm -f "$WAIT_COMMAND_FILE"    2>/dev/null || true
     /bin/rm -f "$WAIT_NAVIGATING_FILE" 2>/dev/null || true
+    # Invalidate the session token so any watcher that survived the SIGTERM
+    # above (e.g. because we are not running as root) exits cleanly on its next
+    # outer-loop iteration rather than re-launching the previous step's window.
+    /bin/rm -f "$WAIT_SESSION_FILE"    2>/dev/null || true
     # Close the blur keeper (if one was launched for a multi-slide wait window).
     if [ -f "$WAIT_BLUR_KEEPER_PID_FILE" ]; then
         local _bkpid
@@ -810,6 +933,9 @@ ui_dialog_popup() {
     local title_fontsize="${6:-}" msg_fontsize="${7:-14}"
     local slideshow="${8:-}" video="${9:-}"
     local slide_titles="${10:-}" slide_msgs="${11:-}" video_autoplay="${12:-}"
+    # Optional icon/logo path or SF= token. When set, replaces --hideicon so the
+    # caller can show a logo (e.g. welcome screen). Empty = --hideicon (default).
+    local icon="${13:-}"
     [ -z "$width" ]  && width=520
     [ -z "$height" ] && height=300
 
@@ -866,6 +992,10 @@ ui_dialog_popup() {
     /bin/chmod 0644 "$popup_cmd" 2>/dev/null || true
     /usr/sbin/chown root:wheel "$popup_cmd" 2>/dev/null || true
 
+    # Resolve the optional icon once; used in both the final dialog and slides.
+    local _icon_resolved
+    _icon_resolved="$(_ui_normalize_icon "$icon")"
+
     local args=(
         --title "$_final_title"
         --message "$_final_message"
@@ -874,10 +1004,14 @@ ui_dialog_popup() {
         --width "$width"
         --height "$height"
         --moveable
-        --hideicon
         --button1text "$b1"
         --commandfile "$popup_cmd"
     )
+    if [ -n "$_icon_resolved" ]; then
+        args+=( --icon "$_icon_resolved" )
+    else
+        args+=( --hideicon )
+    fi
     [ -n "$title_fontsize" ] && args+=( --titlefont "size=${title_fontsize}" )
     # Use b2 slot for ← Back when there are preceding slides and the caller
     # hasn't defined a secondary action button; otherwise pass b2 through.
@@ -953,9 +1087,9 @@ ui_dialog_popup() {
                 --width "$width"
                 --height "$height"
                 --moveable
-                --hideicon
                 --button1text "Next →  ($(( dlg_i + 1 )) of ${dlg_total})"
             )
+            if [ -n "$_icon_resolved" ]; then _da+=( --icon "$_icon_resolved" ); else _da+=( --hideicon ); fi
             [ "$dlg_i" -gt 0 ]                  && _da+=( --button2text "← Back" )
             [ -n "$title_fontsize" ]             && _da+=( --titlefont "size=${title_fontsize}" )
             [ -n "$_dr" ]                        && _da+=( --image "$_dr" )

@@ -361,7 +361,9 @@ build_steps_manifest() {
         icon="$(plist_get "$cfg" "${pkey}:Steps:$i:Icon")"
         [ -z "$id" ] && id="step-$i"
         [ -z "$name" ] && name="$id"
-        printf '%s|%s|%s|%s\n' "$id" "$name" "$desc" "$icon" >> "$manifest"
+        # Use ASCII unit-separator (0x1F) so pipe characters in step
+        # Name/Description/Icon values don't corrupt the field boundaries.
+        printf '%s\x1f%s\x1f%s\x1f%s\n' "$id" "$name" "$desc" "$icon" >> "$manifest"
     done
     echo "$manifest"
 }
@@ -737,6 +739,126 @@ dry_run_plan() {
 }
 
 # ----------------------------------------------------------------------------
+# Welcome screen
+# ----------------------------------------------------------------------------
+
+# show_welcome_screen <cfg>
+# Displays the welcome dialog if WelcomeScreen.Enabled is true in the config.
+# Supports an optional "Not Now" deferral button with a configurable max count.
+# Deferral increments a counter in ENROLLINATOR_PERSIST_DIR and exits 0 so the
+# LaunchDaemon/LaunchAgent can re-trigger on the next login.
+# Calling convention: must be called after ui_require_dialog and before ui_start.
+show_welcome_screen() {
+    local cfg="$1"
+    local enabled
+    enabled="$(plist_bool "$cfg" ":WelcomeScreen:Enabled" false)"
+    [ "$enabled" = "true" ] || return 0
+
+    local title message button defer_button max_deferrals
+    local width height logo title_fs msg_fs blur ontop
+    title="$(plist_get         "$cfg" ":WelcomeScreen:Title")"
+    message="$(plist_get       "$cfg" ":WelcomeScreen:Message")"
+    button="$(plist_get        "$cfg" ":WelcomeScreen:Button")"
+    defer_button="$(plist_get  "$cfg" ":WelcomeScreen:DeferButton")"
+    max_deferrals="$(plist_get "$cfg" ":WelcomeScreen:MaxDeferrals")"
+    width="$(plist_get         "$cfg" ":WelcomeScreen:Width")"
+    height="$(plist_get        "$cfg" ":WelcomeScreen:Height")"
+    logo="$(plist_get          "$cfg" ":WelcomeScreen:Logo")"
+    title_fs="$(plist_get      "$cfg" ":WelcomeScreen:TitleFontSize")"
+    msg_fs="$(plist_get        "$cfg" ":WelcomeScreen:MessageFontSize")"
+    blur="$(plist_get          "$cfg" ":WelcomeScreen:Blur")"
+    ontop="$(plist_get         "$cfg" ":WelcomeScreen:AlwaysOnTop")"
+
+    # Fall back to branding values when WelcomeScreen-specific ones aren't set.
+    [ -z "$title"  ] && title="$(plist_get "$cfg" ":Branding:Title")"
+    [ -z "$title"  ] && title="Welcome"
+    [ -z "$button" ] && button="Get Started"
+    [ -z "$width"  ] && width=600
+    [ -z "$height" ] && height=450
+    [ -z "$logo"   ] && logo="$(plist_get "$cfg" ":Branding:Logo")"
+
+    # Expand {token} placeholders (same substitution available in Branding fields).
+    title="$(expand_title_vars "$title")"
+    [ -n "$message" ] && message="$(expand_title_vars "$message")"
+
+    # Build pipe-delimited slideshow strings (same format as action_dialog).
+    local slideshow="" ss_titles="" ss_msgs="" video="" video_autoplay=""
+    video="$(plist_get         "$cfg" ":WelcomeScreen:Video")"
+    video_autoplay="$(plist_get "$cfg" ":WelcomeScreen:VideoAutoplay")"
+    local ss_count j f_img f_title f_msg
+    ss_count="$(plist_array_count "$cfg" ":WelcomeScreen:Slideshow")"
+    for (( j=0; j<ss_count; j++ )); do
+        f_img="$(plist_get "$cfg" ":WelcomeScreen:Slideshow:$j:Image")"
+        if [ -n "$f_img" ]; then
+            f_title="$(plist_get "$cfg" ":WelcomeScreen:Slideshow:$j:Title")"
+            f_msg="$(plist_get   "$cfg" ":WelcomeScreen:Slideshow:$j:Message")"
+        else
+            f_img="$(plist_get "$cfg" ":WelcomeScreen:Slideshow:$j")"
+            f_title=""
+            f_msg=""
+        fi
+        [ -z "$f_img" ] && [ -z "$f_title" ] && [ -z "$f_msg" ] && continue
+        slideshow="${slideshow:+${slideshow}|}${f_img}"
+        ss_titles="${ss_titles:+${ss_titles}|}${f_title}"
+        ss_msgs="${ss_msgs:+${ss_msgs}|}${f_msg}"
+    done
+
+    # Deferral tracking — count persists across LaunchDaemon restarts.
+    local defer_count=0
+    local defer_file="${ENROLLINATOR_PERSIST_DIR}/welcome_deferrals"
+    if [ -f "$defer_file" ]; then
+        defer_count="$(cat "$defer_file" 2>/dev/null)"
+        [[ "$defer_count" =~ ^[0-9]+$ ]] || defer_count=0
+    fi
+
+    # Suppress defer button once the cap is reached.
+    local btns="$button"
+    if [ -n "$defer_button" ]; then
+        local _show_defer=1
+        if [[ "$max_deferrals" =~ ^[0-9]+$ ]] && [ "$defer_count" -ge "$max_deferrals" ]; then
+            _show_defer=0
+            log info "Welcome screen: max deferrals ($max_deferrals) reached — hiding defer button"
+        fi
+        [ "$_show_defer" -eq 1 ] && btns="${btns}|${defer_button}"
+    fi
+
+    # Apply per-welcome blur/ontop overrides, then restore.
+    local _saved_blur="$ENROLLINATOR_UI_BLUR" _saved_ontop="$ENROLLINATOR_UI_ONTOP"
+    [ "$blur"  = "true"  ] && ENROLLINATOR_UI_BLUR=1
+    [ "$blur"  = "false" ] && ENROLLINATOR_UI_BLUR=0
+    [ "$ontop" = "true"  ] && ENROLLINATOR_UI_ONTOP=1
+    [ "$ontop" = "false" ] && ENROLLINATOR_UI_ONTOP=0
+    export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
+
+    local clicked rc
+    # Pass the logo as the optional 13th argument (icon) to ui_dialog_popup.
+    clicked="$(ui_dialog_popup "$title" "$message" "$width" "$height" "$btns" \
+                "$title_fs" "$msg_fs" "$slideshow" "$video" "$ss_titles" "$ss_msgs" \
+                "$video_autoplay" "$logo")"
+    rc=$?
+
+    ENROLLINATOR_UI_BLUR="$_saved_blur"; ENROLLINATOR_UI_ONTOP="$_saved_ontop"
+    export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
+
+    if [ $rc -ne 0 ]; then
+        log warn "Welcome screen exited unexpectedly (rc=$rc) — proceeding with onboarding."
+        return 0
+    fi
+
+    log info "Welcome screen: user clicked '$clicked'"
+
+    # Handle deferral.
+    if [ -n "$defer_button" ] && [ "$clicked" = "$defer_button" ]; then
+        local new_count=$(( defer_count + 1 ))
+        printf '%s\n' "$new_count" > "$defer_file" 2>/dev/null || true
+        log info "Onboarding deferred (${new_count}/${max_deferrals:-∞})"
+        exit 0
+    fi
+
+    return 0
+}
+
+# ----------------------------------------------------------------------------
 # swiftDialog auto-install
 # ----------------------------------------------------------------------------
 
@@ -1095,6 +1217,7 @@ main() {
     fi
 
     ui_require_dialog
+    show_welcome_screen "$cfg"
     ui_start "$title" "$subtitle" "$accent" "$logo" "$steps_file"
     local ran_ids_file id_map_file
     ran_ids_file="$(/usr/bin/mktemp -t enrollinator-ran-ids)"

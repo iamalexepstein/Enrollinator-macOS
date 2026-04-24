@@ -1573,6 +1573,24 @@ function defaultState() {
             Message: "",
             Contacts: []
         },
+        WelcomeScreen: {
+            Enabled: false,
+            Title: "",
+            Message: "",
+            Button: "Get Started",
+            DeferButton: "",
+            MaxDeferrals: null,
+            Logo: "",
+            TitleFontSize: null,
+            MessageFontSize: null,
+            Width: null,
+            Height: null,
+            Slideshow: [],
+            Video: "",
+            VideoAutoplay: null,
+            Blur: null,
+            AlwaysOnTop: null
+        },
         AddonPicker: {
             Title: "",
             Message: "",
@@ -1676,6 +1694,7 @@ function buildInnerPayload(s) {
         BlurScreen: s.BlurScreen === true ? true : undefined,
         AlwaysOnTop: s.AlwaysOnTop === false ? false : undefined,
 
+        WelcomeScreen: buildWelcomeScreen(s.WelcomeScreen),
         HardwareInfo: buildHardwareInfo(s.HardwareInfo),
         Help: buildHelp(s.Help),
         AddonPicker: clean({
@@ -1733,6 +1752,28 @@ function buildHelp(help) {
     };
 }
 
+function buildWelcomeScreen(w) {
+    if (!w || w.Enabled !== true) return undefined;
+    const slides = (w.Slideshow || []).map(buildSlide).filter(s => s != null);
+    return clean({
+        Enabled: true,
+        Title:           w.Title           || undefined,
+        Message:         w.Message         || undefined,
+        Button:          w.Button && w.Button !== "Get Started" ? w.Button : undefined,
+        DeferButton:     w.DeferButton     || undefined,
+        MaxDeferrals:    (w.DeferButton && Number.isFinite(w.MaxDeferrals)) ? w.MaxDeferrals : undefined,
+        Logo:            w.Logo            || undefined,
+        TitleFontSize:   Number.isFinite(w.TitleFontSize)   ? w.TitleFontSize   : undefined,
+        MessageFontSize: Number.isFinite(w.MessageFontSize) ? w.MessageFontSize : undefined,
+        Width:           Number.isFinite(w.Width)           ? w.Width           : undefined,
+        Height:          Number.isFinite(w.Height)          ? w.Height          : undefined,
+        Slideshow:       slides.length ? slides : undefined,
+        Video:           w.Video || undefined,
+        VideoAutoplay:   typeof w.VideoAutoplay === "boolean" ? w.VideoAutoplay : undefined,
+        Blur:            typeof w.Blur        === "boolean" ? w.Blur        : undefined,
+        AlwaysOnTop:     typeof w.AlwaysOnTop === "boolean" ? w.AlwaysOnTop : undefined,
+    });
+}
 function buildAction(a) {
     if (!a) return undefined;
     switch (a.Type) {
@@ -2033,6 +2074,25 @@ function importFromMobileconfig(xml) {
         { Title: "", Message: "", Icon: "", TitleFontSize: null, MessageFontSize: null, InstallButton: "", SkipButton: "", Width: null, Height: null },
         inner.AddonPicker || {}
     );
+    const iw = inner.WelcomeScreen || {};
+    next.WelcomeScreen = {
+        Enabled:         !!iw.Enabled,
+        Title:           iw.Title           || "",
+        Message:         iw.Message         || "",
+        Button:          iw.Button          || "Get Started",
+        DeferButton:     iw.DeferButton     || "",
+        MaxDeferrals:    Number.isFinite(iw.MaxDeferrals) ? iw.MaxDeferrals : null,
+        Logo:            iw.Logo            || "",
+        TitleFontSize:   Number.isFinite(iw.TitleFontSize)   ? iw.TitleFontSize   : null,
+        MessageFontSize: Number.isFinite(iw.MessageFontSize) ? iw.MessageFontSize : null,
+        Width:           Number.isFinite(iw.Width)  ? iw.Width  : null,
+        Height:          Number.isFinite(iw.Height) ? iw.Height : null,
+        Slideshow:       Array.isArray(iw.Slideshow) ? iw.Slideshow.map(normalizeSlide) : [],
+        Video:           iw.Video           || "",
+        VideoAutoplay:   typeof iw.VideoAutoplay === "boolean" ? iw.VideoAutoplay : null,
+        Blur:            typeof iw.Blur        === "boolean" ? iw.Blur        : null,
+        AlwaysOnTop:     typeof iw.AlwaysOnTop === "boolean" ? iw.AlwaysOnTop : null,
+    };
     next.Playbooks = (inner.Playbooks || inner.Profiles || []).map(importProfile);
     return next;
 }
@@ -2607,6 +2667,7 @@ const SETTINGS_TABS = [
     { id: "identity", label: "Playbook Identity" },
     { id: "branding", label: "Branding" },
     { id: "runtime",  label: "Runtime" },
+    { id: "welcome",  label: "Welcome Screen" },
     { id: "hardware", label: "Hardware Info" },
     { id: "help",     label: "Help" },
     { id: "addons",   label: "Add-on Picker" },
@@ -2674,6 +2735,7 @@ function renderSettingsBody() {
         case "identity": body.appendChild(renderIdentityTile()); break;
         case "branding": body.appendChild(renderBrandingTile()); break;
         case "runtime":  body.appendChild(renderRuntimeTile()); break;
+        case "welcome":  body.appendChild(renderWelcomeScreenTile()); break;
         case "hardware": body.appendChild(renderHardwareInfoTile()); break;
         case "help":     body.appendChild(renderHelpTile()); break;
         case "addons":   body.appendChild(renderAddonPickerTile()); break;
@@ -2888,6 +2950,166 @@ function renderHelpTile() {
         }));
         tile.append(row("Contacts", contactsWrap));
     }
+    return tile;
+}
+
+function renderWelcomeScreenTile() {
+    const w = state.WelcomeScreen;
+    w.Slideshow = (w.Slideshow || []).map(normalizeSlide);
+
+    const tile = h("div", { class: "tile" },
+        h("h3", null, "Welcome Screen"),
+        h("p", { class: "tile-desc" }, "Optional full-screen dialog shown before onboarding begins. Supports a logo, slideshow or video, and an optional deferral button.")
+    );
+
+    tile.appendChild(h("div", { class: "section" },
+        h("div", { class: "behavior-flag" },
+            h("div", null,
+                h("div", { class: "behavior-flag-label" }, "Enabled"),
+                h("div", { class: "behavior-flag-hint" }, "Show a welcome dialog before the main onboarding window opens.")
+            ),
+            checkbox(w.Enabled, v => { w.Enabled = v; updatePreview(); reopenSettings(); })
+        )
+    ));
+
+    if (!w.Enabled) return tile;
+
+    // Derive / restore media mode (transient — not serialized)
+    if (!w._mediaMode) {
+        w._mediaMode = w.Video ? "video" : (w.Slideshow.length > 0 ? "slideshow" : "off");
+    }
+    const mode = w._mediaMode;
+
+    function switchMode(val) {
+        if      (val === "off")       { w.Video = ""; w.Slideshow = []; }
+        else if (val === "slideshow") { w.Video = ""; }
+        else if (val === "video")     { w.Slideshow = []; }
+        w._mediaMode = val;
+        updatePreview(); reopenSettings();
+    }
+
+    const mediaModes = [["off", "None"], ["slideshow", "Slideshow"], ["video", "Video"]];
+    const mediaPicker = h("div", { style: "display:inline-flex;border-radius:7px;overflow:hidden;border:1px solid #d1d1d6" },
+        ...mediaModes.map(([val, label], idx) =>
+            h("button", {
+                class: "btn" + (mode === val ? " btn--active" : ""),
+                style: "border-radius:0;border:none;" + (idx < mediaModes.length - 1 ? "border-right:1px solid #d1d1d6;" : ""),
+                onclick: () => switchMode(val)
+            }, label)
+        )
+    );
+
+    // Slideshow frame editor
+    const slidesWrap = h("div", { style: "display:flex;flex-direction:column;gap:8px;margin-top:8px" });
+    if (w.Slideshow.length === 0)
+        slidesWrap.appendChild(hint("No frames. Add one for a still image; 2+ for a user-clicked slideshow."));
+    w.Slideshow.forEach((slide, i) => {
+        slidesWrap.appendChild(h("div", {
+            style: "display:flex;flex-direction:column;gap:6px;padding:10px 10px 8px;background:rgba(0,0,0,0.03);border-radius:7px;border:1px solid rgba(0,0,0,0.07)"
+        },
+            h("div", { style: "display:flex;align-items:center;gap:6px;margin-bottom:2px" },
+                h("span", { style: "font-size:10px;font-weight:700;text-transform:uppercase;color:#aeaeb2;letter-spacing:0.08em;flex:1" }, `Frame ${i + 1}`),
+                btn("↑", () => { move(w.Slideshow, i, -1); reopenSettings(); }, "icon"),
+                btn("↓", () => { move(w.Slideshow, i,  1); reopenSettings(); }, "icon"),
+                btn("✕", () => { w.Slideshow.splice(i, 1); reopenSettings(); updatePreview(); }, "danger")
+            ),
+            row("Image", h("input", { type: "text", value: slide.Image || "",
+                placeholder: "/path/img.png or https://…",
+                oninput: e => { slide.Image = e.target.value; updatePreview(); } })),
+            row("Title", h("input", { type: "text", value: slide.Title || "",
+                placeholder: "Overrides title for this slide (optional)",
+                oninput: e => { slide.Title = e.target.value; } })),
+            row("Message", h("textarea", {
+                placeholder: "Overrides message for this slide (Markdown, optional)",
+                oninput: e => { slide.Message = e.target.value; }
+            }, slide.Message || ""))
+        ));
+    });
+    slidesWrap.appendChild(btn("+ Add frame", () => {
+        w.Slideshow.push({ Image: "", Title: "", Message: "" }); reopenSettings();
+    }));
+
+    // Video
+    const videoInput = h("input", { type: "text", value: w.Video || "",
+        placeholder: "/path/video.mp4, https://… or YouTube URL", style: "flex:1",
+        oninput: e => { w.Video = e.target.value; updatePreview(); } });
+    const autoplayBtn = h("button", {
+        class: "btn" + (w.VideoAutoplay === true ? " btn--active" : ""),
+        style: "white-space:nowrap;flex-shrink:0",
+        onclick: () => { w.VideoAutoplay = w.VideoAutoplay === true ? null : true; updatePreview(); reopenSettings(); }
+    }, "▶ Autoplay");
+    const videoSection = h("div", { style: "display:flex;flex-direction:column;gap:4px;margin-top:8px" },
+        h("div", { style: "display:flex;gap:6px;align-items:center" }, videoInput, autoplayBtn),
+        ...youTubePreviewNodes(w.Video || "")
+    );
+
+    tile.appendChild(h("div", { class: "section" },
+        h("div", { class: "section-title" }, "Content"),
+        row("Title", textInputWithVars(w.Title, v => { w.Title = v; updatePreview(); }, "Defaults to Branding title")),
+        row("Message", h("textarea", {
+            oninput: e => { w.Message = e.target.value; updatePreview(); },
+            placeholder: "Markdown — shown below the title."
+        }, w.Message || "")),
+        row("Media", h("div", null,
+            mediaPicker,
+            ...(mode === "slideshow" ? [slidesWrap]   : []),
+            ...(mode === "video"     ? [videoSection] : [])
+        ))
+    ));
+
+    tile.appendChild(h("div", { class: "section" },
+        h("div", { class: "section-title" }, "Buttons"),
+        row("Proceed button",
+            textInput(w.Button, v => { w.Button = v; updatePreview(); }, "Get Started"),
+            hint("Label of the button that starts onboarding.")),
+        row("Defer button",
+            textInput(w.DeferButton, v => { w.DeferButton = v; updatePreview(); reopenSettings(); }, "Not Now (optional)"),
+            hint("Leave empty to hide. Exits cleanly so the LaunchAgent/Daemon can re-trigger on next login.")),
+        ...(w.DeferButton ? [
+            row("Max deferrals",
+                h("input", { type: "number", min: "1", style: "width:80px",
+                    value: w.MaxDeferrals == null ? "" : String(w.MaxDeferrals),
+                    placeholder: "∞",
+                    oninput: e => { const v = parseInt(e.target.value, 10); w.MaxDeferrals = Number.isFinite(v) ? v : null; updatePreview(); } }),
+                hint("After this many deferrals the defer button is hidden and the user must proceed."))
+        ] : [])
+    ));
+
+    tile.appendChild(h("div", { class: "section" },
+        h("div", { class: "section-title" }, "Appearance"),
+        row("Logo / icon",
+            renderIconInput(w.Logo, v => { w.Logo = v; updatePreview(); }, reopenSettings),
+            hint("Shown in the dialog. Defaults to the Branding logo.")),
+        row("Font sizes",
+            h("div", { style: "display:flex;gap:8px;align-items:center" },
+                h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap" }, "Title"),
+                h("input", { type: "number", min: "0", style: "width:58px",
+                    value: w.TitleFontSize == null ? "" : String(w.TitleFontSize), placeholder: "def",
+                    oninput: e => { const v = parseInt(e.target.value, 10); w.TitleFontSize = Number.isFinite(v) ? v : null; updatePreview(); } }),
+                h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap;margin-left:4px" }, "Body"),
+                h("input", { type: "number", min: "0", style: "width:58px",
+                    value: w.MessageFontSize == null ? "" : String(w.MessageFontSize), placeholder: "14",
+                    oninput: e => { const v = parseInt(e.target.value, 10); w.MessageFontSize = Number.isFinite(v) ? v : null; updatePreview(); } })
+            )
+        ),
+        row("Size",
+            h("div", { style: "display:flex;gap:8px;align-items:center" },
+                h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap" }, "W"),
+                h("input", { type: "number", min: "0", style: "width:62px",
+                    value: w.Width == null ? "" : String(w.Width), placeholder: "600",
+                    oninput: e => { const v = parseInt(e.target.value, 10); w.Width = Number.isFinite(v) ? v : null; updatePreview(); } }),
+                h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap;margin-left:4px" }, "H"),
+                h("input", { type: "number", min: "0", style: "width:62px",
+                    value: w.Height == null ? "" : String(w.Height), placeholder: "450",
+                    oninput: e => { const v = parseInt(e.target.value, 10); w.Height = Number.isFinite(v) ? v : null; updatePreview(); } })
+            )
+        ),
+        h("div", { class: "pair-row" },
+            row("Blur screen",   triStateSelect(w.Blur,        v => { w.Blur        = v; updatePreview(); })),
+            row("Always on top", triStateSelect(w.AlwaysOnTop, v => { w.AlwaysOnTop = v; updatePreview(); }))
+        )
+    ));
+
     return tile;
 }
 
@@ -4237,6 +4459,26 @@ function loadSample() {
         ]
     };
 
+    // ── Welcome screen ────────────────────────────────────────────────────────
+    s.WelcomeScreen = {
+        Enabled:         true,
+        Title:           "Welcome to Acme Corp!",
+        Message:         "## Before we get started\n\nThis assistant will set up everything you need — software, security settings, and company tools. The whole process takes about **10 minutes**.\n\nPlug in to power if you haven't already, then click **Get Started** whenever you're ready.",
+        Button:          "Get Started",
+        DeferButton:     "Not Now",
+        MaxDeferrals:    3,
+        Logo:            "SF=sparkles,animation=pulse",
+        TitleFontSize:   null,
+        MessageFontSize: null,
+        Width:           680,
+        Height:          440,
+        Slideshow:       [],
+        Video:           "",
+        VideoAutoplay:   null,
+        Blur:            true,
+        AlwaysOnTop:     true
+    };
+
     // ── Add-on picker customisation ───────────────────────────────────────────
     s.AddonPicker = {
         Title:         "Optional Tools",
@@ -4649,7 +4891,7 @@ document.getElementById("import-file").addEventListener("change", async e => {
         const xml = await f.text();
         state = importFromMobileconfig(xml);
         resetUiForNewState();
-        renderCanvas(); updatePreview();
+        renderCanvas(); updatePreview(); reopenSettings();
     } catch (err) {
         alert(`Import failed: ${err.message}`);
     }
