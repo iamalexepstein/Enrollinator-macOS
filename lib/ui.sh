@@ -151,7 +151,13 @@ _ui_run_blur_keeper_active() {
 # does NOT also pass --blurscreen (the keeper is the sole source of blur).
 ui_run_blur_keeper_start() {
     _ui_run_blur_keeper_active && return 0
-    local _w="${1:-520}" _h="${2:-420}"
+    # Width/height args are accepted for backward-compat with callers but no
+    # longer used — the keeper now sits as a tiny 4x4 window in the lower-left
+    # corner so it never visually overlaps the foreground dialog (which lives
+    # centered) and so its empty content isn't visible during between-step
+    # transitions.  --blurscreen is a window-level effect that blurs the whole
+    # screen behind the dialog, regardless of the dialog's own size/position,
+    # so a 4x4 window still produces a fullscreen blur.
     : > "$RUN_BLUR_KEEPER_CMD"
     /bin/chmod 0644 "$RUN_BLUR_KEEPER_CMD" 2>/dev/null || true
     /usr/sbin/chown root:wheel "$RUN_BLUR_KEEPER_CMD" 2>/dev/null || true
@@ -159,11 +165,22 @@ ui_run_blur_keeper_start() {
     local _pre
     _pre=",$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/tr '\n' ',')"
 
+    # swiftDialog's --position bottomleft preset reserves a margin from the
+    # screen edge.  Compute the actual screen height and place the 1x1 window
+    # at x=0, y=screen_height-1 so it sits flush in the very corner.  Falls
+    # back to 9999 if osascript is unavailable; swiftDialog clamps in that case.
+    local _screen_h
+    _screen_h="$(_ui_user_exec /usr/bin/osascript -e \
+        'tell application "Finder" to get bounds of window of desktop' \
+        2>/dev/null | /usr/bin/awk -F', ' '{print $4}')"
+    [[ "$_screen_h" =~ ^[0-9]+$ ]] || _screen_h=9999
+    local _y=$(( _screen_h - 1 ))
+
     local _args=(
         --title " " --message " "
         --messagefont "size=1"
-        --position center
-        --width "$_w" --height "$_h"
+        --position "0,${_y}"
+        --width 1 --height 1
         --blurscreen
         --button1disabled --button1text " "
         --commandfile "$RUN_BLUR_KEEPER_CMD"
