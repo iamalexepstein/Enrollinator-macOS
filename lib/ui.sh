@@ -46,6 +46,19 @@ WAIT_BLUR_KEEPER_PID_FILE="/var/tmp/enrollinator.wait-blur-keeper.pid"
 # "← Back" click and reopening the previous step's persistent window.
 WAIT_SESSION_FILE="/var/tmp/enrollinator.wait.session"
 
+# Run-level blur keeper — same pattern and same args as WAIT_BLUR_KEEPER, but
+# scoped to the whole run so blur is continuous across step boundaries (one
+# blurred wait window closing → next blurred wait window opening).
+#
+# Critical lesson from failed attempts: swiftDialog tolerates multiple dialogs
+# stacked above a --blurscreen keeper just fine (the existing per-window
+# keeper proves this), but it does NOT tolerate two simultaneous --blurscreen
+# dialogs.  Whenever the run-level keeper is alive, foreground dialogs MUST
+# skip their own --blurscreen flag.  All seven existing --blurscreen sites in
+# this file are gated on _ui_run_blur_keeper_active for exactly this reason.
+RUN_BLUR_KEEPER_CMD="/var/tmp/enrollinator.run-blur-keeper.log"
+RUN_BLUR_KEEPER_PID_FILE="/var/tmp/enrollinator.run-blur-keeper.pid"
+
 # Abort with a helpful message if swiftDialog isn't present.
 ui_require_dialog() {
     if [ ! -x "$DIALOG_BIN" ]; then
@@ -119,6 +132,89 @@ _ui_list_dialog_pids() {
     # dialogs", which is what ultimately caused the back-nav watcher's inner
     # poll condition to fail instantly and fire the bogus "← Back" branch.
     /usr/bin/pgrep -ix "$_n" 2>/dev/null
+}
+
+# Returns 0 (true) iff the run-level blur keeper is alive right now.
+_ui_run_blur_keeper_active() {
+    [ -f "$RUN_BLUR_KEEPER_PID_FILE" ] || return 1
+    local _p
+    _p="$(cat "$RUN_BLUR_KEEPER_PID_FILE" 2>/dev/null)"
+    [ -z "$_p" ] && return 1
+    /bin/kill -0 "$_p" 2>/dev/null
+}
+
+# Start the run-level blur keeper.  Idempotent.  Args (intentionally identical
+# to the existing WAIT_BLUR_KEEPER): centered, full size, --ontop, --moveable,
+# --ignorednd.  This is the configuration the existing multi-slide keeper uses
+# and it works correctly there — the foreground dialog is launched after, also
+# with --ontop, and stacks on top.  The KEY rule is that the foreground dialog
+# does NOT also pass --blurscreen (the keeper is the sole source of blur).
+ui_run_blur_keeper_start() {
+    _ui_run_blur_keeper_active && return 0
+    local _w="${1:-520}" _h="${2:-420}"
+    : > "$RUN_BLUR_KEEPER_CMD"
+    /bin/chmod 0644 "$RUN_BLUR_KEEPER_CMD" 2>/dev/null || true
+    /usr/sbin/chown root:wheel "$RUN_BLUR_KEEPER_CMD" 2>/dev/null || true
+
+    local _pre
+    _pre=",$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/tr '\n' ',')"
+
+    local _args=(
+        --title " " --message " "
+        --messagefont "size=1"
+        --position center
+        --width "$_w" --height "$_h"
+        --blurscreen
+        --button1disabled --button1text " "
+        --commandfile "$RUN_BLUR_KEEPER_CMD"
+        --hideicon --moveable --ignorednd
+    )
+    [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && _args+=( --ontop )
+    _ui_user_exec "$DIALOG_BIN" "${_args[@]}" &
+    echo $! > "$RUN_BLUR_KEEPER_PID_FILE"
+
+    # Resolve the real swiftDialog PID (the captured $! is the bash subshell).
+    local _pid="" _i _all _p
+    for (( _i=0; _i<40; _i++ )); do
+        _all="$(_ui_list_dialog_pids 2>/dev/null)"
+        for _p in $_all; do
+            case "$_pre" in
+                *",$_p,"*) continue ;;
+            esac
+            _pid="$_p"
+            break
+        done
+        [ -n "$_pid" ] && break
+        /bin/sleep 0.1
+    done
+    [ -n "$_pid" ] && printf '%s\n' "$_pid" > "$RUN_BLUR_KEEPER_PID_FILE"
+}
+
+# Stop the run-level blur keeper.  Idempotent.
+ui_run_blur_keeper_stop() {
+    [ -f "$RUN_BLUR_KEEPER_CMD" ] && \
+        printf 'quit:\n' >> "$RUN_BLUR_KEEPER_CMD" 2>/dev/null || true
+    if [ -f "$RUN_BLUR_KEEPER_PID_FILE" ]; then
+        /bin/sleep 0.1
+        local _p
+        _p="$(cat "$RUN_BLUR_KEEPER_PID_FILE" 2>/dev/null)"
+        if _ui_valid_dialog_pid "$_p"; then
+            /bin/kill "$_p" 2>/dev/null || true
+        fi
+        /bin/rm -f "$RUN_BLUR_KEEPER_PID_FILE"
+    fi
+    /bin/rm -f "$RUN_BLUR_KEEPER_CMD" 2>/dev/null || true
+}
+
+# Sync the run-level keeper to the current ENROLLINATOR_UI_BLUR setting.
+# Called at the top of every dialog-emitting function.  Optional width/height
+# args propagate to the keeper window so it matches the foreground dialog.
+_ui_run_blur_keeper_sync() {
+    if [ "${ENROLLINATOR_UI_BLUR:-0}" = "1" ]; then
+        ui_run_blur_keeper_start "${1:-}" "${2:-}"
+    else
+        ui_run_blur_keeper_stop
+    fi
 }
 
 # Invoke argv as the console user when we're root; otherwise invoke directly.
@@ -223,6 +319,14 @@ _ui_add_video_arg() {
 ui_start() {
     local title="$1" subtitle="$2" accent="$3" logo="$4" steps_file="$5"
 
+    # No keeper sync here — show_welcome_screen and run_step are the only two
+    # places that decide keeper state, because they have the per-surface blur
+    # intent in scope.  Auto-syncing here against ENROLLINATOR_UI_BLUR (which
+    # has already been restored to its global value by the time ui_start runs
+    # after a blurred welcome screen) would tear down a keeper the next step
+    # is about to want, producing a visible blur drop between welcome and the
+    # first blurred step.
+
     # The command file is written by root (Enrollinator) and read by the
     # user-session swiftDialog process. 0644 gives swiftDialog read access
     # without allowing local users to inject commands.
@@ -305,7 +409,7 @@ ui_start() {
     args+=( --messagefont "size=${mf_size}" )
 
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
-    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
+    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && ! _ui_run_blur_keeper_active && args+=( --blurscreen )
 
     # Snapshot live dialog PIDs before launch so we can identify ours.
     local _pre_pids
@@ -411,6 +515,8 @@ ui_addon_picker() {
     local icon_resolved
     icon_resolved="$(_ui_normalize_icon "$icon_raw")"
 
+    # Run-level keeper is managed by run_step at step boundaries; no sync here.
+
     local args=(
         --title   "$title"
         --message "$message"
@@ -426,7 +532,7 @@ ui_addon_picker() {
     [ -n "$icon_resolved" ]    && args+=( --icon "$icon_resolved" )
     [ -n "$title_fontsize" ]   && args+=( --titlefont "size=${title_fontsize}" )
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
-    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && args+=( --blurscreen )
+    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && ! _ui_run_blur_keeper_active && args+=( --blurscreen )
 
     # Build checkbox list; track names separately for JSON parsing.
     # Descriptions are consumed here (used by caller in the message body)
@@ -479,6 +585,8 @@ ui_stop() {
     fi
     # Just in case a wait window was left open.
     ui_wait_close
+    # End-of-run teardown of the run-level blur keeper.
+    ui_run_blur_keeper_stop
 }
 
 # ---------------------------------------------------------------------------
@@ -506,6 +614,8 @@ ui_wait_open() {
     [ -z "$width" ] && width=520
     [ -z "$height" ] && height=420
 
+    # Run-level keeper is managed by run_step at step boundaries; no sync here.
+
     ui_wait_close   # clean up any prior wait window
 
     # ── Blur keeper ─────────────────────────────────────────────────────────
@@ -516,7 +626,10 @@ ui_wait_open() {
     # transitions so the blur never flickers.  _ww_use_keeper is set here so
     # every --blurscreen flag in this function can check it.
     local _ww_use_keeper=0
-    [ "${ENROLLINATOR_UI_BLUR:-0}" = "1" ] && [ -z "$video" ] && [[ "$slideshow" == *"|"* ]] && _ww_use_keeper=1
+    # Skip the per-window keeper when the run-level keeper is already alive —
+    # two simultaneous --blurscreen dialogs break input on the foreground.
+    [ "${ENROLLINATOR_UI_BLUR:-0}" = "1" ] && [ -z "$video" ] && [[ "$slideshow" == *"|"* ]] \
+        && ! _ui_run_blur_keeper_active && _ww_use_keeper=1
     if [ "$_ww_use_keeper" = "1" ]; then
         : > "$WAIT_BLUR_KEEPER_CMD"
         /bin/chmod 0644 "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
@@ -575,7 +688,7 @@ ui_wait_open() {
             [ -n "$title_fontsize" ] && ww_slide_args+=( --titlefont "size=${title_fontsize}" )
             [ -n "$ww_resolved" ]    && ww_slide_args+=( --image "$ww_resolved" )
             [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && ww_slide_args+=( --ontop )
-            [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && ww_slide_args+=( --blurscreen )
+            [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && ww_slide_args+=( --blurscreen )
             _ui_user_exec "$DIALOG_BIN" "${ww_slide_args[@]}"
             local ww_rc=$?
             case "$ww_rc" in
@@ -637,7 +750,7 @@ ui_wait_open() {
 
     [ -n "$title_fontsize" ] && args+=( --titlefont "size=${title_fontsize}" )
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
-    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && args+=( --blurscreen )
+    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && args+=( --blurscreen )
 
     # Snapshot the set of live dialog PIDs BEFORE launching so we can identify
     # which one is ours.  `pgrep -nx dialog` alone returns the newest live
@@ -770,7 +883,7 @@ ui_wait_open() {
                     [ -n "$title_fontsize" ]                 && _wa+=( --titlefont "size=${title_fontsize}" )
                     [ -n "$_wr" ]                            && _wa+=( --image "$_wr" )
                     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ]  && _wa+=( --ontop )
-                    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && _wa+=( --blurscreen )
+                    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && _wa+=( --blurscreen )
                     # Run in background so the TERM trap can kill it mid-slide.
                     _ui_user_exec "$DIALOG_BIN" "${_wa[@]}" &
                     _w_child_pid=$!
@@ -939,6 +1052,11 @@ ui_dialog_popup() {
     [ -z "$width" ]  && width=520
     [ -z "$height" ] && height=300
 
+    # Run-level keeper is managed by run_step (or show_welcome_screen) at the
+    # step boundary; no sync here so transient ENROLLINATOR_UI_BLUR changes
+    # inside a step (e.g. envvar restored to global mid-flow) don't tear down
+    # the keeper while the step still wants blur.
+
     local b1 b2 b3
     local IFS='|'
     # shellcheck disable=SC2206
@@ -963,7 +1081,8 @@ ui_dialog_popup() {
         [ -n "$slide_msgs"   ] && dlg_smsg_arr=(   $slide_msgs   ) || dlg_smsg_arr=()
         unset IFS
         dlg_total=${#dlg_frames[@]}
-        [ "${ENROLLINATOR_UI_BLUR:-0}" = "1" ] && _use_keeper=1
+        # Skip the per-popup keeper when the run-level keeper is already alive.
+        [ "${ENROLLINATOR_UI_BLUR:-0}" = "1" ] && ! _ui_run_blur_keeper_active && _use_keeper=1
     elif [ -z "$video" ] && [ -n "$slideshow" ]; then
         # Single-frame slideshow — resolve per-slide overrides once.
         local IFS='|'
@@ -1025,7 +1144,7 @@ ui_dialog_popup() {
     [ -n "$b3" ] && args+=( --infobuttontext "$b3" )
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
     # Skip --blurscreen on individual slides when the keeper owns the blur.
-    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_use_keeper" = "0" ] && args+=( --blurscreen )
+    [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && args+=( --blurscreen )
 
     # Video (with YouTube support) wins over a slideshow image on the final dialog.
     if [ -n "$video" ]; then
@@ -1094,7 +1213,7 @@ ui_dialog_popup() {
             [ -n "$title_fontsize" ]             && _da+=( --titlefont "size=${title_fontsize}" )
             [ -n "$_dr" ]                        && _da+=( --image "$_dr" )
             [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && _da+=( --ontop )
-            [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_use_keeper" = "0" ] && _da+=( --blurscreen )
+            [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && _da+=( --blurscreen )
             _ui_user_exec "$DIALOG_BIN" "${_da[@]}"
             local _drc=$?
             case "$_drc" in

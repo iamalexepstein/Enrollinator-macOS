@@ -463,6 +463,38 @@ run_step() {
 
     log info "step=$id name=$name blocking=$blocking"
 
+    # Sync the run-level blur keeper to this step's blur intent, BEFORE any
+    # UI surface runs.  Doing this at the step boundary — rather than at each
+    # dialog function's entry — avoids the leak where intermediate UI calls
+    # inside the step run against a temporarily-restored global blur and tear
+    # down the keeper mid-step.
+    #
+    # A step can opt into blur from MORE THAN ONE place:
+    #   * WaitWindow.Blur — already read into ww_blur above
+    #   * Action.Blur     — read here for action_dialog (or any future action
+    #                       type that forwards blur to ui_dialog_popup)
+    # Any "true" wins; otherwise fall back to the global ENROLLINATOR_UI_BLUR.
+    # This is critical: if a step sets blur via Action.Blur (not WaitWindow)
+    # and we only checked WaitWindow.Blur, the keeper would stop at the step
+    # boundary and the user would see a flicker between consecutive blurred
+    # steps that don't use WaitWindow.
+    local _action_blur=""
+    if plist_exists "$cfg" "$skey:Action"; then
+        _action_blur="$(plist_get "$cfg" "$skey:Action:Blur")"
+    fi
+    local _step_blur="${ENROLLINATOR_UI_BLUR:-0}"
+    [ "$ww_blur"      = "true"  ] && _step_blur=1
+    [ "$_action_blur" = "true"  ] && _step_blur=1
+    case "$_step_blur" in
+        true|1) _step_blur=1 ;;
+        *)      _step_blur=0 ;;
+    esac
+    if [ "$_step_blur" = "1" ]; then
+        ui_run_blur_keeper_start "${ww_width:-}" "${ww_height:-}"
+    else
+        ui_run_blur_keeper_stop
+    fi
+
     # 1. Action.
     if plist_exists "$cfg" "$skey:Action"; then
         ui_set_step_status "$ui_idx" progress "Running…"
@@ -829,6 +861,15 @@ show_welcome_screen() {
     [ "$ontop" = "true"  ] && ENROLLINATOR_UI_ONTOP=1
     [ "$ontop" = "false" ] && ENROLLINATOR_UI_ONTOP=0
     export ENROLLINATOR_UI_BLUR ENROLLINATOR_UI_ONTOP
+
+    # Manage the run-level blur keeper at the welcome boundary.  ui_dialog_popup
+    # itself no longer auto-syncs (run_step does that for steps), so we sync
+    # explicitly here based on the welcome's resolved blur intent.
+    if [ "${ENROLLINATOR_UI_BLUR:-0}" = "1" ]; then
+        ui_run_blur_keeper_start "$width" "$height"
+    else
+        ui_run_blur_keeper_stop
+    fi
 
     local clicked rc
     # Pass the logo as the optional 13th argument (icon) to ui_dialog_popup.
