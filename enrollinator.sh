@@ -1342,18 +1342,37 @@ main() {
     # Finish. If AllowClose, leave a Done button; otherwise auto-quit.
     local allow_close
     allow_close="$(plist_bool "$cfg" ":AllowClose" false)"
+    log info "End-of-run: AllowClose=$allow_close pid_file_exists=$([ -f "$DIALOG_PID_FILE" ] && echo yes || echo no)"
     if [ "$allow_close" = "true" ]; then
         ui_enable_done
         ui_set_banner "All done. You can close this window."
-        # Wait for the dialog process to exit naturally (user clicks Done).
-        # Validate the PID before polling — the file is world-readable and a
-        # local user could pre-create it with an arbitrary PID.
-        if [ -f "$DIALOG_PID_FILE" ]; then
-            local pid
-            pid="$(cat "$DIALOG_PID_FILE")"
-            while _ui_valid_dialog_pid "$pid" && /bin/kill -0 "$pid" 2>/dev/null; do
+        # Wait for the main dialog to exit naturally (user clicks Done).
+        # Resolve the live PID defensively: trust DIALOG_PID_FILE first, but
+        # fall back to pgrep if it's stale or dead — earlier failures (e.g.
+        # the addon picker leaving the file pointing at a now-defunct
+        # subshell wrapper) used to make this loop exit instantly and the
+        # script tear down before the user could click Done.  When falling
+        # back, pick the lowest swiftDialog PID, which is typically the
+        # oldest process — i.e. the main run window, not a later keeper or
+        # popup.
+        local pid
+        pid="$(cat "$DIALOG_PID_FILE" 2>/dev/null)"
+        if ! [[ "$pid" =~ ^[1-9][0-9]*$ ]] || ! /bin/kill -0 "$pid" 2>/dev/null; then
+            local _resolved
+            _resolved="$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/sort -n | /usr/bin/head -1)"
+            if [ -n "$_resolved" ]; then
+                log info "End-of-run: stored dialog PID '$pid' invalid; using pgrep result $_resolved"
+                pid="$_resolved"
+            fi
+        fi
+        log info "End-of-run: waiting on dialog pid=$pid"
+        if [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+            while /bin/kill -0 "$pid" 2>/dev/null; do
                 /bin/sleep 0.5
             done
+            log info "End-of-run: dialog pid=$pid exited"
+        else
+            log warn "End-of-run: no live dialog PID resolved; AllowClose hold skipped"
         fi
     else
         ui_set_banner "All done."

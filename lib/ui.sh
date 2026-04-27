@@ -534,6 +534,19 @@ ui_addon_picker() {
 
     # Run-level keeper is managed by run_step at step boundaries; no sync here.
 
+    # Use a dedicated command file so this dialog does NOT share state with the
+    # main run window.  Without --commandfile, swiftDialog falls back to its
+    # default (/var/tmp/dialog.log), which IS DIALOG_COMMAND_FILE — the same
+    # file the main run window reads from.  Sharing the command file lets
+    # signals leak between the two dialogs, and in practice causes the main
+    # window to tear down the moment the picker exits, defeating the
+    # AllowClose=true (Done button) hold at end-of-run.  ui_dialog_popup uses
+    # the same isolation pattern with its own popup_cmd file.
+    local picker_cmd="/var/tmp/enrollinator.addon-picker.log"
+    : > "$picker_cmd"
+    /bin/chmod 0644 "$picker_cmd" 2>/dev/null || true
+    /usr/sbin/chown root:wheel "$picker_cmd" 2>/dev/null || true
+
     local args=(
         --title   "$title"
         --message "$message"
@@ -545,6 +558,7 @@ ui_addon_picker() {
         --position center
         --width  "$width"
         --height "$height"
+        --commandfile "$picker_cmd"
     )
     [ -n "$icon_resolved" ]    && args+=( --icon "$icon_resolved" )
     [ -n "$title_fontsize" ]   && args+=( --titlefont "size=${title_fontsize}" )
@@ -566,6 +580,7 @@ ui_addon_picker() {
     local raw exit_code
     raw="$(_ui_user_exec "$DIALOG_BIN" "${args[@]}" 2>/dev/null)"
     exit_code=$?
+    /bin/rm -f "$picker_cmd" 2>/dev/null || true
     # swiftDialog exits 2 when the secondary button (Skip) is clicked.
     [ "$exit_code" -eq 2 ] && return 1
 
