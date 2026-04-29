@@ -496,6 +496,18 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     transition: transform 0.18s;
 }
 .settings-trigger-btn.active .stb-caret { transform: rotate(180deg); }
+.settings-trigger-btn .stb-mini-status {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #8e8e93;
+    background: #f2f2f7;
+    border-radius: 999px;
+    padding: 1px 7px;
+}
+.settings-trigger-btn.active .stb-mini-status {
+    color: #0a84ff;
+    background: rgba(10,132,255,0.12);
+}
 
 /* ----------------------------------------------------- settings popover */
 .popover-backdrop { position: fixed; inset: 0; z-index: 29; }
@@ -996,8 +1008,12 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     padding: 0; transition: border-color 0.12s, color 0.12s, background 0.12s;
     opacity: 0; transition: opacity 0.15s, border-color 0.12s, color 0.12s, background 0.12s;
 }
-.step-list:hover .step-insert-btn { opacity: 1; }
-.step-insert-btn:hover { border-color: #0a84ff; color: #0a84ff; background: #f0f6ff; }
+/* Insert buttons reveal individually based on cursor proximity (50 px),
+ * not on hovering anywhere over the step list — this avoids a noisy "all
+ * + buttons appear at once" effect.  The proximity-active class is
+ * toggled by a document-level mousemove listener installed at startup. */
+.step-insert-btn.proximity-active { opacity: 1; }
+.step-insert-btn:hover { border-color: #0a84ff; color: #0a84ff; background: #f0f6ff; opacity: 1; }
 
 .step-row {
     display: flex; align-items: center; gap: 11px;
@@ -1495,7 +1511,6 @@ function blankProfile() {
         Name: "",
         Description: "",
         Addon: false,
-        Selector: null,
         TestMode: false,
         Steps: []
     };
@@ -1528,7 +1543,7 @@ function blankCondition(type) {
 let state = defaultState();
 // Transient UI state. The open modal, if any, lives here — not in the
 // serialized state so it never leaks into the generated mobileconfig.
-let ui = { openStep: null, draftStep: null, stepTab: "info", settingsOpen: false, settingsTab: "identity", pendingStep: null, expandedOptional: new Set(), expandedBranches: new Set(), selectedPlaybook: 0, sidebarCollapsed: false };
+let ui = { openStep: null, draftStep: null, stepTab: "info", settingsOpen: false, settingsTab: "identity", welcomeOpen: false, pendingStep: null, expandedOptional: new Set(), expandedBranches: new Set(), selectedPlaybook: 0, sidebarCollapsed: false };
 
 function deepClone(obj) {
     if (obj == null) return obj;
@@ -1720,7 +1735,6 @@ function buildInnerPayload(s) {
                 Name: p.Name,
                 Description: p.Description || undefined,
                 Addon: p.Addon === true ? true : undefined,
-                Selector: clean(p.Selector) || undefined,
                 TestMode: p.TestMode === true ? true : undefined,
                 Steps: p.Steps.map(buildStep)
             };
@@ -2139,7 +2153,6 @@ function importProfile(p) {
     out.Name = p.Name || "";
     out.Description = p.Description || "";
     out.Addon = !!p.Addon;
-    out.Selector = p.Selector || null;
     out.TestMode = !!p.TestMode;
     out.Steps = (p.Steps || []).map(importStep);
     return out;
@@ -2498,6 +2511,28 @@ function renderPlaybookSidebar() {
                 )
             )
         );
+
+        // Welcome Screen launcher — sits directly under Profile Settings since
+        // they're both global (per-profile) settings the user reaches via a
+        // dedicated launcher button.  Reuses .settings-trigger-btn styling so
+        // the two buttons read as a coherent stack.
+        const welcomeEnabled = !!(state.WelcomeScreen && state.WelcomeScreen.Enabled);
+        sidebar.appendChild(
+            h("div", { class: "sidebar-settings-row" },
+                h("button", {
+                    class: "settings-trigger-btn" + (ui.welcomeOpen ? " active" : ""),
+                    "data-tooltip": "Configure the optional welcome dialog shown before onboarding starts",
+                    "data-tooltip-below": "",
+                    onclick: e => openWelcomePopover(e.currentTarget)
+                },
+                    h("span", { class: "stb-icon" }, "👋"),
+                    h("span", { style: "flex:1;text-align:left" }, "Welcome Screen"),
+                    h("span", { class: "stb-mini-status" }, welcomeEnabled ? "On" : "Off"),
+                    h("span", { class: "stb-caret" }, "▾")
+                )
+            )
+        );
+
         sidebar.appendChild(h("div", { class: "sidebar-section-label" }, ""));
     }
 
@@ -2608,7 +2643,7 @@ function renderPlaybookContent(pIdx) {
             profile.Addon ? h("span", { class: "pill addon" }, "addon") : null
         ),
         h("div", { class: "playbook-content-actions" },
-            btn("Edit", () => openProfileEditor(pIdx)),
+            btn("Playbook Settings", () => openProfileEditor(pIdx)),
             btn("Duplicate", () => {
                 state.Playbooks.splice(pIdx + 1, 0, JSON.parse(JSON.stringify(profile)));
                 renderCanvas(); updatePreview();
@@ -2704,10 +2739,11 @@ const SETTINGS_TABS = [
     { id: "identity", label: "Playbook Identity" },
     { id: "branding", label: "Branding" },
     { id: "runtime",  label: "Runtime" },
-    { id: "welcome",  label: "Welcome Screen" },
     { id: "hardware", label: "Hardware Info" },
     { id: "help",     label: "Help" },
     { id: "addons",   label: "Add-on Picker" },
+    // "welcome" intentionally omitted — Welcome Screen has its own dedicated
+    // button above the step list (see renderPlaybookContent).
 ];
 
 function openSettingsPopover(triggerEl) {
@@ -2759,9 +2795,56 @@ function closeSettingsPopover() {
     renderCanvas(); // refresh button active state
 }
 
+// Stand-alone popover for the Welcome Screen tile.  Lives outside the main
+// Settings popover (it's not in SETTINGS_TABS) so the Welcome Screen has its
+// own dedicated launcher button above the step list.  Reuses the same
+// .settings-popover styling for visual consistency.
+function openWelcomePopover(triggerEl) {
+    if (ui.welcomeOpen) { closeWelcomePopover(); return; }
+    if (ui.settingsOpen) closeSettingsPopover();
+    ui.welcomeOpen = true;
+    renderCanvas();
+
+    const canvas = document.getElementById("canvas");
+    const cr = canvas.getBoundingClientRect();
+    const width = 530;
+    const left = cr.left + (cr.width - width) / 2;
+    const top  = cr.top + 20;
+
+    const backdrop = h("div", { class: "popover-backdrop", onclick: closeWelcomePopover });
+    const tabBar = h("div", { class: "popover-tab-bar" },
+        h("button", { class: "popover-tab active" }, "Welcome Screen")
+    );
+    const body = h("div", { class: "popover-body", id: "welcome-popover-body" });
+    body.appendChild(renderWelcomeScreenTile());
+
+    const popover = h("div", { class: "settings-popover" }, tabBar, body);
+    popover.style.left = left + "px";
+    popover.style.top  = top  + "px";
+
+    const root = document.getElementById("popover-root");
+    root.innerHTML = "";
+    root.append(backdrop, popover);
+}
+
+function closeWelcomePopover() {
+    ui.welcomeOpen = false;
+    document.getElementById("popover-root").innerHTML = "";
+    renderCanvas();
+}
+
+// Re-render whichever popover is currently open.  Called by tile renderers
+// after toggling state that affects which sub-fields are visible (e.g.
+// flipping Welcome Screen's Enabled checkbox).
 function reopenSettings() {
-    if (!ui.settingsOpen) return;
-    renderSettingsBody();
+    if (ui.settingsOpen) {
+        renderSettingsBody();
+    } else if (ui.welcomeOpen) {
+        const body = document.getElementById("welcome-popover-body");
+        if (!body) return;
+        body.innerHTML = "";
+        body.appendChild(renderWelcomeScreenTile());
+    }
 }
 
 function renderSettingsBody() {
@@ -2772,7 +2855,6 @@ function renderSettingsBody() {
         case "identity": body.appendChild(renderIdentityTile()); break;
         case "branding": body.appendChild(renderBrandingTile()); break;
         case "runtime":  body.appendChild(renderRuntimeTile()); break;
-        case "welcome":  body.appendChild(renderWelcomeScreenTile()); break;
         case "hardware": body.appendChild(renderHardwareInfoTile()); break;
         case "help":     body.appendChild(renderHelpTile()); break;
         case "addons":   body.appendChild(renderAddonPickerTile()); break;
@@ -2895,7 +2977,7 @@ function renderBrandingTile() {
         h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Typography")),
         h("div", { class: "pair-row pair-row--compact" },
             row("Title font size",   intInput(b.TitleFontSize,   v => { b.TitleFontSize   = v; updatePreview(); }, "default")),
-            row("Message font size", intInput(b.MessageFontSize, v => { b.MessageFontSize = v; updatePreview(); }, "14"))
+            row("Message font size", intInput(b.MessageFontSize, v => { b.MessageFontSize = v; updatePreview(); }, "default"))
         ),
         /* ── Window ── */
         h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Window Size")),
@@ -3127,11 +3209,11 @@ function renderWelcomeScreenTile() {
             h("div", { style: "display:flex;gap:8px;align-items:center" },
                 h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap" }, "Title"),
                 h("input", { type: "number", min: "0", style: "width:58px",
-                    value: w.TitleFontSize == null ? "" : String(w.TitleFontSize), placeholder: "def",
+                    value: w.TitleFontSize == null ? "" : String(w.TitleFontSize), placeholder: "default",
                     oninput: e => { const v = parseInt(e.target.value, 10); w.TitleFontSize = Number.isFinite(v) ? v : null; updatePreview(); } }),
                 h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap;margin-left:4px" }, "Body"),
                 h("input", { type: "number", min: "0", style: "width:58px",
-                    value: w.MessageFontSize == null ? "" : String(w.MessageFontSize), placeholder: "14",
+                    value: w.MessageFontSize == null ? "" : String(w.MessageFontSize), placeholder: "default",
                     oninput: e => { const v = parseInt(e.target.value, 10); w.MessageFontSize = Number.isFinite(v) ? v : null; updatePreview(); } })
             )
         ),
@@ -3175,7 +3257,7 @@ function renderAddonPickerTile() {
         h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Typography")),
         h("div", { class: "pair-row pair-row--compact" },
             row("Title font size",   intInput(ap.TitleFontSize,   v => { ap.TitleFontSize   = v; updatePreview(); }, "default")),
-            row("Message font size", intInput(ap.MessageFontSize, v => { ap.MessageFontSize = v; updatePreview(); }, "14"))
+            row("Message font size", intInput(ap.MessageFontSize, v => { ap.MessageFontSize = v; updatePreview(); }, "default"))
         ),
         /* ── Buttons ── */
         h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Buttons")),
@@ -3205,7 +3287,7 @@ function renderRuntimeTile() {
                     v => { state.DefaultPlaybook = v; renderCanvas(); updatePreview(); })
                 : h("span", { class: "hint" }, "No named playbooks yet");
         })()),
-        hint("Used when no playbook's Selector matches the current Mac. Add selectors on individual playbooks to route by hostname, model, or flag file."),
+        hint("The playbook Enrollinator runs unless --profile NAME is passed on the command line. Scope the .mobileconfig to a specific MDM smart group / collection to ship a different default to different cohorts."),
         row("Close",
             checkbox(state.AllowClose, v => state.AllowClose = v,
                 "Show Done button at end of run"),
@@ -3407,7 +3489,7 @@ function openModal(titleNode, bodyNode, footerNode) {
 }
 
 // ============================================================================
-// Modal: profile editor (name, selector, test mode, description)
+// Modal: profile editor (name, description, test mode, addon)
 // ============================================================================
 
 function openProfileEditor(pIdx) {
@@ -3438,40 +3520,8 @@ function renderProfileForm(p) {
             row("Available as addon",
                 checkbox(p.Addon, v => p.Addon = v,
                     "Show this profile in the post-install add-on picker"))
-        ),
-        h("div", { class: "section" },
-            h("div", { class: "section-title" }, "Selector"),
-            renderSelectorForm(p)
         )
     );
-    return wrap;
-}
-
-function renderSelectorForm(p) {
-    const has = p.Selector !== null;
-    const wrap = h("div");
-    wrap.append(
-        h("div", { class: "sub-section-title" },
-            h("span", { class: "hint" }, has
-                ? "This profile is picked when every filled selector key matches."
-                : "No selector — use DefaultPlaybook or --profile to pick this."),
-            btn(has ? "Remove" : "Add selector",
-                () => { p.Selector = has ? null : { HostnameRegex: "", ModelIdentifierGlob: "", FileExists: "" };
-                        // Rerender modal body in place — easiest is to reopen the editor.
-                        openProfileEditor(state.Playbooks.indexOf(p)); },
-                has ? "danger" : "")
-        )
-    );
-    if (has) {
-        wrap.append(
-            row("Hostname regex",
-                textInput(p.Selector.HostnameRegex, v => p.Selector.HostnameRegex = v, "^eng-\\w+")),
-            row("Model glob",
-                textInput(p.Selector.ModelIdentifierGlob, v => p.Selector.ModelIdentifierGlob = v, "Mac15,*")),
-            row("Flag file",
-                textInput(p.Selector.FileExists, v => p.Selector.FileExists = v, "/Library/Enrollinator/flags/engineering"))
-        );
-    }
     return wrap;
 }
 
@@ -3994,11 +4044,11 @@ function renderWaitWindowFields(st) {
             h("div", { style: "display:flex;gap:8px;align-items:center" },
                 h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap" }, "Title"),
                 h("input", { type: "number", min: "0", style: "width:58px",
-                    value: ww.TitleFontSize == null ? "" : String(ww.TitleFontSize), placeholder: "def",
+                    value: ww.TitleFontSize == null ? "" : String(ww.TitleFontSize), placeholder: "default",
                     oninput: e => { const v = parseInt(e.target.value, 10); ww.TitleFontSize = Number.isFinite(v) ? v : null; updatePreview(); } }),
                 h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap;margin-left:4px" }, "Body"),
                 h("input", { type: "number", min: "0", style: "width:58px",
-                    value: ww.MessageFontSize == null ? "" : String(ww.MessageFontSize), placeholder: "14",
+                    value: ww.MessageFontSize == null ? "" : String(ww.MessageFontSize), placeholder: "default",
                     oninput: e => { const v = parseInt(e.target.value, 10); ww.MessageFontSize = Number.isFinite(v) ? v : null; updatePreview(); } })
             )
         ),
@@ -4197,11 +4247,11 @@ function actionFields(a) {
                 h("div", { style: "display:flex;gap:8px;align-items:center" },
                     h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap" }, "Title"),
                     h("input", { type: "number", min: "0", style: "width:58px",
-                        value: a.TitleFontSize == null ? "" : String(a.TitleFontSize), placeholder: "def",
+                        value: a.TitleFontSize == null ? "" : String(a.TitleFontSize), placeholder: "default",
                         oninput: e => { const v = parseInt(e.target.value, 10); a.TitleFontSize = Number.isFinite(v) ? v : null; updatePreview(); } }),
                     h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap;margin-left:4px" }, "Body"),
                     h("input", { type: "number", min: "0", style: "width:58px",
-                        value: a.MessageFontSize == null ? "" : String(a.MessageFontSize), placeholder: "14",
+                        value: a.MessageFontSize == null ? "" : String(a.MessageFontSize), placeholder: "default",
                         oninput: e => { const v = parseInt(e.target.value, 10); a.MessageFontSize = Number.isFinite(v) ? v : null; updatePreview(); } })
                 )
             ),
@@ -5039,6 +5089,35 @@ document.getElementById("help-btn").addEventListener("click", showGettingStarted
 
 // Show on first visit.
 if (!localStorage.getItem("enrollinator-gs-seen")) showGettingStarted();
+
+// Per-button proximity reveal for the between-step "+ insert" affordances.
+// Toggles .proximity-active on each .step-insert-btn whose centre is within
+// 50 px of the cursor.  Throttled to one update per animation frame.
+(function installInsertProximity() {
+    const RADIUS = 50;
+    const RADIUS_SQ = RADIUS * RADIUS;
+    let pending = false;
+    let lastX = 0, lastY = 0;
+    document.addEventListener("mousemove", e => {
+        lastX = e.clientX; lastY = e.clientY;
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(() => {
+            pending = false;
+            document.querySelectorAll(".step-insert-btn").forEach(btn => {
+                const r = btn.getBoundingClientRect();
+                const dx = lastX - (r.left + r.width / 2);
+                const dy = lastY - (r.top  + r.height / 2);
+                btn.classList.toggle("proximity-active", dx * dx + dy * dy <= RADIUS_SQ);
+            });
+        });
+    });
+    // When the cursor leaves the window, hide all of them.
+    document.addEventListener("mouseleave", () => {
+        document.querySelectorAll(".step-insert-btn.proximity-active")
+            .forEach(b => b.classList.remove("proximity-active"));
+    });
+})();
 
 renderCanvas();
 updatePreview();

@@ -204,10 +204,10 @@
 
             <!-- =========================================================== -->
             <!-- Playbooks                                                   -->
-            <!-- The first playbook whose Selector matches wins. If none     -->
-            <!-- match, DefaultPlaybook is used. Scope this mobileconfig to  -->
-            <!-- a specific smart group in your MDM to force a playbook      -->
-            <!-- without needing selectors.                                  -->
+            <!-- The DefaultPlaybook is run unless the user passes the       -->
+            <!-- profile name explicitly on the command line.  Scope this    -->
+            <!-- mobileconfig to a specific MDM smart group / collection to  -->
+            <!-- ship a different payload to a different cohort.             -->
             <!-- =========================================================== -->
             <key>Playbooks</key>
             <array>
@@ -218,15 +218,6 @@
                     <string>Engineering</string>
                     <key>Description</key>
                     <string>Developer machines.</string>
-
-                    <!-- Selector: matches if the flag file exists. The MDM
-                         drops this file on Macs assigned to the Engineering
-                         group. -->
-                    <key>Selector</key>
-                    <dict>
-                        <key>FileExists</key>
-                        <string>/Library/Enrollinator/flags/engineering</string>
-                    </dict>
 
                     <key>Steps</key>
                     <array>
@@ -436,7 +427,6 @@ This window will close itself as soon as you're connected.</string>
                     <string>Standard Employee</string>
                     <key>Description</key>
                     <string>Default profile.</string>
-                    <!-- No Selector — used as the fallback via DefaultPlaybook. -->
 
                     <key>Steps</key>
                     <array>

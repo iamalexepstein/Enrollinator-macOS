@@ -89,7 +89,10 @@ Options:
                         Useful for dev configs — schema rooted at the top level.
   --profile NAME        Force a specific profile, ignoring selectors.
   --domain DOMAIN       Override managed-prefs domain (default: com.enrollinator.app).
-  --test                Run in test mode: evaluate conditions, skip actions (dialog actions still run).
+  --test                Run in test mode: skip non-dialog actions and treat
+                        their steps as succeeded; dialog actions still run
+                        and their condition-only / no-action steps still
+                        evaluate normally.
   --force               Re-run even if /var/lib/enrollinator/completed exists.
   --dry-run             Parse config and print the plan, don't execute.
   --skip-root-check     Allow running as non-root (development only).
@@ -266,16 +269,8 @@ pick_profile() {
         exit 2
     fi
 
-    # Walk Playbooks, return first with a matching Selector.
-    local i
-    for (( i=0; i<count; i++ )); do
-        if profile_selector_matches "$cfg" ":Playbooks:$i"; then
-            echo "$i"
-            return 0
-        fi
-    done
-
-    # No selector matched → fall back to DefaultPlaybook.
+    # Selectors were removed; the only ways to choose a playbook are now
+    # --profile (handled above) and DefaultPlaybook (fallback below).
     if [ -n "$default_name" ]; then
         find_profile_by_name "$cfg" "$default_name" && return 0
         log error "DefaultPlaybook '$default_name' not found in Playbooks"
@@ -298,47 +293,6 @@ find_profile_by_name() {
         fi
     done
     return 1
-}
-
-# Evaluates :<profile_key>:Selector. No selector → never matches (to keep
-# fallback-via-DefaultPlaybook the only way to reach a playbook without a
-# selector; this makes ordering predictable).
-#
-# Supported selector keys:
-#   HostnameRegex          — matched against `scutil --get LocalHostName`
-#   ModelIdentifierGlob    — fnmatch-style against `sysctl -n hw.model`
-#   FileExists             — path must exist on disk
-# Multiple keys AND together.
-profile_selector_matches() {
-    local cfg="$1" pkey="$2"
-    plist_exists "$cfg" "${pkey}:Selector" || return 1
-
-    local hostname_re model_glob file_path matched=0
-
-    hostname_re="$(plist_get "$cfg" "${pkey}:Selector:HostnameRegex")"
-    model_glob="$(plist_get "$cfg" "${pkey}:Selector:ModelIdentifierGlob")"
-    file_path="$(plist_get "$cfg" "${pkey}:Selector:FileExists")"
-
-    if [ -n "$hostname_re" ]; then
-        matched=1
-        local h
-        h="$(/usr/sbin/scutil --get LocalHostName 2>/dev/null)"
-        [[ "$h" =~ $hostname_re ]] || return 1
-    fi
-    if [ -n "$model_glob" ]; then
-        matched=1
-        local m
-        m="$(/usr/sbin/sysctl -n hw.model 2>/dev/null)"
-        # shellcheck disable=SC2053 — glob match is intentional.
-        [[ "$m" == $model_glob ]] || return 1
-    fi
-    if [ -n "$file_path" ]; then
-        matched=1
-        [ -e "$file_path" ] || return 1
-    fi
-
-    # An empty Selector dict shouldn't count as a match.
-    [ "$matched" -eq 1 ]
 }
 
 # ----------------------------------------------------------------------------
@@ -508,6 +462,23 @@ run_step() {
             else
                 ui_set_step_status "$ui_idx" fail "$(trim_one_line "$action_msg")"
                 return $action_rc
+            fi
+        fi
+
+        # Test mode: non-dialog actions are simulated (action_run returned 0
+        # without doing the work), so any conditions that check for the
+        # action's side effects (e.g. a shell action that installs an app
+        # which a downstream app_installed condition then looks for) would
+        # legitimately fail.  Mark the step as succeeded and skip conditions
+        # in that case so the user can rehearse the flow end-to-end.
+        # Dialog actions are exempt: they have no side effects and run for
+        # real even in test mode, so their conditions still make sense.
+        if [ "${ENROLLINATOR_TEST_MODE:-0}" = "1" ]; then
+            local _act_type
+            _act_type="$(plist_get "$cfg" "$skey:Action:Type")"
+            if [ -n "$_act_type" ] && [ "$_act_type" != "dialog" ]; then
+                ui_set_step_status "$ui_idx" success "TEST MODE: skipped"
+                return 0
             fi
         fi
     fi
