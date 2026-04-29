@@ -15,3 +15,6 @@
 # Packaging output — regenerate with scripts/build-pkg.sh
 pkg/dist/
 *.pkg.bak
+
+# Claude Code local config
+.claude/
