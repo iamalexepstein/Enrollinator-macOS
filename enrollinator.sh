@@ -473,10 +473,13 @@ run_step() {
         # in that case so the user can rehearse the flow end-to-end.
         # Dialog actions are exempt: they have no side effects and run for
         # real even in test mode, so their conditions still make sense.
+        # Blocking steps are also exempt from the early return: they fall
+        # through to the WaitWindow section so the tester can see the UI;
+        # the 5s timeout cap (set above) prevents them from hanging.
         if [ "${ENROLLINATOR_TEST_MODE:-0}" = "1" ]; then
             local _act_type
             _act_type="$(plist_get "$cfg" "$skey:Action:Type")"
-            if [ -n "$_act_type" ] && [ "$_act_type" != "dialog" ]; then
+            if [ -n "$_act_type" ] && [ "$_act_type" != "dialog" ] && [ "$blocking" != "true" ]; then
                 ui_set_step_status "$ui_idx" success "TEST MODE: skipped"
                 return 0
             fi
@@ -1212,9 +1215,13 @@ main() {
     [ -n "$msg_fontsize" ]   && ENROLLINATOR_UI_MSG_FONTSIZE="$msg_fontsize"
     ENROLLINATOR_UI_INFOBOX="$(build_hw_infobox "$cfg")"
     ENROLLINATOR_UI_HELPMESSAGE="$(build_help_message "$cfg")"
+    local quit_key
+    quit_key="$(plist_get "$cfg" ":Branding:QuitKey")"
+    ENROLLINATOR_UI_QUIT_KEY="${quit_key:-}"
     export ENROLLINATOR_UI_WIDTH ENROLLINATOR_UI_HEIGHT ENROLLINATOR_UI_BANNER \
            ENROLLINATOR_UI_TITLE_FONTSIZE ENROLLINATOR_UI_MSG_FONTSIZE \
-           ENROLLINATOR_UI_INFOBOX ENROLLINATOR_UI_HELPMESSAGE
+           ENROLLINATOR_UI_INFOBOX ENROLLINATOR_UI_HELPMESSAGE \
+           ENROLLINATOR_UI_QUIT_KEY
 
     local ui_blur ui_ontop
     ui_blur="$(plist_bool "$cfg" ":BlurScreen" false)"

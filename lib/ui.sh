@@ -427,6 +427,7 @@ ui_start() {
 
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
     [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && ! _ui_run_blur_keeper_active && args+=( --blurscreen )
+    [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}"  ] && args+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
 
     # Snapshot live dialog PIDs before launch so we can identify ours.
     local _pre_pids
@@ -564,6 +565,7 @@ ui_addon_picker() {
     [ -n "$title_fontsize" ]   && args+=( --titlefont "size=${title_fontsize}" )
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
     [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && ! _ui_run_blur_keeper_active && args+=( --blurscreen )
+    [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}" ]  && args+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
 
     # Build checkbox list; track names separately for JSON parsing.
     # Descriptions are consumed here (used by caller in the message body)
@@ -721,6 +723,7 @@ ui_wait_open() {
             [ -n "$ww_resolved" ]    && ww_slide_args+=( --image "$ww_resolved" )
             [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && ww_slide_args+=( --ontop )
             [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && ww_slide_args+=( --blurscreen )
+            [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}" ]  && ww_slide_args+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
             _ui_user_exec "$DIALOG_BIN" "${ww_slide_args[@]}"
             local ww_rc=$?
             case "$ww_rc" in
@@ -783,6 +786,7 @@ ui_wait_open() {
     [ -n "$title_fontsize" ] && args+=( --titlefont "size=${title_fontsize}" )
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
     [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && args+=( --blurscreen )
+    [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}" ]  && args+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
 
     # Snapshot the set of live dialog PIDs BEFORE launching so we can identify
     # which one is ours.  `pgrep -nx dialog` alone returns the newest live
@@ -916,6 +920,7 @@ ui_wait_open() {
                     [ -n "$_wr" ]                            && _wa+=( --image "$_wr" )
                     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ]  && _wa+=( --ontop )
                     [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && _wa+=( --blurscreen )
+                    [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}" ]  && _wa+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
                     # Run in background so the TERM trap can kill it mid-slide.
                     _ui_user_exec "$DIALOG_BIN" "${_wa[@]}" &
                     _w_child_pid=$!
@@ -1177,6 +1182,7 @@ ui_dialog_popup() {
     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && args+=( --ontop )
     # Skip --blurscreen on individual slides when the keeper owns the blur.
     [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && args+=( --blurscreen )
+    [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}" ]  && args+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
 
     # Video (with YouTube support) wins over a slideshow image on the final dialog.
     if [ -n "$video" ]; then
@@ -1246,6 +1252,7 @@ ui_dialog_popup() {
             [ -n "$_dr" ]                        && _da+=( --image "$_dr" )
             [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && _da+=( --ontop )
             [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && _da+=( --blurscreen )
+            [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}" ]  && _da+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
             _ui_user_exec "$DIALOG_BIN" "${_da[@]}"
             local _drc=$?
             case "$_drc" in

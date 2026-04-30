@@ -23,7 +23,7 @@ This document describes every key that entry understands.
 | `Branding`       | dict            | no       | Window title, subtitle, logo, accent color, banner, window size. |
 | `DefaultPlaybook` | string          | no       | Name of the playbook to use when no selector matches. |
 | `AllowClose`     | bool            | no       | If `true`, Enrollinator enables the Done button at the end instead of auto-quitting. Defaults to `false`. |
-| `TestMode`       | bool            | no       | If `true`, Enrollinator evaluates conditions but skips destructive actions (`shell`, `package`, `wait`). `dialog` actions still run — they are pure UI with no side effects. Blocking step timeouts are capped at 5 seconds so a rehearsal never hangs. Overridable per-profile. Defaults to `false`. |
+| `TestMode`       | bool            | no       | If `true`, Enrollinator evaluates conditions but skips destructive actions (`shell`, `package`, `wait`). `dialog` actions still run — they are pure UI with no side effects. Blocking steps still open their `WaitWindow` (or show their `UserPrompt` banner) so you can preview the UI; their timeout is capped at 5 seconds so a rehearsal never hangs. Overridable per-profile. Defaults to `false`. |
 | `HardwareInfo`   | dict            | no       | Enables a hardware info panel next to the step list. See below. |
 | `Help`           | dict            | no       | Enables a "?" help button in the window. Shown contents are configured here. See below. |
 | `AddonPicker`    | dict            | no       | Customises the post-install add-on picker window. See below. |
@@ -42,6 +42,7 @@ This document describes every key that entry understands.
 | `MessageFontSize`| int    | Point size for the subtitle / message body. Passed to swiftDialog's `--messagefont` option. |
 | `WindowWidth`    | int    | Default `720`. |
 | `WindowHeight`   | int    | Default `560`. |
+| `QuitKey`        | string | Single character. Replaces the default ⌘Q shortcut with ⌘`<char>` (e.g. `"w"` → ⌘W). Passed to swiftDialog's `--quitkey` option. Omit or leave empty to keep the default. |
 
 #### Token substitution
 
@@ -206,7 +207,9 @@ Each step:
 3. Otherwise evaluate conditions. All pass → success.
 4. Any fail, `Blocking=true` → poll every `PollIntervalSeconds`, with a
    `WaitWindow` shown (or the `UserPrompt` banner, if no window is
-   configured), until they pass or `TimeoutSeconds` elapses.
+   configured), until they pass or `TimeoutSeconds` elapses. In test mode,
+   the `WaitWindow` still opens so you can preview the UI; the timeout is
+   capped at 5 seconds regardless of the configured value.
 5. Any fail, `Blocking=false` → step fails (or is skipped if
    `ContinueOnFailure`).
 
@@ -330,7 +333,7 @@ managed-prefs domain, a raw `.mobileconfig`, or a bare plist. The flags:
 | `--xml PATH`        | Load a bare plist XML file. Schema is rooted at the top level — no `PayloadContent` wrapping required. Handy for dev configs. |
 | `--profile NAME`    | Force a specific profile, ignoring selectors. |
 | `--domain DOMAIN`   | Override the managed-prefs domain (default `com.enrollinator.app`). |
-| `--test`            | Run in test mode: `shell`, `package`, and `wait` actions are skipped; `dialog` actions still run; conditions evaluate normally. Does not mark the run completed. |
+| `--test`            | Run in test mode: `shell`, `package`, and `wait` actions are skipped; `dialog` actions still run; conditions evaluate normally; blocking steps open their `WaitWindow` and time out after 5 seconds. Does not mark the run completed. |
 | `--force`           | Re-run even if `/var/lib/enrollinator/completed` exists. |
 | `--dry-run`         | Parse config and print the plan, don't execute. |
 | `--skip-root-check` | Allow running as non-root. Dev only — swiftDialog won't appear in user sessions. |

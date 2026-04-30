@@ -1576,7 +1576,8 @@ function defaultState() {
             TitleFontSize: null,
             MessageFontSize: null,
             WindowWidth: null,
-            WindowHeight: null
+            WindowHeight: null,
+            QuitKey: ""
         },
         DefaultPlaybook: "Standard",
         AllowClose: false,
@@ -2098,7 +2099,7 @@ function importFromMobileconfig(xml) {
     next.Branding = Object.assign({
         Title: "", Subtitle: "", Logo: "", Banner: "",
         AccentColor: "#0A84FF", TitleFontSize: null, MessageFontSize: null,
-        WindowWidth: null, WindowHeight: null
+        WindowWidth: null, WindowHeight: null, QuitKey: ""
     }, inner.Branding || {});
     next.DefaultPlaybook = inner.DefaultPlaybook || inner.DefaultProfile || "";
     next.AllowClose = !!inner.AllowClose;
@@ -2984,7 +2985,23 @@ function renderBrandingTile() {
         h("div", { class: "pair-row" },
             row("Width",  intInput(b.WindowWidth,  v => b.WindowWidth  = v, "720"), hint("Pixels.")),
             row("Height", intInput(b.WindowHeight, v => b.WindowHeight = v, "560"), hint("Pixels."))
-        )
+        ),
+        /* ── Keyboard ── */
+        h("div", { class: "settings-group" }, h("span", { class: "settings-group-label" }, "Keyboard")),
+        row("Quit key", (() => {
+            const inp = h("input", {
+                type: "text", maxlength: "1",
+                value: b.QuitKey || "",
+                placeholder: "q",
+                style: "width:3em;text-align:center;font-family:ui-monospace,'SF Mono',Menlo,monospace"
+            });
+            inp.addEventListener("input", () => {
+                b.QuitKey = inp.value.slice(-1);
+                inp.value = b.QuitKey;
+                updatePreview();
+            });
+            return inp;
+        })(), hint("Single character. Replaces ⌘Q — e.g. enter 'w' to make ⌘W the quit shortcut. Leave blank to keep the default ⌘Q."))
     );
 }
 
@@ -3379,15 +3396,22 @@ function renderStepRow(step, pIdx, sIdx) {
     const branchActive = !!(step.OnSuccess || step.OnFailure) || ui.expandedBranches.has(branchKey);
     actions.appendChild(h("button", {
         class: "btn" + (branchActive ? " branch-btn-active" : ""),
-        "data-tooltip": branchActive ? "Branch is set" : "Add if/else branch",
+        "data-tooltip": branchActive ? "Remove if/else branch" : "Add if/else branch",
         onclick: e => {
             e.stopPropagation();
-            if (branchActive && !step.OnSuccess && !step.OnFailure) {
+            if (branchActive) {
+                // Clean toggle: clearing OnSuccess/OnFailure too means a single
+                // click always removes the branch, no matter what's selected.
+                // (Used to require the user to first reset both dropdowns to
+                // default before this button would collapse the panel — which
+                // also meant non-default selections silently survived.)
+                step.OnSuccess = "";
+                step.OnFailure = "";
                 ui.expandedBranches.delete(branchKey);
             } else {
                 ui.expandedBranches.add(branchKey);
             }
-            renderCanvas();
+            renderCanvas(); updatePreview();
         } }, "⎇"));
     actions.appendChild(h("button", { class: "btn", "data-tooltip": "Duplicate step",
         onclick: e => {
@@ -3908,10 +3932,14 @@ function renderBranchBlock(st, pIdx, sIdx, steps) {
         renderCanvas(); updatePreview();
     });
 
+    // Failure options mirror successOpts.  "" and "$next" used to coexist
+    // here but at runtime they're identical (both do i+=1 in the main loop)
+    // — and "Stop run" was mislabelled (nothing actually stops the run on
+    // OnFailure="", any_fail just gets set for the final exit code).  Drop
+    // "$next" and relabel "" so the two dropdowns read in parallel.
     const failureOpts = [
-        { value: "",         label: "⛔ Stop run" },
-        { value: "$end",     label: "⏹ End run" },
-        { value: "$next",    label: "▶ Continue to next step" },
+        { value: "",     label: "▶ Continue to next step" },
+        { value: "$end", label: "⏹ End run" },
         ...stepOptions(sIdx)
     ];
     const failureSel = makeSelect(st.OnFailure, failureOpts);
