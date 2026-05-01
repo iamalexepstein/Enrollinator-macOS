@@ -1611,7 +1611,8 @@ function defaultState() {
             Video: "",
             VideoAutoplay: null,
             Blur: null,
-            AlwaysOnTop: null
+            AlwaysOnTop: null,
+            PlaybookPicker: { Enabled: false, Playbooks: [], Title: "", Message: "", Icon: "", HideIcon: false, Width: null, Height: null }
         },
         AddonPicker: {
             Title: "",
@@ -1793,6 +1794,18 @@ function buildWelcomeScreen(w) {
         VideoAutoplay:   typeof w.VideoAutoplay === "boolean" ? w.VideoAutoplay : undefined,
         Blur:            typeof w.Blur        === "boolean" ? w.Blur        : undefined,
         AlwaysOnTop:     typeof w.AlwaysOnTop === "boolean" ? w.AlwaysOnTop : undefined,
+        PlaybookPicker:  (w.PlaybookPicker && w.PlaybookPicker.Enabled && w.PlaybookPicker.Playbooks && w.PlaybookPicker.Playbooks.length)
+            ? clean({
+                Enabled:  true,
+                Playbooks: w.PlaybookPicker.Playbooks.filter(n => n && n.trim()),
+                Title:    w.PlaybookPicker.Title   || undefined,
+                Message:  w.PlaybookPicker.Message || undefined,
+                Icon:     w.PlaybookPicker.Icon    || undefined,
+                HideIcon: w.PlaybookPicker.HideIcon || undefined,
+                Width:    Number.isFinite(w.PlaybookPicker.Width)  ? w.PlaybookPicker.Width  : undefined,
+                Height:   Number.isFinite(w.PlaybookPicker.Height) ? w.PlaybookPicker.Height : undefined
+              })
+            : undefined,
     });
 }
 function buildAction(a) {
@@ -1953,12 +1966,18 @@ ${body}
 // top-level com.enrollinator.app keys — no PayloadContent wrapping needed.
 function serializeBareXml(s) {
     const inner = buildInnerPayload(s);
-    // Strip only the truly-redundant mobileconfig metadata.
-    // Kept: PayloadIdentifier, PayloadUUID — preserving these makes a
-    // round-trip (export → re-import) keep the same UUIDs instead of
-    // regenerating new ones each time.  enrollinator.sh --xml ignores
-    // them anyway.
-    const { PayloadType, PayloadVersion, PayloadDisplayName, ...config } = inner;
+    // Strip inner-payload-specific metadata; keep PayloadIdentifier and PayloadUUID
+    // so round-trip import restores the same UUIDs.  Outer envelope fields
+    // (DisplayName, Organization, Description) are preserved here too so that
+    // re-importing the .plist restores the Identity tab fully.
+    // enrollinator.sh --xml ignores all Payload* keys.
+    const { PayloadType, PayloadVersion, PayloadDisplayName: _pd, ...config } = inner;
+    // Preserve outer UUID so re-import regenerates the same outer UUID via uuidStable.
+    // enrollinator.sh --xml ignores all Payload* keys.
+    if (s.outer.PayloadDisplayName)       config.PayloadDisplayName        = s.outer.PayloadDisplayName;
+    if (s.outer.PayloadOrganization)      config.PayloadOrganization       = s.outer.PayloadOrganization;
+    if (s.outer.PayloadDescription)       config.PayloadDescription        = s.outer.PayloadDescription;
+    if (s.outer.IncludeServiceManagement) config.IncludeServiceManagement  = true;
     const body = plistValue(clean(config), 0);
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -2075,7 +2094,11 @@ function importFromMobileconfig(xml) {
         // inner PayloadUUID, also preserved, is used for InnerPayloadUUID.
         const innerIdent = (inner && typeof inner.PayloadIdentifier === "string") ? inner.PayloadIdentifier : "";
         outerMeta = {
-            PayloadIdentifier: innerIdent.replace(/\.config$/, "") || undefined
+            PayloadIdentifier:          innerIdent.replace(/\.config$/, "") || undefined,
+            PayloadDisplayName:         inner.PayloadDisplayName         || undefined,
+            PayloadOrganization:        inner.PayloadOrganization        || undefined,
+            PayloadDescription:         inner.PayloadDescription         || undefined,
+            IncludeServiceManagement:   !!inner.IncludeServiceManagement
         };
     } else {
         throw new Error("Unrecognized file — expected a .mobileconfig or a bare Enrollinator plist (.plist).");
@@ -2093,7 +2116,7 @@ function importFromMobileconfig(xml) {
         PayloadDescription: outerMeta.PayloadDescription || "",
         PayloadUUID: outerMeta.PayloadUUID || uuidStable(_ident + ":outer"),
         InnerPayloadUUID: inner.PayloadUUID || uuidStable(_ident + ":inner"),
-        IncludeServiceManagement: smPresent,
+        IncludeServiceManagement: smPresent || !!(outerMeta.IncludeServiceManagement),
         Comment: importedComment
     };
     next.Branding = Object.assign({
@@ -2144,6 +2167,17 @@ function importFromMobileconfig(xml) {
         VideoAutoplay:   typeof iw.VideoAutoplay === "boolean" ? iw.VideoAutoplay : null,
         Blur:            typeof iw.Blur        === "boolean" ? iw.Blur        : null,
         AlwaysOnTop:     typeof iw.AlwaysOnTop === "boolean" ? iw.AlwaysOnTop : null,
+        PlaybookPicker: {
+            Enabled:  !!(iw.PlaybookPicker && iw.PlaybookPicker.Enabled),
+            Playbooks: Array.isArray(iw.PlaybookPicker && iw.PlaybookPicker.Playbooks)
+                ? iw.PlaybookPicker.Playbooks.filter(n => n && n.trim()) : [],
+            Title:    (iw.PlaybookPicker && iw.PlaybookPicker.Title)   || "",
+            Message:  (iw.PlaybookPicker && iw.PlaybookPicker.Message) || "",
+            Icon:     (iw.PlaybookPicker && iw.PlaybookPicker.Icon)    || "",
+            HideIcon: !!(iw.PlaybookPicker && iw.PlaybookPicker.HideIcon),
+            Width:    Number.isFinite(iw.PlaybookPicker && iw.PlaybookPicker.Width)  ? iw.PlaybookPicker.Width  : null,
+            Height:   Number.isFinite(iw.PlaybookPicker && iw.PlaybookPicker.Height) ? iw.PlaybookPicker.Height : null
+        }
     };
     next.Playbooks = (inner.Playbooks || inner.Profiles || []).map(importProfile);
     return next;
@@ -2158,32 +2192,94 @@ function importProfile(p) {
     out.Steps = (p.Steps || []).map(importStep);
     return out;
 }
+function importAction(a) {
+    if (!a) return null;
+    switch (a.Type) {
+        case "dialog": {
+            const buttons = Array.isArray(a.Buttons) ? a.Buttons : ["OK"];
+            return {
+                Type:            "dialog",
+                Title:           a.Title   || "",
+                Message:         a.Message || "",
+                TitleFontSize:   Number.isFinite(a.TitleFontSize)   ? a.TitleFontSize   : null,
+                MessageFontSize: Number.isFinite(a.MessageFontSize) ? a.MessageFontSize : null,
+                Width:           Number.isFinite(a.Width)  ? a.Width  : null,
+                Height:          Number.isFinite(a.Height) ? a.Height : null,
+                Buttons:         buttons,
+                ExpectedButton:  (typeof a.ExpectedButton === "string" && buttons.includes(a.ExpectedButton))
+                                     ? a.ExpectedButton : buttons[0] || "OK",
+                Video:           a.Video || "",
+                VideoAutoplay:   typeof a.VideoAutoplay === "boolean" ? a.VideoAutoplay : null,
+                Slideshow:       Array.isArray(a.Slideshow) ? a.Slideshow.map(normalizeSlide) : [],
+                Blur:            typeof a.Blur        === "boolean" ? a.Blur        : null,
+                AlwaysOnTop:     typeof a.AlwaysOnTop === "boolean" ? a.AlwaysOnTop : null
+            };
+        }
+        case "shell":
+            return {
+                Type:            "shell",
+                Command:         a.Command         || "",
+                RunAsUser:       a.RunAsUser        || "",
+                TimeoutSeconds:  Number.isFinite(a.TimeoutSeconds) ? a.TimeoutSeconds : null
+            };
+        case "package":
+            return {
+                Type:           "package",
+                Path:           a.Path   || "",
+                Target:         a.Target || "",
+                TimeoutSeconds: Number.isFinite(a.TimeoutSeconds) ? a.TimeoutSeconds : null
+            };
+        case "wait":
+            return {
+                Type:            "wait",
+                DurationSeconds: Number.isFinite(a.DurationSeconds) ? a.DurationSeconds : 10
+            };
+        case "noop":
+            return { Type: "noop" };
+        default:
+            return a;
+    }
+}
+function importCondition(c) {
+    if (!c || !c.Type) return c;
+    switch (c.Type) {
+        case "shell":
+            return { Type: "shell", Command: c.Command || "", TimeoutSeconds: Number.isFinite(c.TimeoutSeconds) ? c.TimeoutSeconds : null };
+        case "app_installed":
+            return { Type: "app_installed", BundleId: c.BundleId || "", Path: c.Path || "", MinVersion: c.MinVersion || "" };
+        case "default_browser":
+            return { Type: "default_browser", BundleId: c.BundleId || "" };
+        case "file_exists":
+            return { Type: "file_exists", Path: c.Path || "", Kind: c.Kind || "any" };
+        case "profile_installed":
+            return { Type: "profile_installed", Identifier: c.Identifier || "" };
+        case "process_running":
+            return { Type: "process_running", Name: c.Name || "", MinimumCount: Number.isFinite(c.MinimumCount) ? c.MinimumCount : null };
+        default:
+            return c;
+    }
+}
 function importStep(s) {
     const out = blankStep();
     for (const k of Object.keys(out)) if (s[k] !== undefined) out[k] = s[k];
-    if (s.Action) out.Action = s.Action;
-    out.Conditions = s.Conditions || [];
+    out.Action     = importAction(s.Action || null);
+    out.Conditions = (s.Conditions || []).map(importCondition);
     if (s.WaitWindow) {
         out.WaitWindow = {
             Title:           s.WaitWindow.Title   || "",
             Message:         s.WaitWindow.Message || "",
             TitleFontSize:   Number.isFinite(s.WaitWindow.TitleFontSize)   ? s.WaitWindow.TitleFontSize   : null,
             MessageFontSize: Number.isFinite(s.WaitWindow.MessageFontSize) ? s.WaitWindow.MessageFontSize : null,
-            // Normalize plain-string entries to {Image,Title,Message} objects
             Slideshow: Array.isArray(s.WaitWindow.Slideshow)
                 ? s.WaitWindow.Slideshow.map(normalizeSlide)
                 : [],
             Video:         s.WaitWindow.Video || "",
             VideoAutoplay: typeof s.WaitWindow.VideoAutoplay === "boolean" ? s.WaitWindow.VideoAutoplay : null,
             Width:         Number.isFinite(s.WaitWindow.Width)  ? s.WaitWindow.Width  : null,
-            Height:      Number.isFinite(s.WaitWindow.Height) ? s.WaitWindow.Height : null,
-            Blur:        typeof s.WaitWindow.Blur        === "boolean" ? s.WaitWindow.Blur        : null,
-            AlwaysOnTop: typeof s.WaitWindow.AlwaysOnTop === "boolean" ? s.WaitWindow.AlwaysOnTop : null
+            Height:        Number.isFinite(s.WaitWindow.Height) ? s.WaitWindow.Height : null,
+            Blur:          typeof s.WaitWindow.Blur        === "boolean" ? s.WaitWindow.Blur        : null,
+            AlwaysOnTop:   typeof s.WaitWindow.AlwaysOnTop === "boolean" ? s.WaitWindow.AlwaysOnTop : null
         };
-    }
-    // Normalize dialog action Slideshow entries too
-    if (s.Action && s.Action.Type === "dialog" && Array.isArray(s.Action.Slideshow)) {
-        s.Action.Slideshow = s.Action.Slideshow.map(normalizeSlide);
     }
     return out;
 }
@@ -3180,9 +3276,8 @@ function renderWelcomeScreenTile() {
         style: "white-space:nowrap;flex-shrink:0",
         onclick: () => { w.VideoAutoplay = w.VideoAutoplay === true ? null : true; updatePreview(); reopenSettings(); }
     }, "▶ Autoplay");
-    const videoSection = h("div", { style: "display:flex;flex-direction:column;gap:4px;margin-top:8px" },
-        h("div", { style: "display:flex;gap:6px;align-items:center" }, videoInput, autoplayBtn),
-        ...youTubePreviewNodes(w.Video || "")
+    const videoSection = h("div", { style: "display:flex;gap:6px;align-items:center;margin-top:8px" },
+        videoInput, autoplayBtn
     );
 
     tile.appendChild(h("div", { class: "section" },
@@ -3216,6 +3311,86 @@ function renderWelcomeScreenTile() {
                 hint("After this many deferrals the defer button is hidden and the user must proceed."))
         ] : [])
     ));
+
+    // Playbook Picker
+    const pp = w.PlaybookPicker || (w.PlaybookPicker = { Enabled: false, Playbooks: [], Title: "", Message: "", Icon: "", HideIcon: false, Width: null, Height: null });
+    // Only named non-addon playbooks can appear in the picker.
+    const nonAddonPlaybooks = (state.Playbooks || []).filter(p => !p.Addon && p.Name && p.Name.trim()).map(p => p.Name);
+    const ppSection = h("div", { class: "section" },
+        h("div", { class: "section-title" }, "Playbook Picker"),
+        h("div", { class: "behavior-flag" },
+            h("div", null,
+                h("div", { class: "behavior-flag-label" }, "Enabled"),
+                h("div", { class: "behavior-flag-hint" }, "Show a dropdown after the welcome dialog so the user picks their own playbook.")
+            ),
+            checkbox(pp.Enabled, v => { pp.Enabled = v; updatePreview(); reopenSettings(); })
+        )
+    );
+    if (pp.Enabled) {
+        // Playbook list
+        if (nonAddonPlaybooks.length === 0) {
+            ppSection.appendChild(hint("No named non-addon playbooks defined yet. Add playbooks in the sidebar first."));
+        } else {
+            const grid = h("div", { style: "display:flex;flex-direction:column;gap:4px;margin-top:6px" });
+            nonAddonPlaybooks.forEach(name => {
+                const checked = pp.Playbooks.includes(name);
+                grid.appendChild(h("label", { class: "check-row", style: "gap:6px;font-size:12px;color:#1d1d1f" },
+                    h("input", { type: "checkbox", checked,
+                        onchange: e => {
+                            if (e.target.checked) {
+                                if (!pp.Playbooks.includes(name)) pp.Playbooks.push(name);
+                            } else {
+                                pp.Playbooks = pp.Playbooks.filter(n => n !== name);
+                            }
+                            updatePreview();
+                        }
+                    }),
+                    h("span", null, name)
+                ));
+            });
+            ppSection.appendChild(row("Playbooks", grid,
+                hint("Only named playbooks are listed. Unchecked playbooks won't appear in the picker.")));
+        }
+        // Title / Message / Icon
+        ppSection.appendChild(row("Title",
+            h("input", { type: "text", value: pp.Title || "",
+                placeholder: "Choose your setup",
+                oninput: e => { pp.Title = e.target.value; updatePreview(); }
+            })));
+        ppSection.appendChild(row("Message",
+            h("textarea", {
+                placeholder: "Select the configuration that applies to you.",
+                oninput: e => { pp.Message = e.target.value; updatePreview(); }
+            }, pp.Message || ""),
+            hint("Markdown body shown above the dropdown.")));
+        // Icon
+        const hideIconCb = h("label", { class: "check-row", style: "gap:5px;margin-top:4px" },
+            h("input", { type: "checkbox", checked: pp.HideIcon,
+                onchange: e => { pp.HideIcon = e.target.checked; if (pp.HideIcon) pp.Icon = ""; updatePreview(); reopenSettings(); }
+            }),
+            h("span", { style: "font-size:12px;color:#1d1d1f" }, "Hide icon")
+        );
+        const iconInpEl = h("input", { type: "text", value: pp.Icon || "",
+            placeholder: "/path/img.png, https://…, or SF=symbol.name",
+            disabled: pp.HideIcon,
+            oninput: e => { pp.Icon = e.target.value; updatePreview(); }
+        });
+        ppSection.appendChild(row("Icon",
+            h("div", { style: "display:flex;flex-direction:column;gap:4px" }, iconInpEl, hideIconCb),
+            hint('Path, URL, or SF= token. Omit to use the default. Check "Hide icon" to suppress the icon area entirely.')));
+        ppSection.appendChild(row("Size",
+            h("div", { style: "display:flex;gap:8px;align-items:center" },
+                h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap" }, "W"),
+                h("input", { type: "number", min: "0", style: "width:62px",
+                    value: pp.Width == null ? "" : String(pp.Width), placeholder: "520",
+                    oninput: e => { const v = parseInt(e.target.value, 10); pp.Width = Number.isFinite(v) ? v : null; updatePreview(); } }),
+                h("span", { style: "font-size:11px;color:#8e8e93;white-space:nowrap;margin-left:4px" }, "H"),
+                h("input", { type: "number", min: "0", style: "width:62px",
+                    value: pp.Height == null ? "" : String(pp.Height), placeholder: "300",
+                    oninput: e => { const v = parseInt(e.target.value, 10); pp.Height = Number.isFinite(v) ? v : null; updatePreview(); } })
+            )));
+    }
+    tile.appendChild(ppSection);
 
     tile.appendChild(h("div", { class: "section" },
         h("div", { class: "section-title" }, "Appearance"),
@@ -4057,9 +4232,8 @@ function renderWaitWindowFields(st) {
         style: "white-space:nowrap;flex-shrink:0",
         onclick: () => { ww.VideoAutoplay = ww.VideoAutoplay === true ? null : true; updatePreview(); reopenStep(); }
     }, "▶ Autoplay");
-    const wwVideoSection = h("div", { style: "display:flex;flex-direction:column;gap:4px;margin-top:8px" },
-        h("div", { style: "display:flex;gap:6px;align-items:center" }, wwVideoInput, wwAutoplayBtn),
-        ...youTubePreviewNodes(ww.Video || "")
+    const wwVideoSection = h("div", { style: "display:flex;gap:6px;align-items:center;margin-top:8px" },
+        wwVideoInput, wwAutoplayBtn
     );
 
     return [
@@ -4372,9 +4546,8 @@ function actionFields(a) {
                     style: "white-space:nowrap;flex-shrink:0",
                     onclick: () => { a.VideoAutoplay = a.VideoAutoplay === true ? null : true; updatePreview(); reopenStep(); }
                 }, "▶ Autoplay");
-                const dlgVideoSection = h("div", { style: "display:flex;flex-direction:column;gap:4px;margin-top:8px" },
-                    h("div", { style: "display:flex;gap:6px;align-items:center" }, dlgVideoInput, dlgAutoplayBtn),
-                    ...youTubePreviewNodes(a.Video || "")
+                const dlgVideoSection = h("div", { style: "display:flex;gap:6px;align-items:center;margin-top:8px" },
+                    dlgVideoInput, dlgAutoplayBtn
                 );
 
                 return [row("Media", h("div", null,

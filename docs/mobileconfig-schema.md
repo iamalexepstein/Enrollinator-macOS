@@ -110,8 +110,8 @@ are absent.
 | `MessageFontSize` | int    | Point size for the picker's message body font. |
 | `InstallButton`   | string | Label for the confirm button. Defaults to `"Install"`. |
 | `SkipButton`      | string | Label for the skip button. Defaults to `"Not now"`. |
-| `Width`           | int    | Picker window width in points. Default `520`. |
-| `Height`          | int    | Picker window height in points. Default `420`. |
+| `Width`           | int    | Picker window width in points. Default `500`. |
+| `Height`          | int    | Picker window height in points. Default `360`. |
 
 > **Env-var overrides.** The same nine settings can be overridden at runtime
 > via environment variables — useful when you need to customise the picker
@@ -123,6 +123,45 @@ are absent.
 > `ENROLLINATOR_ADDON_HEIGHT`. Environment variables take precedence over
 > the `AddonPicker` dict. Set them via a `launchd` override plist or the
 > MDM's environment-variable mechanism.
+
+### `WelcomeScreen`
+
+Optional dialog shown before the main onboarding window opens. All keys are optional when `Enabled` is `true`.
+
+| Key               | Type            | Description |
+|-------------------|-----------------|-------------|
+| `Enabled`         | bool            | Show the welcome dialog. Default `false`. |
+| `Title`           | string          | Dialog title. Defaults to `Branding.Title`. Supports `{token}` substitution. |
+| `Message`         | string          | Markdown body shown below the title. |
+| `Button`          | string          | Label of the proceed button. Default `"Get Started"`. |
+| `DeferButton`     | string          | Label of an optional defer button. Leave empty to hide. Exits cleanly so the LaunchDaemon can re-trigger on next login. |
+| `MaxDeferrals`    | int             | Hide the defer button after this many deferrals. Omit for unlimited. |
+| `Logo`            | string          | Icon shown in the dialog. Defaults to `Branding.Logo`. |
+| `TitleFontSize`   | int             | Point size for the title. |
+| `MessageFontSize` | int             | Point size for the body. |
+| `Width`           | int             | Dialog width in points. Default `600`. |
+| `Height`          | int             | Dialog height in points. Default `450`. |
+| `Slideshow`       | array of dicts  | Same format as `WaitWindow.Slideshow`. Multiple frames → user-clicked slideshow. |
+| `Video`           | string          | Absolute path or URL. Wins over `Slideshow` when both are set. Note: swiftDialog hides the message body when a video is present. |
+| `VideoAutoplay`   | bool            | Pass `true` to autoplay the video. |
+| `Blur`            | bool            | Override `BlurScreen` for this dialog only. |
+| `AlwaysOnTop`     | bool            | Override `AlwaysOnTop` for this dialog only. |
+| `PlaybookPicker`  | dict            | Optional. When enabled, shows a dropdown after the user clicks proceed so they can choose their own playbook. See below. |
+
+#### `WelcomeScreen.PlaybookPicker`
+
+| Key         | Type            | Description |
+|-------------|-----------------|-------------|
+| `Enabled`   | bool            | Show the playbook picker after the welcome dialog's proceed button is clicked. Default `false`. |
+| `Playbooks` | array of string | Names of the non-addon playbooks to offer. Must match `Playbooks[*].Name` exactly. Blank entries are ignored. |
+| `Title`     | string          | Picker dialog title. Default `"Choose your setup"`. |
+| `Message`   | string          | Picker dialog body shown above the dropdown. Default `"Select the configuration that applies to you."` |
+| `Icon`      | string          | Absolute path, `https://` URL, or SF Symbol token for the picker dialog icon. Omit to use the swiftDialog default. Ignored when `HideIcon` is `true`. |
+| `HideIcon`  | bool            | Pass `--hideicon` to suppress the icon area entirely. Default `false`. |
+| `Width`     | int             | Picker dialog width in points. Default `520`. |
+| `Height`    | int             | Picker dialog height in points. Default `300`. |
+
+The picker uses swiftDialog's `--selectvalues` dropdown. The selected playbook overrides the normal `DefaultPlaybook` / selector logic for that run only. The picker is not shown when the user clicks the defer button.
 
 ## Playbooks
 

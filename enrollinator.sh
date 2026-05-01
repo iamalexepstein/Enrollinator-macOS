@@ -862,6 +862,69 @@ show_welcome_screen() {
 
     log info "Welcome screen: user clicked '$clicked'"
 
+    # Playbook picker — shown after "Get Started", not after a deferral.
+    local _pp_defer=0
+    [ -n "$defer_button" ] && [ "$clicked" = "$defer_button" ] && _pp_defer=1
+    if [ "$_pp_defer" -eq 0 ] \
+       && [ "$(plist_bool "$cfg" ":WelcomeScreen:PlaybookPicker:Enabled" false)" = "true" ]; then
+        local pp_count pp_k pp_name pp_values="" pp_first="" pp_title pp_msg pp_icon pp_hideicon pp_json pp_selected
+        pp_count="$(plist_array_count "$cfg" ":WelcomeScreen:PlaybookPicker:Playbooks")"
+        if [ "$pp_count" -gt 0 ]; then
+            for (( pp_k=0; pp_k<pp_count; pp_k++ )); do
+                pp_name="$(plist_get "$cfg" ":WelcomeScreen:PlaybookPicker:Playbooks:$pp_k")"
+                # Skip blank/whitespace-only entries — can't select an unnamed playbook.
+                [ -z "${pp_name// /}" ] && continue
+                [ -z "$pp_first" ] && pp_first="$pp_name"
+                pp_values="${pp_values:+${pp_values},}${pp_name}"
+            done
+            if [ -n "$pp_values" ]; then
+                pp_title="$(plist_get "$cfg" ":WelcomeScreen:PlaybookPicker:Title")"
+                [ -z "$pp_title" ] && pp_title="Choose your setup"
+                pp_msg="$(plist_get "$cfg" ":WelcomeScreen:PlaybookPicker:Message")"
+                [ -z "$pp_msg" ] && pp_msg="Select the configuration that applies to you."
+                pp_icon="$(plist_get      "$cfg" ":WelcomeScreen:PlaybookPicker:Icon")"
+                pp_hideicon="$(plist_bool "$cfg" ":WelcomeScreen:PlaybookPicker:HideIcon" false)"
+                local pp_width pp_height
+                pp_width="$(plist_get  "$cfg" ":WelcomeScreen:PlaybookPicker:Width")"
+                pp_height="$(plist_get "$cfg" ":WelcomeScreen:PlaybookPicker:Height")"
+                [ -z "$pp_width"  ] && pp_width=520
+                [ -z "$pp_height" ] && pp_height=300
+                local _pp_args=(
+                    --title   "$pp_title"
+                    --message "$pp_msg"
+                    --selecttitle "Playbook"
+                    --selectvalues "$pp_values"
+                    --selectdefault "$pp_first"
+                    --button1text "Continue"
+                    --width  "$pp_width"
+                    --height "$pp_height"
+                    --position center
+                    --moveable
+                    --json
+                )
+                if [ "$pp_hideicon" = "true" ]; then
+                    _pp_args+=( --hideicon )
+                elif [ -n "$pp_icon" ]; then
+                    _pp_args+=( --icon "$pp_icon" )
+                fi
+                [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && _pp_args+=( --ontop )
+                [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}" ]  && _pp_args+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
+                pp_json="$(_ui_user_exec "$DIALOG_BIN" "${_pp_args[@]}" 2>/dev/null)"
+                if [ $? -eq 0 ] && [ -n "$pp_json" ]; then
+                    pp_selected="$(printf '%s' "$pp_json" \
+                        | /usr/bin/python3 -c \
+                          "import sys,json; d=json.load(sys.stdin); print(d.get('Playbook',''))" \
+                          2>/dev/null)"
+                    if [ -n "$pp_selected" ]; then
+                        ENROLLINATOR_PICKER_PROFILE="$pp_selected"
+                        export ENROLLINATOR_PICKER_PROFILE
+                        log info "Playbook picker: user selected '$pp_selected'"
+                    fi
+                fi
+            fi
+        fi
+    fi
+
     # Handle deferral.
     if [ -n "$defer_button" ] && [ "$clicked" = "$defer_button" ]; then
         local new_count=$(( defer_count + 1 ))
@@ -1237,6 +1300,30 @@ main() {
 
     ui_require_dialog
     show_welcome_screen "$cfg"
+
+    # If the welcome screen's playbook picker returned a selection, re-pick.
+    if [ -n "${ENROLLINATOR_PICKER_PROFILE:-}" ]; then
+        local _pp_idx
+        _pp_idx="$(find_profile_by_name "$cfg" "$ENROLLINATOR_PICKER_PROFILE" 2>/dev/null)"
+        if [ -n "$_pp_idx" ]; then
+            pidx="$_pp_idx"
+            pkey=":Playbooks:$pidx"
+            pname="$(plist_get "$cfg" "$pkey:Name")"
+            log info "Playbook picker override applied: '$pname' (index $pidx)"
+            /bin/rm -f "$steps_file"
+            steps_file="$(build_steps_manifest "$cfg" "$pkey")"
+            total="$(plist_array_count "$cfg" "$pkey:Steps")"
+            if [ "$total" -eq 0 ]; then
+                log warn "Picker-selected profile '$pname' has no steps; nothing to do."
+                /bin/rm -f "$cfg" "$steps_file"
+                exit 0
+            fi
+        else
+            log warn "Playbook picker selection '$ENROLLINATOR_PICKER_PROFILE' not found — using default."
+        fi
+        unset ENROLLINATOR_PICKER_PROFILE
+    fi
+
     ui_start "$title" "$subtitle" "$accent" "$logo" "$steps_file"
     local ran_ids_file id_map_file
     ran_ids_file="$(/usr/bin/mktemp -t enrollinator-ran-ids)"
