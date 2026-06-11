@@ -20,7 +20,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD="${ROOT}/build"
 SRC="${ROOT}/enrollinator.sh"
-OUT="${BUILD}/enrollinator-standalone.sh"
+OUT="${BUILD}/enrollinator.sh"
 
 mkdir -p "$BUILD"
 
@@ -62,6 +62,6 @@ echo "  3. Because Jamf injects \$1–\$3, use a wrapper policy script:"
 echo ""
 echo "     #!/bin/bash"
 echo "     until [ -f /usr/local/bin/dialog ]; do sleep 2; done"
-echo "     /path/to/enrollinator-standalone.sh"
+echo "     /path/to/enrollinator.sh"
 echo ""
 echo "     Or copy the standalone script to a known path first, then call it."

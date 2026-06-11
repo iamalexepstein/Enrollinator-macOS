@@ -72,6 +72,14 @@ else
     echo "==> No enrollinator.xml found — config will be read from managed prefs at runtime"
 fi
 
+# Strip removable extended attributes (quarantine, FinderInfo) from the
+# staged tree so they don't ship in the payload. Kernel-managed xattrs like
+# com.apple.provenance cannot be removed and appear as AppleDouble ._* BOM
+# entries; the installer rehydrates those as xattrs, not literal files, so
+# they are harmless.
+echo "==> Stripping extended attributes"
+/usr/bin/xattr -rc "$ROOTFS" 2>/dev/null || true
+
 echo "==> Building component pkg"
 /usr/bin/pkgbuild \
     --root "$ROOTFS" \

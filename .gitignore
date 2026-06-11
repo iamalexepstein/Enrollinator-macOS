@@ -12,7 +12,8 @@
 /enrollinator.log
 /var/
 
-# Packaging output — regenerate with scripts/build-pkg.sh
+# Packaging output — regenerate with pkg/build.sh
+/build/
 pkg/dist/
 *.pkg.bak
 
