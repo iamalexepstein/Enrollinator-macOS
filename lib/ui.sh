@@ -159,8 +159,7 @@ ui_run_blur_keeper_start() {
     # screen behind the dialog, regardless of the dialog's own size/position,
     # so a 4x4 window still produces a fullscreen blur.
     : > "$RUN_BLUR_KEEPER_CMD"
-    /bin/chmod 0644 "$RUN_BLUR_KEEPER_CMD" 2>/dev/null || true
-    /usr/sbin/chown root:wheel "$RUN_BLUR_KEEPER_CMD" 2>/dev/null || true
+    _ui_own_cmdfile "$RUN_BLUR_KEEPER_CMD"
 
     local _pre
     _pre=",$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/tr '\n' ',')"
@@ -251,6 +250,26 @@ _ui_user_exec() {
         /bin/launchctl asuser "$uid" /usr/bin/sudo -u "$ENROLLINATOR_CONSOLE_USER" -- "$@"
     else
         "$@"
+    fi
+}
+
+# Own a command file correctly for the swiftDialog process. Since the
+# privilege drop in _ui_user_exec, swiftDialog runs as the CONSOLE USER —
+# and it opens its command file for WRITING, not just reading (the
+# documented contract is "written to and read from"). A root-owned 0644
+# file in sticky /var/tmp is readable but not writable by the user, so
+# the watcher silently fails to initialise and the window never consumes
+# a single command. Root can always chown, which also repairs stale
+# root-owned files left by earlier versions. Falls back to root:wheel
+# when there's no console user (non-root dev runs are unaffected).
+_ui_own_cmdfile() {
+    local f="$1"
+    /bin/chmod 0644 "$f" 2>/dev/null || true
+    if [ "$(/usr/bin/id -u)" -eq 0 ] && [ -n "${ENROLLINATOR_CONSOLE_USER:-}" ] \
+       && [ "$ENROLLINATOR_CONSOLE_USER" != "root" ]; then
+        /usr/sbin/chown "$ENROLLINATOR_CONSOLE_USER" "$f" 2>/dev/null || true
+    else
+        /usr/sbin/chown root:wheel "$f" 2>/dev/null || true
     fi
 }
 
@@ -397,8 +416,7 @@ ui_start() {
     # user-session swiftDialog process. 0644 gives swiftDialog read access
     # without allowing local users to inject commands.
     : > "$DIALOG_COMMAND_FILE"
-    /bin/chmod 0644 "$DIALOG_COMMAND_FILE" 2>/dev/null || true
-    /usr/sbin/chown root:wheel "$DIALOG_COMMAND_FILE" 2>/dev/null || true
+    _ui_own_cmdfile "$DIALOG_COMMAND_FILE"
     _ui_state_reset
 
     # Build the --listitem arguments from the manifest.
@@ -708,8 +726,7 @@ ui_addon_picker() {
     # the same isolation pattern with its own popup_cmd file.
     local picker_cmd="/var/tmp/enrollinator.addon-picker.log"
     : > "$picker_cmd"
-    /bin/chmod 0644 "$picker_cmd" 2>/dev/null || true
-    /usr/sbin/chown root:wheel "$picker_cmd" 2>/dev/null || true
+    _ui_own_cmdfile "$picker_cmd"
 
     local args=(
         --title   "$title"
@@ -829,8 +846,7 @@ ui_wait_open() {
         && ! _ui_run_blur_keeper_active && _ww_use_keeper=1
     if [ "$_ww_use_keeper" = "1" ]; then
         : > "$WAIT_BLUR_KEEPER_CMD"
-        /bin/chmod 0644 "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
-        /usr/sbin/chown root:wheel "$WAIT_BLUR_KEEPER_CMD" 2>/dev/null || true
+        _ui_own_cmdfile "$WAIT_BLUR_KEEPER_CMD"
         local _wbk_args=(
             --title " " --message " "
             --messagefont "size=1"
@@ -914,8 +930,7 @@ ui_wait_open() {
     fi
 
     : > "$WAIT_COMMAND_FILE"
-    /bin/chmod 0644 "$WAIT_COMMAND_FILE" 2>/dev/null || true
-    /usr/sbin/chown root:wheel "$WAIT_COMMAND_FILE" 2>/dev/null || true
+    _ui_own_cmdfile "$WAIT_COMMAND_FILE"
 
     local args=(
         --title "$title"
@@ -1105,8 +1120,7 @@ ui_wait_open() {
                 # Clear the navigation flag first so the timeout clock resumes.
                 /bin/rm -f "$WAIT_NAVIGATING_FILE" 2>/dev/null || true
                 : > "$WAIT_COMMAND_FILE"
-                /bin/chmod 0644 "$WAIT_COMMAND_FILE" 2>/dev/null || true
-                /usr/sbin/chown root:wheel "$WAIT_COMMAND_FILE" 2>/dev/null || true
+                _ui_own_cmdfile "$WAIT_COMMAND_FILE"
                 # Same pgrep-diff resolution as the initial launch in
                 # ui_wait_open — picking pgrep -nx alone races against the
                 # main Enrollinator list dialog (also a `dialog` process).
@@ -1308,8 +1322,7 @@ ui_dialog_popup() {
 
     local popup_cmd="/var/tmp/enrollinator.popup.log"
     : > "$popup_cmd"
-    /bin/chmod 0644 "$popup_cmd" 2>/dev/null || true
-    /usr/sbin/chown root:wheel "$popup_cmd" 2>/dev/null || true
+    _ui_own_cmdfile "$popup_cmd"
 
     # Resolve the optional icon once; used in both the final dialog and slides.
     local _icon_resolved
@@ -1367,8 +1380,7 @@ ui_dialog_popup() {
     if [ "$_use_keeper" = "1" ]; then
         _bk_cmd="/var/tmp/enrollinator.blur-keeper.log"
         : > "$_bk_cmd"
-        /bin/chmod 0644 "$_bk_cmd" 2>/dev/null || true
-        /usr/sbin/chown root:wheel "$_bk_cmd" 2>/dev/null || true
+        _ui_own_cmdfile "$_bk_cmd"
         local _bk_args=(
             --title " " --message " "
             --messagefont "size=1"
