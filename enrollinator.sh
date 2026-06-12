@@ -122,6 +122,10 @@ parse_args() {
             *)                 echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
         esac
     done
+    # Resolve config paths to absolute now — main() does `cd /` for daemon
+    # hygiene before loading config, which would break relative paths.
+    [ -n "$CLI_CONFIG" ] && [ "${CLI_CONFIG#/}" = "$CLI_CONFIG" ] && CLI_CONFIG="$PWD/$CLI_CONFIG"
+    [ -n "$CLI_XML" ]    && [ "${CLI_XML#/}" = "$CLI_XML" ]       && CLI_XML="$PWD/$CLI_XML"
 }
 
 # Refuse to run unless we're root. Enrollinator installs pkgs, touches
@@ -163,16 +167,39 @@ wait_for_console_user() {
 #   * managed defaults domain    (snapshots via `defaults export`)
 ENROLLINATOR_BUNDLED_XML="${ENROLLINATOR_ROOT}/enrollinator.xml"
 load_config() {
+    local raw
     if [ -n "$CLI_XML" ]; then
-        load_bare_xml "$CLI_XML"
+        raw="$(load_bare_xml "$CLI_XML")" || exit $?
     elif [ -n "$CLI_CONFIG" ]; then
-        extract_mobileconfig_payload "$CLI_CONFIG"
+        raw="$(load_bare_xml "$CLI_CONFIG")" || exit $?
     elif [ -f "$ENROLLINATOR_BUNDLED_XML" ]; then
         log info "Using bundled config: $ENROLLINATOR_BUNDLED_XML"
-        load_bare_xml "$ENROLLINATOR_BUNDLED_XML"
+        raw="$(load_bare_xml "$ENROLLINATOR_BUNDLED_XML")" || exit $?
     else
-        plist_export_managed "$ENROLLINATOR_DOMAIN"
+        raw="$(plist_export_managed "$ENROLLINATOR_DOMAIN")" || exit $?
     fi
+    # Undo MDM stringification before anything else — a mangled
+    # PayloadContent would block the envelope extraction below.
+    if plist_repair_stringified "$raw"; then
+        log warn "Config contained MDM-stringified keys — repaired automatically. Consider re-uploading the bare plist so the deployed profile is clean."
+    fi
+    # Regardless of source, unwrap a .mobileconfig envelope when present.
+    # Configs arrive wrapped more often than you'd think: a full mobileconfig
+    # passed to --xml, or an envelope mistakenly uploaded into an MDM
+    # custom-settings payload so the whole thing lands inside the prefs
+    # domain. Bare configs pass through untouched.
+    if plist_exists "$raw" ":PayloadContent"; then
+        log info "Config contains a PayloadContent envelope — extracting inner payload"
+        local inner
+        inner="$(extract_mobileconfig_payload "$raw")" || { /bin/rm -f "$raw"; exit 2; }
+        /bin/rm -f "$raw"
+        if plist_repair_stringified "$inner"; then
+            log warn "Extracted payload contained MDM-stringified keys — repaired automatically."
+        fi
+        echo "$inner"
+        return 0
+    fi
+    echo "$raw"
 }
 
 # Copy a bare plist XML to a temp location and hand back the path. We normalize
@@ -195,9 +222,14 @@ load_bare_xml() {
     fi
     # Best-effort normalize. Non-plist XML will fail here; surface that early.
     if ! /usr/bin/plutil -convert xml1 "$out" 2>/dev/null; then
-        log error "File is not a valid property list: $src"
-        /bin/rm -f "$out"
-        exit 2
+        # Maybe a CMS-signed .mobileconfig — try stripping the signature.
+        if ! /usr/bin/security cms -D -i "$src" -o "$out" 2>/dev/null \
+            || ! /usr/bin/plutil -convert xml1 "$out" 2>/dev/null; then
+            log error "File is not a valid property list: $src"
+            /bin/rm -f "$out"
+            exit 2
+        fi
+        log info "Stripped CMS signature from $src"
     fi
     echo "$out"
 }
@@ -258,7 +290,14 @@ pick_profile() {
     local count
     count="$(plist_array_count "$cfg" ":Playbooks")"
     if [ "$count" -eq 0 ]; then
-        log error "No Playbooks defined in config"
+        if plist_exists "$cfg" ":Playbooks"; then
+            # The key exists but :Playbooks:0 doesn't — it's not an array of
+            # dicts. The usual culprit is an MDM editor re-serializing the
+            # array as a single string on upload/edit.
+            log error "Playbooks key exists but is not a readable array of dicts, and automatic repair could not recover it. Re-upload the bare plist (never edit the payload in the MDM console) or deploy a signed .mobileconfig."
+        else
+            log error "No Playbooks defined in config"
+        fi
         exit 2
     fi
 
@@ -273,8 +312,22 @@ pick_profile() {
     # --profile (handled above) and DefaultPlaybook (fallback below).
     if [ -n "$default_name" ]; then
         find_profile_by_name "$cfg" "$default_name" && return 0
-        log error "DefaultPlaybook '$default_name' not found in Playbooks"
+        log error "DefaultPlaybook '$default_name' not found in Playbooks (names are matched exactly, case-sensitive)"
         exit 2
+    fi
+
+    # No DefaultPlaybook. Fall back to the only playbook when there is just
+    # one, or to the first when the welcome-screen picker will let the user
+    # choose anyway. Hard-fail only when neither applies.
+    if [ "$count" -eq 1 ]; then
+        log info "No DefaultPlaybook set; using the only defined playbook"
+        echo 0
+        return 0
+    fi
+    if [ "$(plist_bool "$cfg" ":WelcomeScreen:PlaybookPicker:Enabled" false)" = "true" ]; then
+        log info "No DefaultPlaybook set; PlaybookPicker enabled — starting from the first playbook"
+        echo 0
+        return 0
     fi
 
     log error "No playbook matched and no DefaultPlaybook set"
@@ -463,6 +516,11 @@ run_step() {
                 ui_set_step_status "$ui_idx" fail "$(trim_one_line "$action_msg")"
                 return $action_rc
             fi
+        else
+            # Log success output too — a command can exit 0 without doing
+            # what you meant (e.g. `jamf policy -event x` with no matching
+            # policy), and this line is the only place that's visible.
+            log info "step=$id action ok: $(trim_one_line "$action_msg")"
         fi
 
         # Test mode: non-dialog actions are simulated (action_run returned 0
@@ -1169,10 +1227,12 @@ run_addon_profiles() {
 # ----------------------------------------------------------------------------
 
 main() {
+    # Parse args first — it resolves relative --config/--xml paths against
+    # the caller's CWD, which the cd below would destroy.
+    parse_args "$@"
     # Guarantee a stable CWD so launchctl asuser never inherits a path that
     # root can't resolve (e.g. a user's Downloads, a deleted temp dir).
     cd / || true
-    parse_args "$@"
     require_root
     init_logging
     log info "Enrollinator starting (root=$ENROLLINATOR_ROOT domain=$ENROLLINATOR_DOMAIN pid=$$)"
@@ -1204,12 +1264,16 @@ main() {
     export ENROLLINATOR_CONSOLE_USER
 
     local cfg
-    cfg="$(load_config)"
+    # The `|| exit` matters: these helpers exit non-zero on fatal errors, but
+    # inside $(...) that only kills the subshell — without it the script
+    # would limp on with an empty value and misreport the failure as a
+    # benign no-op ("Profile '' has no steps").
+    cfg="$(load_config)" || exit $?
     log info "Config loaded: $cfg"
 
     # Pick profile.
     local pidx pname pkey
-    pidx="$(pick_profile "$cfg" "$CLI_PROFILE")"
+    pidx="$(pick_profile "$cfg" "$CLI_PROFILE")" || exit $?
     pkey=":Playbooks:$pidx"
     pname="$(plist_get "$cfg" "$pkey:Name")"
     log info "Selected profile: $pname (index $pidx)"

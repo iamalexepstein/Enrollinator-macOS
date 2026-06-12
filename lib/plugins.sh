@@ -24,7 +24,16 @@ action_run() {
     local file="$1" key="$2"
     local type
     type="$(plist_get "$file" "${key}:Action:Type")"
-    [ -z "$type" ] && return 0   # no action → treat as success
+    if [ -z "$type" ]; then
+        # No Action at all → nothing to do, success. But an Action dict
+        # whose Type can't be read is a malformed config: failing loudly
+        # beats silently marking the step done without running anything.
+        if plist_exists "$file" "${key}:Action"; then
+            echo "Action exists but its Type key is missing or unreadable" >&2
+            return 2
+        fi
+        return 0
+    fi
 
     # Test mode: describe what we would run without actually running it.
     # Conditions still evaluate normally so users can rehearse gating.
