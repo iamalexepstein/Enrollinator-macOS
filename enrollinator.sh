@@ -46,13 +46,18 @@ ENROLLINATOR_COMPLETED_FLAG="${ENROLLINATOR_COMPLETED_FLAG:-${ENROLLINATOR_PERSI
 
 log() {
     local level="$1"; shift
-    local ts
+    local ts line
     ts="$(/bin/date '+%Y-%m-%dT%H:%M:%S%z')"
-    printf '%s [%s] %s\n' "$ts" "$level" "$*" >> "$ENROLLINATOR_LOG"
-    # Also echo INFO+ to stderr when running interactively.
-    if [ -t 2 ]; then
-        printf '%s [%s] %s\n' "$ts" "$level" "$*" >&2
-    fi
+    # Multi-line messages (command output, forensics) get the prefix on
+    # EVERY line — each log line stands alone, so grep/tail stay coherent
+    # and nothing appears as bare un-timestamped continuation lines.
+    while IFS= read -r line || [ -n "$line" ]; do
+        printf '%s [%s] %s\n' "$ts" "$level" "$line" >> "$ENROLLINATOR_LOG"
+        # Also echo INFO+ to stderr when running interactively.
+        if [ -t 2 ]; then
+            printf '%s [%s] %s\n' "$ts" "$level" "$line" >&2
+        fi
+    done <<< "$*"
 }
 
 init_logging() {
@@ -517,10 +522,11 @@ run_step() {
                 return $action_rc
             fi
         else
-            # Log success output too — a command can exit 0 without doing
+            # Log full success output — a command can exit 0 without doing
             # what you meant (e.g. `jamf policy -event x` with no matching
-            # policy), and this line is the only place that's visible.
-            log info "step=$id action ok: $(trim_one_line "$action_msg")"
+            # policy), and this is the only place that's visible. log()
+            # prefixes every line, so multi-line output stays greppable.
+            log info "step=$id action ok: $action_msg"
         fi
 
         # Test mode: non-dialog actions are simulated (action_run returned 0
