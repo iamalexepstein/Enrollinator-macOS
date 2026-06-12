@@ -988,6 +988,10 @@ show_welcome_screen() {
         local new_count=$(( defer_count + 1 ))
         printf '%s\n' "$new_count" > "$defer_file" 2>/dev/null || true
         log info "Onboarding deferred (${new_count}/${max_deferrals:-∞})"
+        # The welcome screen may have started the run-level blur keeper —
+        # this exit never reaches the main EXIT trap, so stop it here or the
+        # screen stays blurred after the window closes.
+        ui_run_blur_keeper_stop
         exit 0
     fi
 
@@ -1411,6 +1415,9 @@ main() {
     local -a _visited_idx
     local i=0 rc any_fail=0 step_id steps_done=0 max_iters=$(( total * 2 + total ))
     while (( i < total && steps_done < max_iters )); do
+        # Replay cached statuses first — heals any updates swiftDialog's
+        # watcher missed during its startup window (fast first-step clicks).
+        ui_reassert_state
         ui_set_progress $(( (steps_done * 100) / total )) "Step $((steps_done+1)) of $total"
         _visited_idx[$i]=1
         run_step "$cfg" "$pkey" "$i" "$i"
@@ -1512,14 +1519,19 @@ main() {
     # does NOT count — the point is to rehearse the run, not consume it.
     if [ $any_fail -eq 0 ] && [ "$ENROLLINATOR_TEST_MODE" != "1" ]; then
         /usr/bin/touch "$ENROLLINATOR_COMPLETED_FLAG" 2>/dev/null || true
+        # A completed run resets the welcome-screen deferral budget, so a
+        # future re-run (--force / daemon kickstart) starts fresh.
+        /bin/rm -f "${ENROLLINATOR_PERSIST_DIR}/welcome_deferrals" 2>/dev/null || true
     fi
 
     log info "Enrollinator finished (any_fail=$any_fail test_mode=$ENROLLINATOR_TEST_MODE)"
 
     # Push an inventory update so Jamf Pro reflects the new state immediately.
     # Run in the background so we don't block; skip in test/dry-run mode and
-    # when Jamf isn't present (the script is MDM-agnostic).
+    # when Jamf isn't present (the script is MDM-agnostic). Opt out with
+    # JamfRecon=false at the top level of the config.
     if [ "$CLI_DRY_RUN" -eq 0 ] && [ "$ENROLLINATOR_TEST_MODE" != "1" ] \
+       && [ "$(plist_bool "$cfg" ":JamfRecon" true)" = "true" ] \
        && [ -x /usr/local/jamf/bin/jamf ]; then
         log info "Triggering jamf recon"
         /usr/local/jamf/bin/jamf recon &

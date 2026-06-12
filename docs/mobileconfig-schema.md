@@ -24,6 +24,7 @@ This document describes every key that entry understands.
 | `DefaultPlaybook` | string          | no       | Name of the playbook to use when no selector matches. |
 | `AllowClose`     | bool            | no       | If `true`, Enrollinator enables the Done button at the end instead of auto-quitting. Defaults to `false`. |
 | `TestMode`       | bool            | no       | If `true`, Enrollinator evaluates conditions but skips destructive actions (`shell`, `package`, `wait`). `dialog` actions still run — they are pure UI with no side effects. Blocking steps still open their `WaitWindow` (or show their `UserPrompt` banner) so you can preview the UI; their timeout is capped at 5 seconds so a rehearsal never hangs. Overridable per-profile. Defaults to `false`. |
+| `JamfRecon`      | bool            | no       | Set `false` to skip the automatic `jamf recon` inventory update triggered after a successful run. Defaults to `true` (only runs when the jamf binary is present; always skipped in test/dry-run mode). |
 | `HardwareInfo`   | dict            | no       | Enables a hardware info panel next to the step list. See below. |
 | `Help`           | dict            | no       | Enables a "?" help button in the window. Shown contents are configured here. See below. |
 | `AddonPicker`    | dict            | no       | Customises the post-install add-on picker window. See below. |

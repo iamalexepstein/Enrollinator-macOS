@@ -350,6 +350,7 @@ ui_start() {
     : > "$DIALOG_COMMAND_FILE"
     /bin/chmod 0644 "$DIALOG_COMMAND_FILE" 2>/dev/null || true
     /usr/sbin/chown root:wheel "$DIALOG_COMMAND_FILE" 2>/dev/null || true
+    _ui_state_reset
 
     # Build the --listitem arguments from the manifest.
     local listitems=()
@@ -455,11 +456,57 @@ ui_start() {
         /bin/sleep 0.1
     done
     [ -n "$_dpid" ] && printf '%s\n' "$_dpid" > "$DIALOG_PID_FILE"
+
+    # Don't return until swiftDialog actually has the command file open.
+    # Its watcher ignores anything written before it initialises, so
+    # returning earlier lets the first step's status updates vanish on a
+    # slow launch (first run of Dialog.app, login storm at enrollment).
+    # The process existing is NOT enough — watcher init lags exec by
+    # seconds. lsof showing an open fd on the file is the real signal.
+    for (( _i=0; _i<30; _i++ )); do
+        if /usr/sbin/lsof -- "$DIALOG_COMMAND_FILE" >/dev/null 2>&1; then
+            return 0
+        fi
+        /bin/sleep 0.2
+    done
+    # Timed out — proceed anyway; the per-step state re-assertion will heal
+    # any updates the watcher missed.
+    return 0
 }
 
 # Write a raw command to swiftDialog's command file.
 ui_cmd() {
     printf '%s\n' "$*" >> "$DIALOG_COMMAND_FILE"
+}
+
+# ── UI state cache ───────────────────────────────────────────────────────────
+# swiftDialog ignores command-file content written before its watcher
+# initialises, and watcher startup can take seconds on a loaded machine
+# (first launch of Dialog.app during enrollment). Any listitem/progress
+# command written in that window is silently dropped — the classic symptom
+# is a fast click on the first step's dialog freezing the list at Pending.
+# Statuses are absolute, so we cache the latest command per key and replay
+# the cache at each step boundary: a dropped write heals within one step.
+UI_STATE_DIR=""
+
+_ui_state_reset() {
+    [ -n "$UI_STATE_DIR" ] && /bin/rm -rf "$UI_STATE_DIR" 2>/dev/null
+    UI_STATE_DIR="$(/usr/bin/mktemp -d -t enrollinator-uistate)"
+}
+
+_ui_state_put() {  # <key> <full command line>
+    [ -n "$UI_STATE_DIR" ] && [ -d "$UI_STATE_DIR" ] || return 0
+    printf '%s' "$2" > "${UI_STATE_DIR}/$1" 2>/dev/null || true
+}
+
+# Replay every cached command. Idempotent — safe to call at any boundary.
+ui_reassert_state() {
+    [ -n "$UI_STATE_DIR" ] && [ -d "$UI_STATE_DIR" ] || return 0
+    local f
+    for f in "$UI_STATE_DIR"/*; do
+        [ -f "$f" ] || continue
+        ui_cmd "$(/bin/cat "$f")"
+    done
 }
 
 # ui_set_step_status <index> <status> [text]
@@ -476,14 +523,23 @@ ui_set_step_status() {
         progress) statustext="${text:-Running…}" ;;
         *)        statustext="$text" ;;
     esac
+    # swiftDialog's listitem parser splits key=value pairs on commas — a
+    # comma inside statustext truncates the visible text and can make the
+    # whole command misparse. Replace with semicolons.
+    statustext="${statustext//,/;}"
     ui_cmd "listitem: index: $idx, status: $status, statustext: $statustext"
+    _ui_state_put "item-$idx" "listitem: index: $idx, status: $status, statustext: $statustext"
 }
 
 # Update the overall progress bar (0..100).
 ui_set_progress() {
     local pct="$1" text="${2:-}"
     ui_cmd "progress: $pct"
-    [ -n "$text" ] && ui_cmd "progresstext: $text"
+    _ui_state_put "progress" "progress: $pct"
+    if [ -n "$text" ]; then
+        ui_cmd "progresstext: $text"
+        _ui_state_put "progresstext" "progresstext: $text"
+    fi
 }
 
 # Set the persistent banner message above the list.
