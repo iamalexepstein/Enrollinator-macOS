@@ -21,7 +21,12 @@
 # message. Enterprises typically bundle swiftDialog.pkg alongside Enrollinator.
 
 DIALOG_BIN="${DIALOG_BIN:-/usr/local/bin/dialog}"
-DIALOG_COMMAND_FILE="${DIALOG_COMMAND_FILE:-/var/tmp/dialog.log}"
+# NOT /var/tmp/dialog.log: that's swiftDialog's shared DEFAULT, and any
+# dialog instance launched without --commandfile (by us, by a Jamf policy,
+# by any other tool mid-enrollment) binds it and TRUNCATES it at launch —
+# which permanently kills the main window's command watcher. A private
+# path means strays can't touch our window.
+DIALOG_COMMAND_FILE="${DIALOG_COMMAND_FILE:-/var/tmp/enrollinator.dialog.log}"
 DIALOG_PID_FILE="/var/tmp/enrollinator.dialog.pid"
 
 # Wait-window state (one at a time — steps are serial).
@@ -877,6 +882,12 @@ ui_wait_open() {
         unset IFS
         local ww_total=${#ww_frames[@]}
         local ww_i=0
+        # Throwaway command file for the slides: without an explicit
+        # --commandfile each slide binds swiftDialog's shared default and
+        # truncates it at launch, killing the main window's watcher.
+        local ww_scratch
+        ww_scratch="$(/usr/bin/mktemp -t enrollinator-scratch)"
+        _ui_own_cmdfile "$ww_scratch"
         while [ "$ww_i" -lt $(( ww_total - 1 )) ]; do
             local ww_frame ww_resolved ww_stitle ww_smsg
             ww_frame="${ww_frames[$ww_i]}"
@@ -896,6 +907,7 @@ ui_wait_open() {
                 --ignorednd
                 --hideicon
                 --button1text "Next →  ($(( ww_i + 1 )) of ${ww_total})"
+                --commandfile "$ww_scratch"
             )
             [ "$ww_i" -gt 0 ] && ww_slide_args+=( --button2text "← Back" )
             [ -n "$title_fontsize" ] && ww_slide_args+=( --titlefont "size=${title_fontsize}" )
@@ -908,9 +920,10 @@ ui_wait_open() {
             case "$ww_rc" in
                 0) ww_i=$(( ww_i + 1 )) ;;
                 2) [ "$ww_i" -gt 0 ] && ww_i=$(( ww_i - 1 )) ;;
-                *) return "$ww_rc" ;;
+                *) /bin/rm -f "$ww_scratch"; return "$ww_rc" ;;
             esac
         done
+        /bin/rm -f "$ww_scratch"
         # Carry the last frame's image and per-slide text into the persistent window.
         local ww_last=$(( ww_total - 1 ))
         slideshow="${ww_frames[$ww_last]}"
@@ -1099,12 +1112,20 @@ ui_wait_open() {
                     [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ]  && _wa+=( --ontop )
                     [ "${ENROLLINATOR_UI_BLUR:-0}"  = "1" ] && [ "$_ww_use_keeper" = "0" ] && ! _ui_run_blur_keeper_active && _wa+=( --blurscreen )
                     [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}" ]  && _wa+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
+                    # Explicit scratch commandfile — an implicit default
+                    # binding would truncate the shared default path and
+                    # kill any window watching it.
+                    local _wa_scratch
+                    _wa_scratch="$(/usr/bin/mktemp -t enrollinator-scratch)"
+                    _ui_own_cmdfile "$_wa_scratch"
+                    _wa+=( --commandfile "$_wa_scratch" )
                     # Run in background so the TERM trap can kill it mid-slide.
                     _ui_user_exec "$DIALOG_BIN" "${_wa[@]}" &
                     _w_child_pid=$!
                     wait "$_w_child_pid" 2>/dev/null
                     local _wrc=$?
                     _w_child_pid=""
+                    /bin/rm -f "$_wa_scratch"
                     case "$_wrc" in
                         0)  _w_back_i=$(( _w_back_i + 1 ))
                             # Break when we've passed the last interactive
@@ -1421,6 +1442,12 @@ ui_dialog_popup() {
                 --moveable
                 --button1text "Next →  ($(( dlg_i + 1 )) of ${dlg_total})"
             )
+            # Explicit scratch commandfile — implicit default binding
+            # truncates the shared default path at launch.
+            local _da_scratch
+            _da_scratch="$(/usr/bin/mktemp -t enrollinator-scratch)"
+            _ui_own_cmdfile "$_da_scratch"
+            _da+=( --commandfile "$_da_scratch" )
             if [ -n "$_icon_resolved" ]; then _da+=( --icon "$_icon_resolved" ); else _da+=( --hideicon ); fi
             [ "$dlg_i" -gt 0 ]                  && _da+=( --button2text "← Back" )
             [ -n "$title_fontsize" ]             && _da+=( --titlefont "size=${title_fontsize}" )
@@ -1430,6 +1457,7 @@ ui_dialog_popup() {
             [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}" ]  && _da+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
             _ui_user_exec "$DIALOG_BIN" "${_da[@]}"
             local _drc=$?
+            /bin/rm -f "$_da_scratch"
             case "$_drc" in
                 0)  dlg_i=$(( dlg_i + 1 )) ;;
                 2)  [ "$dlg_i" -gt 0 ] && dlg_i=$(( dlg_i - 1 )) ;;

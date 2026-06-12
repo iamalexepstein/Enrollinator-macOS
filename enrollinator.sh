@@ -973,7 +973,14 @@ show_welcome_screen() {
                 fi
                 [ "${ENROLLINATOR_UI_ONTOP:-1}" = "1" ] && _pp_args+=( --ontop )
                 [ -n "${ENROLLINATOR_UI_QUIT_KEY:-}" ]  && _pp_args+=( --quitkey "${ENROLLINATOR_UI_QUIT_KEY}" )
+                # Explicit scratch commandfile — an implicit default binding
+                # would truncate swiftDialog's shared default path at launch.
+                local _pp_scratch
+                _pp_scratch="$(/usr/bin/mktemp -t enrollinator-scratch)"
+                _ui_own_cmdfile "$_pp_scratch"
+                _pp_args+=( --commandfile "$_pp_scratch" )
                 pp_json="$(_ui_user_exec "$DIALOG_BIN" "${_pp_args[@]}" 2>/dev/null)"
+                /bin/rm -f "$_pp_scratch"
                 if [ $? -eq 0 ] && [ -n "$pp_json" ]; then
                     pp_selected="$(printf '%s' "$pp_json" \
                         | /usr/bin/python3 -c \
