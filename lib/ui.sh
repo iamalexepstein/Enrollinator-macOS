@@ -261,14 +261,56 @@ _ui_user_osascript() {
 }
 
 # Resolve an icon/logo spec. swiftDialog accepts absolute paths (just pass),
-# https:// URLs (just pass), and SF= tokens. Older code required `[ -f ]`
-# which silently dropped web URLs on the floor — that's what this function
-# fixes. Echoes the normalized spec, or empty if the input is blank.
+# https:// URLs, and SF= tokens. Older code required `[ -f ]` which silently
+# dropped web URLs on the floor — that's what this function fixes.
+#
+# Remote URLs are pre-fetched to a local cache with a HARD timeout instead
+# of being passed through: swiftDialog fetches URLs during window startup,
+# and a black-holed host (firewall DROP, proxy hang) stalls the window for
+# a full TCP timeout — 30–75s of frozen "Getting ready…" on every run.
+# Fetch failure returns empty, which callers already treat as "no image"
+# (gradient banner / default icon). Cache is keyed by URL hash and reused
+# across windows in the run, so each URL is fetched at most once.
+# Echoes the normalized spec, or empty if the input is blank/unreachable.
+UI_IMAGE_CACHE_DIR="${UI_IMAGE_CACHE_DIR:-/var/tmp/enrollinator-images}"
 _ui_normalize_icon() {
     local spec="$1"
     [ -z "$spec" ] && return 0
     case "$spec" in
-        http://*|https://*|SF=*) printf '%s' "$spec" ;;
+        http://*|https://*)
+            local _hash _cached
+            _hash="$(printf '%s' "$spec" | /usr/bin/shasum -a 256 2>/dev/null | /usr/bin/awk '{print $1}')"
+            if [ -z "$_hash" ]; then
+                printf '%s' "$spec"   # hashing failed — pass through rather than lose the image
+                return 0
+            fi
+            _cached="${UI_IMAGE_CACHE_DIR}/${_hash}"
+            if [ -s "$_cached" ]; then
+                printf '%s' "$_cached"
+                return 0
+            fi
+            # Negative cache: a URL that already failed is not retried for
+            # ~5 minutes — otherwise N unreachable icons cost N timeouts in
+            # one run. Expiry lets the next run retry (network may be back).
+            if [ -e "${_cached}.fail" ]; then
+                if [ -n "$(/usr/bin/find "${_cached}.fail" -mmin +5 2>/dev/null)" ]; then
+                    /bin/rm -f "${_cached}.fail" 2>/dev/null
+                else
+                    return 0
+                fi
+            fi
+            /bin/mkdir -p "$UI_IMAGE_CACHE_DIR" 2>/dev/null
+            if /usr/bin/curl -fsSL --connect-timeout 3 -m 8 -o "$_cached" "$spec" 2>/dev/null \
+                && [ -s "$_cached" ]; then
+                printf '%s' "$_cached"
+            else
+                /bin/rm -f "$_cached" 2>/dev/null
+                /usr/bin/touch "${_cached}.fail" 2>/dev/null
+                # Unreachable — drop the image instead of letting swiftDialog
+                # hang the window on it. Callers degrade gracefully.
+            fi
+            ;;
+        SF=*) printf '%s' "$spec" ;;
         /*)
             if [ -f "$spec" ]; then
                 printf '%s' "$spec"
@@ -482,27 +524,46 @@ ui_start() {
     # the command file. Gating on the wrapper alone burns the whole timeout
     # on every run. Any dialog process holding the main command file is the
     # main window; the file is unique to it.
-    # Hold here until the window is confirmed ready — run_step fires the
-    # first step (and its popups) the moment ui_start returns, and a popup
-    # appearing over a window still stuck on "Getting ready…" looks broken.
-    # Normal case is 1–2s. Bail immediately if the dialog died; cap the
-    # wait at ~60s so a wedged dialog can't hang the run (statuses then
-    # self-heal via per-step re-assertion).
-    local _gate_pids _gate_t0 _gate_waited
+    # Hold here until the window is confirmed CONSUMING commands — run_step
+    # fires the first step (and its popups) the moment ui_start returns,
+    # and a popup appearing over a window still on "Getting ready…" looks
+    # broken. Two traps this must dodge:
+    #   * "file is open" is NOT "watcher is reading" — swiftDialog opens
+    #     the command-file fd early in startup, seconds before its watcher
+    #     loop starts consuming;
+    #   * a stale dialog process from a previous run still holding the
+    #     default command file passes any unscoped check instantly.
+    # So: consider only dialog PIDs that did not exist before this launch,
+    # and require their read OFFSET to reach the file's current size —
+    # the offset only advances when the watcher actually consumes. The
+    # sentinel write guarantees a non-zero size to measure against (it
+    # repeats the launch progresstext, so nothing visibly changes).
+    # Normal cost 1–2s; bails if the new dialog died; capped at ~60s.
+    ui_cmd "progresstext: Getting ready…"
+    local _gate_t0 _gate_waited _all _new_csv _sz _off
     _gate_t0="$(/bin/date +%s)"
     for (( _i=0; _i<300; _i++ )); do
-        _gate_pids="$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/tr '\n' ',')"
-        _gate_pids="${_gate_pids%,}"
-        if [ -z "$_gate_pids" ]; then
-            type log >/dev/null 2>&1 && log warn "ui_start: no dialog process alive while waiting for window readiness"
+        _new_csv=""
+        _all="$(_ui_list_dialog_pids 2>/dev/null)"
+        for _p in $_all; do
+            case "$_pre_pids" in *",$_p,"*) continue ;; esac
+            _new_csv="${_new_csv:+${_new_csv},}$_p"
+        done
+        if [ -z "$_new_csv" ]; then
+            type log >/dev/null 2>&1 && log warn "ui_start: dialog process gone while waiting for window readiness"
             return 0
         fi
-        if /usr/sbin/lsof -a -p "$_gate_pids" -- "$DIALOG_COMMAND_FILE" >/dev/null 2>&1; then
-            _gate_waited=$(( $(/bin/date +%s) - _gate_t0 ))
-            if [ "$_gate_waited" -ge 3 ] && type log >/dev/null 2>&1; then
-                log info "ui_start: window ready after ${_gate_waited}s"
+        _sz="$(/usr/bin/stat -f %z "$DIALOG_COMMAND_FILE" 2>/dev/null)"
+        if [ -n "$_sz" ] && [ "$_sz" -gt 0 ]; then
+            _off="$(/usr/sbin/lsof -a -o -O -p "$_new_csv" -- "$DIALOG_COMMAND_FILE" 2>/dev/null \
+                | /usr/bin/awk 'NR>1 {gsub(/^0t/,"",$7); if ($7+0 > m) m=$7+0} END {print m+0}')"
+            if [ -n "$_off" ] && [ "$_off" -ge "$_sz" ]; then
+                _gate_waited=$(( $(/bin/date +%s) - _gate_t0 ))
+                if [ "$_gate_waited" -ge 3 ] && type log >/dev/null 2>&1; then
+                    log info "ui_start: window ready after ${_gate_waited}s"
+                fi
+                return 0
             fi
-            return 0
         fi
         /bin/sleep 0.2
     done
