@@ -1392,6 +1392,21 @@ main() {
         unset ENROLLINATOR_PICKER_PROFILE
     fi
 
+    # Sync the run-level blur keeper to the FIRST step's blur intent before
+    # the main window opens. ui_start can hold for several seconds waiting
+    # for window readiness; without this, a keeper started by a blurred
+    # welcome screen stays up through that whole hold and the screen
+    # remains blurred long after the welcome closed. run_step re-syncs at
+    # every step boundary, so this only covers the welcome→step-0 gap.
+    local _first_blur="${ENROLLINATOR_UI_BLUR:-0}"
+    [ "$(plist_get "$cfg" "$pkey:Steps:0:WaitWindow:Blur")" = "true" ] && _first_blur=1
+    [ "$(plist_get "$cfg" "$pkey:Steps:0:Action:Blur")"     = "true" ] && _first_blur=1
+    if [ "$_first_blur" = "1" ]; then
+        ui_run_blur_keeper_start
+    else
+        ui_run_blur_keeper_stop
+    fi
+
     ui_start "$title" "$subtitle" "$accent" "$logo" "$steps_file"
     local ran_ids_file id_map_file
     ran_ids_file="$(/usr/bin/mktemp -t enrollinator-ran-ids)"

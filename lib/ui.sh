@@ -538,11 +538,13 @@ ui_start() {
     # the offset only advances when the watcher actually consumes. The
     # sentinel write guarantees a non-zero size to measure against (it
     # repeats the launch progresstext, so nothing visibly changes).
-    # Normal cost 1–2s; bails if the new dialog died; capped at ~60s.
+    # Normal cost 1–2s; bails if the new dialog died; capped at ~15s —
+    # past that, holding hurts more than a popup racing the window, and
+    # per-step re-assertion repaints everything once the watcher wakes.
     ui_cmd "progresstext: Getting ready…"
     local _gate_t0 _gate_waited _all _new_csv _sz _off
     _gate_t0="$(/bin/date +%s)"
-    for (( _i=0; _i<300; _i++ )); do
+    for (( _i=0; _i<75; _i++ )); do
         _new_csv=""
         _all="$(_ui_list_dialog_pids 2>/dev/null)"
         for _p in $_all; do
@@ -567,7 +569,15 @@ ui_start() {
         fi
         /bin/sleep 0.2
     done
-    type log >/dev/null 2>&1 && log warn "ui_start: window readiness not confirmed after 60s — proceeding; statuses will self-heal"
+    if type log >/dev/null 2>&1; then
+        log warn "ui_start: window readiness not confirmed after 15s — proceeding; statuses will self-heal"
+        # Forensic snapshot so a single log paste shows WHY the window
+        # wasn't consuming: binary version, OS, the new dialog PIDs, and
+        # their actual fds/offsets on the command file.
+        # The version probe is alarm-bounded: a misbehaving dialog binary
+        # must not be able to hang the forensics that diagnose it.
+        log warn "ui_start forensics: dialog=$(/usr/bin/perl -e 'alarm shift; exec @ARGV or die' 3 "$DIALOG_BIN" --version 2>/dev/null) macos=$(/usr/bin/sw_vers -productVersion 2>/dev/null) cmdfile_size=$(/usr/bin/stat -f %z "$DIALOG_COMMAND_FILE" 2>/dev/null) new_pids=${_new_csv:-none} lsof=[$(/usr/sbin/lsof -a -o -O -p "${_new_csv:-0}" -- "$DIALOG_COMMAND_FILE" 2>/dev/null | /usr/bin/tail -n +2 | /usr/bin/tr -s ' ' | /usr/bin/tr '\n' ';')]"
+    fi
     return 0
 }
 
