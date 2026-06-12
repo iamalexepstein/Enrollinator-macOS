@@ -482,18 +482,31 @@ ui_start() {
     # the command file. Gating on the wrapper alone burns the whole timeout
     # on every run. Any dialog process holding the main command file is the
     # main window; the file is unique to it.
-    local _gate_pids
-    for (( _i=0; _i<20; _i++ )); do
+    # Hold here until the window is confirmed ready — run_step fires the
+    # first step (and its popups) the moment ui_start returns, and a popup
+    # appearing over a window still stuck on "Getting ready…" looks broken.
+    # Normal case is 1–2s. Bail immediately if the dialog died; cap the
+    # wait at ~60s so a wedged dialog can't hang the run (statuses then
+    # self-heal via per-step re-assertion).
+    local _gate_pids _gate_t0 _gate_waited
+    _gate_t0="$(/bin/date +%s)"
+    for (( _i=0; _i<300; _i++ )); do
         _gate_pids="$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/tr '\n' ',')"
         _gate_pids="${_gate_pids%,}"
-        if [ -n "$_gate_pids" ] \
-            && /usr/sbin/lsof -a -p "$_gate_pids" -- "$DIALOG_COMMAND_FILE" >/dev/null 2>&1; then
+        if [ -z "$_gate_pids" ]; then
+            type log >/dev/null 2>&1 && log warn "ui_start: no dialog process alive while waiting for window readiness"
+            return 0
+        fi
+        if /usr/sbin/lsof -a -p "$_gate_pids" -- "$DIALOG_COMMAND_FILE" >/dev/null 2>&1; then
+            _gate_waited=$(( $(/bin/date +%s) - _gate_t0 ))
+            if [ "$_gate_waited" -ge 3 ] && type log >/dev/null 2>&1; then
+                log info "ui_start: window ready after ${_gate_waited}s"
+            fi
             return 0
         fi
         /bin/sleep 0.2
     done
-    # Timed out — proceed anyway; the per-step state re-assertion will heal
-    # any updates the watcher missed.
+    type log >/dev/null 2>&1 && log warn "ui_start: window readiness not confirmed after 60s — proceeding; statuses will self-heal"
     return 0
 }
 
