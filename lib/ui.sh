@@ -241,7 +241,14 @@ _ui_user_exec() {
         uid="$(/usr/bin/id -u "$ENROLLINATOR_CONSOLE_USER" 2>/dev/null)"
     fi
     if [ -n "$uid" ]; then
-        /bin/launchctl asuser "$uid" "$@"
+        # Switch the Mach bootstrap AND drop to the console user. launchctl
+        # asuser alone leaves the process running as root inside the user's
+        # session — root has no warm LaunchServices/icon-services caches
+        # there, so swiftDialog stalls for tens of seconds at startup
+        # ("Getting ready…" freeze) rebuilding service connections on every
+        # run. As the user, it inherits the session's caches and starts
+        # instantly. This is the standard pattern for GUI from a daemon.
+        /bin/launchctl asuser "$uid" /usr/bin/sudo -u "$ENROLLINATOR_CONSOLE_USER" -- "$@"
     else
         "$@"
     fi
@@ -463,8 +470,24 @@ ui_start() {
     # slow launch (first run of Dialog.app, login storm at enrollment).
     # The process existing is NOT enough — watcher init lags exec by
     # seconds. lsof showing an open fd on the file is the real signal.
-    for (( _i=0; _i<30; _i++ )); do
-        if /usr/sbin/lsof -- "$DIALOG_COMMAND_FILE" >/dev/null 2>&1; then
+    #
+    # CRITICAL: lsof must be scoped to dialog PIDs (-a -p). Given only a
+    # file path it walks every process's fd table, which takes tens of
+    # seconds per call on a busy enrollment-time Mac — that turned this
+    # gate into minutes of "Getting ready…". Scoped, it's milliseconds.
+    #
+    # Scope to the full dialog PID SET, not $_dpid: /usr/local/bin/dialog
+    # is a CLI wrapper that spawns the real Dialog.app process, so pgrep
+    # returns BOTH and the first new PID is the wrapper — which never opens
+    # the command file. Gating on the wrapper alone burns the whole timeout
+    # on every run. Any dialog process holding the main command file is the
+    # main window; the file is unique to it.
+    local _gate_pids
+    for (( _i=0; _i<20; _i++ )); do
+        _gate_pids="$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/tr '\n' ',')"
+        _gate_pids="${_gate_pids%,}"
+        if [ -n "$_gate_pids" ] \
+            && /usr/sbin/lsof -a -p "$_gate_pids" -- "$DIALOG_COMMAND_FILE" >/dev/null 2>&1; then
             return 0
         fi
         /bin/sleep 0.2
