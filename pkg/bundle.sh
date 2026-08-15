@@ -1,5 +1,5 @@
 #!/bin/bash
-# pkg/bundle.sh — produce a single self-contained enrollinator-standalone.sh
+# pkg/bundle.sh — produce a single self-contained enrollinator.sh
 # with all lib files inlined.
 #
 # The result can be uploaded directly to Jamf's script repository and run
@@ -13,7 +13,7 @@
 #   pkg/bundle.sh
 #
 # Output:
-#   build/enrollinator-standalone.sh
+#   build/enrollinator.sh
 
 set -euo pipefail
 

@@ -81,8 +81,17 @@ echo "==> Stripping extended attributes"
 /usr/bin/xattr -rc "$ROOTFS" 2>/dev/null || true
 
 echo "==> Building component pkg"
+# --scripts is load-bearing: without a postinstall, the pkg is payload-only and
+# launchd never loads the LaunchDaemon it just wrote until the machine reboots.
+# See pkg/scripts/postinstall.
+SCRIPTS="${ROOT}/pkg/scripts"
+if [ ! -x "${SCRIPTS}/postinstall" ]; then
+    echo "==> Making ${SCRIPTS}/postinstall executable"
+    /bin/chmod +x "${SCRIPTS}/postinstall"
+fi
 /usr/bin/pkgbuild \
     --root "$ROOTFS" \
+    --scripts "$SCRIPTS" \
     --identifier "$IDENTIFIER" \
     --version "$VERSION" \
     --ownership recommended \

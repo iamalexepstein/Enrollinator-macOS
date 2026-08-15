@@ -34,6 +34,20 @@ echo "==> Removing files"
 echo "==> Removing state"
 /bin/rm -rf /var/tmp/enrollinator
 /bin/rm -rf /var/lib/enrollinator
+# Pre-1.x layout: command/PID files and the image cache sat loose in /var/tmp
+# instead of inside the state directory. Clean those up on upgrade too.
+/bin/rm -rf /var/tmp/enrollinator-images
+/bin/rm -f  /var/tmp/enrollinator.dialog.log      /var/tmp/enrollinator.dialog.pid \
+            /var/tmp/enrollinator.wait.log        /var/tmp/enrollinator.wait.pid \
+            /var/tmp/enrollinator.wait.session    /var/tmp/enrollinator.wait-navigating \
+            /var/tmp/enrollinator.wait-slideshow.pid \
+            /var/tmp/enrollinator.wait-blur-keeper.log \
+            /var/tmp/enrollinator.wait-blur-keeper.pid \
+            /var/tmp/enrollinator.run-blur-keeper.log \
+            /var/tmp/enrollinator.run-blur-keeper.pid \
+            /var/tmp/enrollinator.addon-picker.log \
+            /var/tmp/enrollinator.popup.log \
+            /var/tmp/enrollinator.blur-keeper.log
 
 echo "==> Note: The Enrollinator .mobileconfig is managed by your MDM."
 echo "    Remove it there too, or managed prefs will reinstall on next boot."

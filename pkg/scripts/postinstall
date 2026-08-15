@@ -1,0 +1,44 @@
+#!/bin/bash
+# postinstall — load the LaunchDaemon that the payload just laid down.
+#
+# Without this the package is payload-only: it writes
+# /Library/LaunchDaemons/com.enrollinator.app.plist and stops there. launchd
+# does NOT notice a newly written LaunchDaemon plist — it reads that directory
+# at boot. So installing the pkg at Jamf's "Enrollment Complete" trigger (which
+# does not reboot) left Enrollinator fully installed and never running, and the
+# machine looked healthy in Jamf the whole time.
+#
+# Installer script arguments: $1 = package path, $2 = install destination,
+# $3 = target volume, $4 = root of the system.
+
+PLIST="/Library/LaunchDaemons/com.enrollinator.app.plist"
+LABEL="com.enrollinator.app"
+
+# Only touch launchd when installing onto the running system. For an install
+# targeted at another volume (imaging, a mounted disk) the daemon will load on
+# that volume's next boot, which is the correct behaviour there.
+if [ -n "$3" ] && [ "$3" != "/" ]; then
+    echo "Enrollinator: target volume is '$3', not the live system — leaving the daemon for next boot."
+    exit 0
+fi
+
+if [ ! -f "$PLIST" ]; then
+    echo "Enrollinator: $PLIST is missing after install; nothing to load."
+    exit 0
+fi
+
+# Boot out any previous instance first so an upgrade picks up the new plist and
+# the new script. Failure here is normal on a first install (nothing loaded).
+/bin/launchctl bootout "system/${LABEL}" 2>/dev/null || true
+
+# RunAtLoad is true, so this both loads and starts it. enrollinator.sh waits for
+# a console user on its own, so starting mid-enrollment is safe.
+if /bin/launchctl bootstrap system "$PLIST" 2>/dev/null; then
+    echo "Enrollinator: LaunchDaemon ${LABEL} bootstrapped."
+else
+    # Don't fail the install — a failed policy is worse than a deferred start,
+    # and the daemon will load on the next boot regardless.
+    echo "Enrollinator: WARNING — could not bootstrap ${LABEL}; it will start on next boot."
+fi
+
+exit 0
