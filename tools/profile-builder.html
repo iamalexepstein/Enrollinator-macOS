@@ -6834,12 +6834,12 @@ const GS_CARDS = [
     {
         icon: "⚡",
         title: "Steps",
-        body: "Click any step row to open its editor. Set a name, ID, icon, action (shell, package, wait…), conditions, and blocking behaviour. Drag the ⋮⋮ handle to reorder."
+        body: "<strong>+ Add step</strong> opens a catalogue of tasks — install an app, wait for enrolment, show a dialog — that arrive pre-filled. Click any step row to edit it; drag the ⋮⋮ handle to reorder."
     },
     {
         icon: "⚙",
         title: "Profile Settings",
-        body: "Click the ⚙ Profile Settings button to configure branding (title, logo, accent colour), hardware info panel, help contacts, and MDM profile identity."
+        body: "Click the ⚙ Profile Settings button to configure branding (title, logo, accent colour), hardware info panel, help contacts, and MDM profile identity. The chip at the top-left of the header changes which MDM the builder targets."
     },
     {
         icon: "📄",
@@ -6946,9 +6946,29 @@ const HELP_SECTIONS = [
             <p>One config holds <b>global settings</b> (branding, help contacts, runtime flags) and one or more <b>playbooks</b>. A playbook is an ordered list of <b>steps</b>. At run time Enrollinator picks exactly one playbook, then walks its steps top to bottom.</p>
             <p>A step has an <b>action</b> (what to do), optional <b>conditions</b> (what must be true for it to count as done), and <b>behavior</b> (whether to block until the conditions pass, and where to go next).</p>` },
         { h: "Your work is not saved automatically", body: `
-            <div class="help-tip"><b>Download before you close the tab.</b> The builder keeps no server-side state and does not persist the config across reloads. Only your Display preferences are remembered.</div>` },
+            <div class="help-tip"><b>Download before you close the tab.</b> The builder keeps no server-side state and does not persist the config across reloads. Only your Display and Deployment target preferences are remembered.</div>` },
         { h: "Replay the quick tour", body: `
             <p>The four-card welcome shown on first load can be reopened any time: <button class="help-inline-btn" data-help-action="tour">show the quick tour</button>.</p>` }
+    ]
+},
+{
+    id: "fleet", icon: "🏢", title: "Deployment target",
+    lede: "Which MDM and tooling your Macs run. Asked once on first load, changeable any time from the chip in the header.",
+    blocks: [
+        { h: "Why the builder asks", body: `
+            <p>A fleet has one MDM, but a config has many shell steps. Rather than put the same question in front of you on every step, the builder asks once and narrows what it offers from the answer.</p>
+            <p>Your choice is <b>builder context, not configuration</b>. It is kept in this browser's local storage and never appears in the exported profile — two people building the same config on different MDMs get byte-identical output.</p>` },
+        { h: "What it changes", body: `
+            <table>
+              <tr><th>Surface</th><th>Effect</th></tr>
+              <tr><td>Step catalogue</td><td>Your MDM's tasks lead the <i>Install software</i> group, followed by your tooling, then macOS built-ins. Other MDMs' tasks are not offered.</td></tr>
+              <tr><td>MDM / source picker</td><td>Narrows to your MDM, macOS built-ins, any tooling you named, and Custom.</td></tr>
+              <tr><td>Profile identity</td><td>An organisation name fills in <code>PayloadOrganization</code> and <code>PayloadIdentifier</code>. Fields you have already edited are left alone.</td></tr>
+            </table>` },
+        { h: "Nothing is removed", body: `
+            <div class="help-tip">Narrowing is a default, never a wall. <b>Show all sources</b> under any narrowed picker restores the full list, and a step that already uses a source from outside your fleet always keeps it in the dropdown — so importing a Kandji config while set to Jamf never hides the commands that config is built on.</div>` },
+        { h: "Imported configs answer for themselves", body: `
+            <p>Import and Load sample read the MDM back out of the commands a config already contains, and adopt it. Tooling is additive: importing a config that uses Installomator adds Installomator to your fleet rather than replacing what was there.</p>` }
     ]
 },
 {
@@ -6985,6 +7005,17 @@ const HELP_SECTIONS = [
     id: "steps", icon: "⚡", title: "Steps",
     lede: "Click any step row to open its editor. The editor buffers a draft — Done commits it, Cancel discards it.",
     blocks: [
+        { h: "Adding a step — the catalogue", body: `
+            <p><b>+ Add step</b>, and the <code>+</code> between two steps, open a searchable catalogue of tasks rather than dropping you into an empty editor. Pick what you want to happen — <i>Run a Jamf policy</i>, <i>Wait for an app to appear</i>, <i>Ask them to accept a policy</i> — and the step arrives with its action, conditions, timeout, blocking behaviour and icon already filled in.</p>
+            <table>
+              <tr><th>Group</th><th>Covers</th></tr>
+              <tr><td>Install software</td><td>Your MDM's install tasks, your tooling's, macOS built-ins, and a local <code>.pkg</code>.</td></tr>
+              <tr><td>Wait for something</td><td>MDM enrolment, an app appearing, or the user finishing something themselves — the last with a wait window and slideshow already set up.</td></tr>
+              <tr><td>Talk to the user</td><td>A message, a policy to accept, a slideshow walkthrough, or a video.</td></tr>
+              <tr><td>Flow &amp; custom</td><td>Pause, branch checkpoint, custom shell command, blank step.</td></tr>
+            </table>
+            <p>The editor opens on whichever tab still holds the field worth filling in — Action for a policy step, Conditions for a wait, Behavior for a guided wait.</p>
+            <div class="help-tip">A recipe is a starting point, not a track. Every one produces an ordinary step with nothing locked or hidden, and <b>Blank step</b> gives you the empty editor if you would rather build it up by hand.</div>` },
         { h: "Info tab", body: `
             <table>
               <tr><th>Field</th><th>Notes</th></tr>
@@ -7030,7 +7061,8 @@ const HELP_SECTIONS = [
               <tr><td>macOS built-ins</td><td>Rosetta 2, Xcode Command Line Tools, Software Update, <code>installer</code></td></tr>
               <tr><td>Custom</td><td>Write the command yourself</td></tr>
             </table>
-            <p>Picking a preset only writes text into the Command field — you can edit it afterwards and the builder will still recognise it.</p>` },
+            <p>Picking a preset only writes text into the Command field — you can edit it afterwards and the builder will still recognise it.</p>
+            <p>The picker is narrowed to your <i>Deployment target</i> — your MDM, macOS built-ins, your tooling, and Custom. <b>Show all sources</b> beneath it brings back the full table above, and a step already using another MDM's command keeps that source listed regardless.</p>` },
         { h: "Dialog actions", body: `
             <p>A dialog action shows a window and turns the user's click into pass or fail.</p>
             <ul>

@@ -19,6 +19,14 @@ any browser (tested in Chrome). No server, no install, no build step.
 The Profile Builder is the primary way to create and maintain Enrollinator
 configs. It gives you a full visual editor for every key in the schema:
 
+- **Set your MDM once** — the builder asks which MDM manages your Macs on
+  first load, then narrows the step catalogue and every command picker to that
+  MDM, macOS built-ins, and whatever tooling you named. Every other preset
+  stays one click away under **Show all sources**, and imported configs are
+  detected rather than re-asked about.
+- **Step catalogue** — adding a step opens a searchable list of tasks ("Run a
+  Jamf policy", "Wait for the user, with a guide") that arrive with their
+  action, conditions, timeout and icon pre-filled, instead of a blank editor.
 - **Playbook editor** — create multiple playbooks (Standard, Engineering,
   Design, …) and drag-and-drop steps within and across playbooks.
 - **Step editor** — four tabs per step: Info, Action, Conditions, Behavior.
