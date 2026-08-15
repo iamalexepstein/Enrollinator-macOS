@@ -299,6 +299,33 @@ _ui_own_cmdfile() {
     fi
 }
 
+# _ui_mktemp_cmdfile
+# Create a throwaway swiftDialog command file and echo its path.
+#
+# NOT `mktemp -t`. That honours TMPDIR, and under the LaunchDaemon the caller is
+# root, whose TMPDIR is a 0700 /var/folders/…/T that the console user cannot
+# even traverse. swiftDialog runs AS that user (see _ui_user_exec) and opens its
+# command file for writing, so every dialog handed a `mktemp -t` scratch file
+# failed at launch with:
+#
+#   ERROR: Error: You don't have permission to save the file
+#   "enrollinator-scratch.XXXX" in the folder "T".
+#
+# chowning the file doesn't help — the directory is the barrier. The state
+# directory is root-owned 0755 exactly so the console user can reach files we
+# chown to them, which is why every other command file already lives there.
+_ui_mktemp_cmdfile() {
+    local f
+    f="$(/usr/bin/mktemp "${ENROLLINATOR_STATE_DIR}/scratch.XXXXXXXX" 2>/dev/null)"
+    if [ -z "$f" ] || [ ! -f "$f" ]; then
+        # Degrade rather than hand the dialog an empty --commandfile.
+        type log >/dev/null 2>&1 && log warn "Could not create a scratch command file in $ENROLLINATOR_STATE_DIR; falling back to TMPDIR (swiftDialog may not be able to write to it)"
+        f="$(/usr/bin/mktemp -t enrollinator-scratch)"
+    fi
+    _ui_own_cmdfile "$f"
+    printf '%s' "$f"
+}
+
 # Convenience: osascript in the user session (for pre-UI error popups).
 _ui_user_osascript() {
     local script="$1"
@@ -973,8 +1000,7 @@ ui_wait_open() {
         # --commandfile each slide binds swiftDialog's shared default and
         # truncates it at launch, killing the main window's watcher.
         local ww_scratch
-        ww_scratch="$(/usr/bin/mktemp -t enrollinator-scratch)"
-        _ui_own_cmdfile "$ww_scratch"
+        ww_scratch="$(_ui_mktemp_cmdfile)"
         while [ "$ww_i" -lt $(( ww_total - 1 )) ]; do
             local ww_frame ww_resolved ww_stitle ww_smsg
             ww_frame="${ww_frames[$ww_i]}"
@@ -1203,8 +1229,7 @@ ui_wait_open() {
                     # binding would truncate the shared default path and
                     # kill any window watching it.
                     local _wa_scratch
-                    _wa_scratch="$(/usr/bin/mktemp -t enrollinator-scratch)"
-                    _ui_own_cmdfile "$_wa_scratch"
+                    _wa_scratch="$(_ui_mktemp_cmdfile)"
                     _wa+=( --commandfile "$_wa_scratch" )
                     # Run in background so the TERM trap can kill it mid-slide.
                     _ui_user_exec "$DIALOG_BIN" "${_wa[@]}" &
@@ -1532,8 +1557,7 @@ ui_dialog_popup() {
             # Explicit scratch commandfile — implicit default binding
             # truncates the shared default path at launch.
             local _da_scratch
-            _da_scratch="$(/usr/bin/mktemp -t enrollinator-scratch)"
-            _ui_own_cmdfile "$_da_scratch"
+            _da_scratch="$(_ui_mktemp_cmdfile)"
             _da+=( --commandfile "$_da_scratch" )
             if [ -n "$_icon_resolved" ]; then _da+=( --icon "$_icon_resolved" ); else _da+=( --hideicon ); fi
             [ "$dlg_i" -gt 0 ]                  && _da+=( --button2text "← Back" )

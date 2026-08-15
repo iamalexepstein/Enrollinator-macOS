@@ -1140,8 +1140,7 @@ show_welcome_screen() {
                 # Explicit scratch commandfile — an implicit default binding
                 # would truncate swiftDialog's shared default path at launch.
                 local _pp_scratch
-                _pp_scratch="$(/usr/bin/mktemp -t enrollinator-scratch)"
-                _ui_own_cmdfile "$_pp_scratch"
+                _pp_scratch="$(_ui_mktemp_cmdfile)"
                 _pp_args+=( --commandfile "$_pp_scratch" )
                 local _pp_rc
                 pp_json="$(_ui_user_exec "$DIALOG_BIN" "${_pp_args[@]}" 2>/dev/null)"
@@ -1157,7 +1156,26 @@ show_welcome_screen() {
                     local _pp_plist
                     _pp_plist="$(/usr/bin/mktemp -t enrollinator-picker-json)"
                     if printf '%s' "$pp_json" | /usr/bin/plutil -convert xml1 -o "$_pp_plist" - 2>/dev/null; then
-                        pp_selected="$(plist_get "$_pp_plist" ":Playbook")"
+                        # swiftDialog returns a --selectvalues result as a
+                        # NESTED DICT, not a string:
+                        #   {"Playbook": {"selectedValue": "…", "selectedIndex": 0}}
+                        # Reading :Playbook therefore yielded PlistBuddy's
+                        # textual rendering — literally "Dict {\n selectedIndex
+                        # = 0\n selectedValue = Standard\n}" — which was then
+                        # searched for as a playbook name, never matched, and
+                        # logged as 'not found — using default'. The picker
+                        # silently did nothing at all.
+                        pp_selected="$(plist_get "$_pp_plist" ":Playbook:selectedValue")"
+                        if [ -z "$pp_selected" ]; then
+                            # Older swiftDialog returned a bare string here.
+                            pp_selected="$(plist_get "$_pp_plist" ":Playbook")"
+                            # Never accept a structure rendering as a name.
+                            case "$pp_selected" in
+                                "Dict {"*|"Array {"*) pp_selected="" ;;
+                            esac
+                        fi
+                        # Defensive: a name is a single line.
+                        pp_selected="${pp_selected%%$'\n'*}"
                     else
                         log warn "Playbook picker: could not parse swiftDialog JSON output"
                         pp_selected=""
