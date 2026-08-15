@@ -10,6 +10,21 @@ Enrollinator reads one managed preferences domain: **`com.enrollinator.app`**. T
 preferences are deployed as a `.mobileconfig` with a `PayloadContent` entry
 whose `PayloadType` is `com.enrollinator.app`.
 
+## Contents
+
+- [Top-level](#top-level)
+  — [`Branding`](#branding) · [`HardwareInfo`](#hardwareinfo) · [`Help`](#help) · [`AddonPicker`](#addonpicker) · [`WelcomeScreen`](#welcomescreen)
+- [Playbooks](#playbooks)
+  — [Addon playbooks](#addon-playbooks) · [How the playbook is chosen](#how-the-playbook-is-chosen)
+- [Steps](#steps)
+  — [`WaitWindow`](#waitwindow) · [Flow](#flow)
+- [Actions (`Action.Type`)](#actions-actiontype)
+  — [`shell`](#shell) · [`package`](#package) · [`wait`](#wait) · [`dialog`](#dialog) · [`noop`](#noop)
+- [Conditions (`Type`)](#conditions-type)
+  — [`shell`](#shell-1) · [`app_installed`](#app_installed) · [`default_browser`](#default_browser) · [`file_exists`](#file_exists) · [`profile_installed`](#profile_installed) · [`process_running`](#process_running)
+- [Command-line flags](#command-line-flags)
+- [Adding handlers](#adding-handlers)
+
 This document describes every key that entry understands.
 
 > Keys are **CamelCase strings** unless noted. "Array of dicts" means an
@@ -21,7 +36,7 @@ This document describes every key that entry understands.
 | Key              | Type            | Required | Description |
 |------------------|-----------------|----------|-------------|
 | `Branding`       | dict            | no       | Window title, subtitle, logo, accent color, banner, window size. |
-| `DefaultPlaybook` | string          | no       | Name of the playbook to use when no selector matches. |
+| `DefaultPlaybook` | string          | no       | Name of the playbook to run. Matched exactly and case-sensitively; a name with no matching playbook is a fatal error. Optional only when a single playbook is defined or the playbook picker is enabled. |
 | `AllowClose`     | bool            | no       | If `true`, Enrollinator enables the Done button at the end instead of auto-quitting. Defaults to `false`. |
 | `TestMode`       | bool            | no       | If `true`, Enrollinator evaluates conditions but skips destructive actions (`shell`, `package`, `wait`). `dialog` actions still run — they are pure UI with no side effects. Blocking steps still open their `WaitWindow` (or show their `UserPrompt` banner) so you can preview the UI; their timeout is capped at 5 seconds so a rehearsal never hangs. Overridable per-profile. Defaults to `false`. |
 | `JamfRecon`      | bool            | no       | Set `false` to skip the automatic `jamf recon` inventory update triggered after a successful run. Defaults to `true` (only runs when the jamf binary is present; always skipped in test/dry-run mode). |
@@ -30,7 +45,7 @@ This document describes every key that entry understands.
 | `HardwareInfo`   | dict            | no       | Enables a hardware info panel next to the step list. See below. |
 | `Help`           | dict            | no       | Enables a "?" help button in the window. Shown contents are configured here. See below. |
 | `AddonPicker`    | dict            | no       | Customises the post-install add-on picker window. See below. |
-| `Playbooks`      | array of dicts  | **yes**  | One or more playbooks; the first with a matching selector wins. |
+| `Playbooks`      | array of dicts  | **yes**  | One or more playbooks. See [How the playbook is chosen](#how-the-playbook-is-chosen). |
 
 ### `Branding`
 
@@ -164,7 +179,7 @@ Optional dialog shown before the main onboarding window opens. All keys are opti
 | `Width`     | int             | Picker dialog width in points. Default `520`. |
 | `Height`    | int             | Picker dialog height in points. Default `300`. |
 
-The picker uses swiftDialog's `--selectvalues` dropdown. The selected playbook overrides the normal `DefaultPlaybook` / selector logic for that run only. The picker is not shown when the user clicks the defer button.
+The picker uses swiftDialog's `--selectvalues` dropdown. The selected playbook overrides `DefaultPlaybook` for that run only. The picker is not shown when the user clicks the defer button.
 
 ## Playbooks
 
@@ -174,7 +189,7 @@ Each entry in the `Playbooks` array:
 |---------------|-----------------|-------------|
 | `Name`        | string          | Must be unique. Used by `DefaultPlaybook` and `--profile`. |
 | `Description` | string          | Free-form. Not shown in the UI. |
-| `Selector`    | dict            | Optional. If absent, the playbook can only be picked via `DefaultPlaybook` or `--profile`. |
+| `Selector`    | dict            | **Removed — ignored at runtime.** See [How the playbook is chosen](#how-the-playbook-is-chosen). |
 | `TestMode`    | bool            | Optional. Forces test mode for this playbook. Precedence: `--test` CLI flag > top-level `TestMode` > playbook `TestMode`. |
 | `Addon`       | bool            | If `true`, this playbook is shown in the post-install add-on picker rather than selected automatically. Default: `false`. |
 | `Steps`       | array of dicts  | Steps, in execution order. |
@@ -196,16 +211,31 @@ the user can choose which extras to install.
 - If no addons are selected the picker is dismissed and Enrollinator exits
   normally.
 
-### `Selector`
+### How the playbook is chosen
 
-If multiple keys are set, **all must match** (AND). An empty `Selector`
-dict does not count as a match — it is ignored.
+Enrollinator resolves exactly one playbook at launch, in this order. The first
+rule that produces a match wins; a rule that names a playbook which does not
+exist is a fatal config error (exit `2`), not a fall-through to the next rule.
 
-| Key                   | Type   | Matches when… |
-|-----------------------|--------|---------------|
-| `HostnameRegex`       | string | `scutil --get LocalHostName` matches this bash-extended regex. |
-| `ModelIdentifierGlob` | string | `sysctl -n hw.model` matches this fnmatch pattern (e.g. `Mac15,*`). |
-| `FileExists`          | string | Absolute path exists on disk. Useful for flag files the MDM drops. |
+1. **`--profile NAME`** on the command line.
+2. **`DefaultPlaybook`** from the config.
+3. **The only playbook**, when the `Playbooks` array holds exactly one entry.
+4. **The first playbook**, when `WelcomeScreen.PlaybookPicker.Enabled` is
+   `true` — the user picks the real one a moment later.
+5. Otherwise Enrollinator exits `2` with *"No playbook matched and no
+   DefaultPlaybook set"*.
+
+Names are matched **exactly and case-sensitively** in both rule 1 and rule 2.
+
+There is no automatic per-machine selection: nothing inspects hostname, model,
+serial, or OS version to choose a playbook. To vary the playbook across a
+fleet, either scope a different `.mobileconfig` to each MDM smart group, or
+ship one config and let the welcome screen's playbook picker ask the user.
+
+> **Removed:** playbooks used to support a `Selector` dict (`HostnameRegex`,
+> `ModelIdentifierGlob`, `FileExists`, …). The runtime no longer reads it. A
+> `Selector` left in a config is ignored silently — delete it, and make sure
+> `DefaultPlaybook` names the playbook you actually want.
 
 ## Steps
 
@@ -380,7 +410,7 @@ managed-prefs domain, a raw `.mobileconfig`, or a bare plist. The flags:
 |---------------------|---------|
 | `--config PATH`     | Load a `.mobileconfig` file and extract the `com.enrollinator.app` payload. |
 | `--xml PATH`        | Load a bare plist XML file. Schema is rooted at the top level — no `PayloadContent` wrapping required. Handy for dev configs. |
-| `--profile NAME`    | Force a specific profile, ignoring selectors. |
+| `--profile NAME`    | Force a specific playbook, overriding `DefaultPlaybook`. |
 | `--domain DOMAIN`   | Override the managed-prefs domain (default `com.enrollinator.app`). |
 | `--test`            | Run in test mode: `shell`, `package`, and `wait` actions are skipped; `dialog` actions still run; conditions evaluate normally; blocking steps open their `WaitWindow` and time out after 5 seconds. Does not mark the run completed. |
 | `--force`           | Re-run even if `/var/lib/enrollinator/completed` exists. |

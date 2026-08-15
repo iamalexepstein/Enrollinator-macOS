@@ -6,6 +6,19 @@ No install, no server, no build step — open
 (or visit the [hosted version](https://iamalexepstein.github.io/Enrollinator-macOS/tools/profile-builder.html))
 and everything runs locally in the page.
 
+## Contents
+
+- [Getting started](#getting-started)
+- [Global settings ⚙](#global-settings-) — [Token substitution](#token-substitution)
+- [Playbooks](#playbooks) — [Selectors (removed)](#selectors-removed) · [Addon playbooks](#addon-playbooks)
+- [Steps](#steps)
+  — [Info tab](#info-tab) · [Action tab](#action-tab) · [Conditions tab](#conditions-tab) · [Behavior tab](#behavior-tab)
+- [Wait window](#wait-window)
+- [Branching](#branching)
+- [Live preview](#live-preview)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Tips](#tips)
+
 ---
 
 ## Getting started
@@ -76,27 +89,28 @@ Standard, Addon, …).
 
 **Add playbook** — button at the bottom of the sidebar.
 
-**Reorder** — drag playbooks in the sidebar. The first playbook whose selector
-matches the machine at runtime is used. If none match, `DefaultPlaybook` is
-used (set in global settings).
+**Reorder** — drag playbooks in the sidebar. Order is cosmetic except in one
+case: when the welcome screen's playbook picker is enabled, the first playbook
+is the one selected before the user chooses. Which playbook actually runs is
+set by `DefaultPlaybook` in global settings.
 
 Click a playbook name to open it. Click the playbook title in the canvas header
-to rename or edit its description and selector.
+to rename or edit its description.
 
-### Selectors
+### Selectors (removed)
 
-A selector is an optional rule that decides which machines use this playbook.
-If no selector is set, the playbook is always eligible (use `DefaultPlaybook`
-to pick the fallback).
+Older builds chose a playbook per machine by matching a **selector** rule
+(hostname regex, model identifier, serial number, flag file, macOS version, or
+console user). Selectors are gone from both the runtime and this builder, so
+there are no selector fields to fill in.
 
-| Selector type | Matches when… |
-|---|---|
-| Hostname regex | `hostname` matches the pattern (e.g. `^eng-`) |
-| Model identifier | Hardware model ID equals the value (e.g. `MacBookPro18,3`) |
-| Serial number | Serial number equals the value |
-| Flag file | A file exists at the given path |
-| macOS version | OS version is `>=`, `<=`, or `=` the given version |
-| Console user | Current user equals the value |
+If you import a config written for an older build, its `Selector` dicts are
+dropped on import — re-exporting is the simplest way to clean a legacy config.
+
+To vary the playbook across a fleet, either scope a different `.mobileconfig`
+to each MDM smart group, or ship one config and enable the welcome screen's
+playbook picker so the user chooses. See
+[How the playbook is chosen](mobileconfig-schema.md#how-the-playbook-is-chosen).
 
 ### Addon playbooks
 

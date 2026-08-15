@@ -2,6 +2,20 @@
 
 This document covers what you put on disk, where, and how Enrollinator starts.
 
+## Contents
+
+- [Config delivery: MDM profile vs. bundled XML](#config-delivery-mdm-profile-vs-bundled-xml)
+- [Artifacts](#artifacts) — [Building the pkg](#building-the-pkg)
+- [Paths after install](#paths-after-install)
+- [LaunchDaemon](#launchdaemon)
+  — [Why a daemon, not an agent?](#why-a-daemon-not-an-agent) · [Protecting the background item](#protecting-the-background-item)
+- [Running by hand](#running-by-hand)
+- [Jamf Pro](#jamf-pro)
+  — [Method 1: LaunchDaemon](#method-1-launchdaemon-recommended-for-depade-enrollment) · [Method 2: Enrollment Complete script](#method-2-enrollment-complete-script-no-pkg-no-launchdaemon) · [Reporting back to Jamf](#reporting-back-to-jamf)
+- [Logging](#logging)
+- [Updating the config](#updating-the-config)
+- [Uninstalling](#uninstalling)
+
 ## Config delivery: MDM profile vs. bundled XML
 
 Enrollinator supports two ways to receive its configuration. Choose one per
@@ -130,7 +144,7 @@ sudo /usr/local/enrollinator/enrollinator.sh --config ./examples/enrollinator.mo
 # Against a bare plist (schema at the top level, no PayloadContent):
 sudo /usr/local/enrollinator/enrollinator.sh --xml ./dev.plist
 
-# Force a particular profile, ignoring selectors:
+# Force a particular profile, overriding DefaultPlaybook:
 sudo /usr/local/enrollinator/enrollinator.sh --profile Engineering
 
 # Re-run even if already completed:
