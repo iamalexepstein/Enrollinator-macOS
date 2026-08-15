@@ -733,7 +733,13 @@ ui_set_step_status() {
     local idx="$1" status="$2" text="${3:-}"
     local statustext
     case "$status" in
-        pending)  statustext="Pending" ;;
+        # Honour the caller's text like every other status does. This arm used
+        # to hardcode "Pending", which silently swallowed the one thing that
+        # ever passes text with this status: the end-of-run pass that marks
+        # branched-over steps as "Skipped". Those steps were reported to the
+        # user as still Pending — indistinguishable from work that was
+        # supposed to happen and didn't.
+        pending)  statustext="${text:-Pending}" ;;
         wait)     statustext="${text:-Waiting…}" ;;
         success)  statustext="${text:-Done}" ;;
         fail)     statustext="${text:-Failed}" ;;
