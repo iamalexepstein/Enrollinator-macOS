@@ -17,14 +17,50 @@ can explore and modify. Good starting point for a new deployment.
 Import and pick a file. The builder parses it and reconstructs the full editor
 state. Use this to continue editing an existing config.
 
-**Download ▾** — exports the current config:
+**Download ▾** — two sections. *Your configuration* exports what you've built:
 - **Download .mobileconfig** — ready to upload to your MDM as a configuration
   profile.
 - **Download as .plist (--xml)** — bare plist with no MDM wrapping. Save as
   `enrollinator.xml` at the repo root and run `./pkg/build.sh` to bake it
   directly into the package (see [deployment.md](deployment.md)).
 
+*Enrollinator* fetches the runtime itself from the latest release, so you can
+assemble a deployment without leaving the builder:
+- **Latest script** — `enrollinator.sh`, the runner.
+- **Latest package** — the installer `.pkg` you upload to your MDM.
+- **Latest daemon** — `com.enrollinator.app.plist`, the LaunchDaemon that
+  starts Enrollinator at boot. The package installs this already; download it
+  separately only when building a deployment by hand.
+
+These three require network access; if GitHub is unreachable the click opens
+the releases page instead.
+
 Changes are not persisted across page reloads — download before closing.
+
+**Help** — the **?** button in the header opens the in-app help centre: a
+searchable reference covering playbooks, actions, conditions, branching,
+media, tokens, export, and troubleshooting. It mirrors this document and is
+available offline, since the builder is a single self-contained file.
+
+---
+
+## Display & scaling
+
+The **Display ▾** menu in the header adapts the builder to the screen it's on.
+Both settings persist in the browser.
+
+| Setting | Options |
+|---|---|
+| Interface scale | `Auto`, or pin anywhere from 90% to 175%. Auto sizes from screen width: 110% past 1900px, 125% past 2400px, 150% past 3000px. |
+| Content width | `Comfortable` (the classic narrow column), `Wide`, or `Full width`. |
+
+The two are independent on purpose: scale magnifies everything, content width
+reclaims horizontal space. On a large display, Auto scale plus Wide content is
+usually the best combination — scale alone just makes a narrow column bigger.
+
+The XML preview pane sizes itself to the window until you drag the divider,
+after which it keeps whatever width you set. Below roughly 1000px of effective
+width (viewport width ÷ scale) the layout stacks into a single column.
 
 ---
 
@@ -253,8 +289,13 @@ need more room.
 
 | Key | Action |
 |---|---|
-| `Esc` | Close the current step/profile editor without saving |
+| `Esc` | Close the current step/profile editor, help centre, or dialog without saving |
 | `Enter` (in modal footer) | Confirm / Done |
+| `⌥ +` / `⌥ −` | Scale the interface up / down one step |
+| `⌥ 0` | Reset the interface scale to 100% |
+
+Option rather than Command, because browsers claim `⌘+` and `⌘−` for their own
+page zoom before the page ever sees the keystroke.
 
 ---
 
