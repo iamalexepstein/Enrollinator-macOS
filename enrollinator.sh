@@ -80,7 +80,24 @@ log() {
         # low-volume, so surfacing them costs nothing and makes the daemon's
         # StandardErrorPath and the Jamf policy log genuinely diagnostic.
         if [ -t 2 ]; then
-            printf '%s [%s] %s\n' "$ts" "$level" "$line" >&2
+            # CRLF, not LF, when writing to a terminal.
+            #
+            # swiftDialog is launched through sudo, and sudo puts the
+            # controlling terminal into raw mode (clearing ONLCR) for as long
+            # as it runs. The main run window is launched in the BACKGROUND and
+            # lives for the whole session, so the terminal stays raw for the
+            # entire run: every subsequent log line emits a bare LF, the cursor
+            # never returns to column 0, and the transcript walks diagonally
+            # off the screen. Restoring the line discipline around each launch
+            # cannot fix that — the process holding the terminal is still
+            # running, and it is the one we are waiting on.
+            #
+            # Emitting the carriage return ourselves is correct in both states:
+            # with ONLCR off it supplies the CR the terminal no longer adds,
+            # and with ONLCR on the extra CR is a no-op (the cursor is already
+            # at column 0). The log FILE always gets plain LF — this applies
+            # only to the interactive echo.
+            printf '%s [%s] %s\r\n' "$ts" "$level" "$line" >&2
         else
             case "$level" in
                 warn|error) printf '%s [%s] %s\n' "$ts" "$level" "$line" >&2 ;;
