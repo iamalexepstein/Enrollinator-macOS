@@ -5992,7 +5992,7 @@ const HELP_SECTIONS = [
             <table>
               <tr><td>Allow close</td><td>Shows a Done button when the run finishes instead of closing automatically.</td></tr>
               <tr><td>Test mode</td><td>Walks the whole UI and evaluates conditions without running destructive actions. Use this before every rollout.</td></tr>
-              <tr><td>Install swiftDialog</td><td>Enrollinator installs swiftDialog itself on first run if it's missing.</td></tr>
+              <tr><td>Install swiftDialog</td><td>Enrollinator downloads and installs swiftDialog itself if it's missing. Prefer deploying it as a managed package — this needs <code>api.github.com</code> reachable at enrollment time, which is often exactly when it isn't. A <b>Signing team ID</b> field appears when this is on; leave it blank unless you mirror your own rebuilt package.</td></tr>
               <tr><td>Blur screen</td><td>Blurs the desktop behind the window.</td></tr>
               <tr><td>Always on top</td><td>Keeps the window above everything else.</td></tr>
               <tr><td>Quit key</td><td>Secret key combination that dismisses the window — useful for technicians.</td></tr>
