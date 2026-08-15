@@ -1531,7 +1531,7 @@ function blankAction(type) {
 }
 function blankCondition(type) {
     switch (type) {
-        case "shell":             return { Type: "shell", Command: "", TimeoutSeconds: null };
+        case "shell":             return { Type: "shell", Command: "", RunAsUser: "", TimeoutSeconds: null };
         case "app_installed":     return { Type: "app_installed", BundleId: "", Path: "", MinVersion: "" };
         case "default_browser":   return { Type: "default_browser", BundleId: "" };
         case "file_exists":       return { Type: "file_exists", Path: "", Kind: "any" };
@@ -1815,11 +1815,24 @@ function buildAction(a) {
         case "package": return clean({ Type: "package", Path: a.Path, Target: a.Target, TimeoutSeconds: a.TimeoutSeconds });
         case "wait":    return clean({ Type: "wait", DurationSeconds: a.DurationSeconds });
         case "dialog":  { const dlgSlides = (a.Slideshow || []).map(buildSlide).filter(s => s != null);
+                          // Never emit an ExpectedButton that isn't one of the
+                          // Buttons. The runtime compares the clicked label to
+                          // this string, so a mismatch makes the step fail no
+                          // matter what the user clicks — which marks the whole
+                          // run failed and suppresses the completion flag, so
+                          // onboarding replays at every login. The step editor
+                          // constrains this with a dropdown, but a programmatic
+                          // path (loadSample, a hand-edited import) can set
+                          // Buttons without updating ExpectedButton. Coerce here
+                          // so no exported profile can carry the mismatch.
+                          const dlgButtons = (a.Buttons && a.Buttons.length) ? a.Buttons : ["OK"];
+                          const dlgExpected = dlgButtons.includes(a.ExpectedButton)
+                                                  ? a.ExpectedButton : dlgButtons[0];
                           return clean({ Type: "dialog", Title: a.Title, Message: a.Message,
                                        TitleFontSize:   Number.isFinite(a.TitleFontSize)   ? a.TitleFontSize   : undefined,
                                        MessageFontSize: Number.isFinite(a.MessageFontSize) ? a.MessageFontSize : undefined,
                                        Width: a.Width, Height: a.Height,
-                                       Buttons: a.Buttons, ExpectedButton: a.ExpectedButton,
+                                       Buttons: dlgButtons, ExpectedButton: dlgExpected,
                                        Video: a.Video || undefined,
                                        VideoAutoplay: typeof a.VideoAutoplay === "boolean" ? a.VideoAutoplay : undefined,
                                        Slideshow: dlgSlides.length ? dlgSlides : undefined,
@@ -2244,7 +2257,7 @@ function importCondition(c) {
     if (!c || !c.Type) return c;
     switch (c.Type) {
         case "shell":
-            return { Type: "shell", Command: c.Command || "", TimeoutSeconds: Number.isFinite(c.TimeoutSeconds) ? c.TimeoutSeconds : null };
+            return { Type: "shell", Command: c.Command || "", RunAsUser: c.RunAsUser || "", TimeoutSeconds: Number.isFinite(c.TimeoutSeconds) ? c.TimeoutSeconds : null };
         case "app_installed":
             return { Type: "app_installed", BundleId: c.BundleId || "", Path: c.Path || "", MinVersion: c.MinVersion || "" };
         case "default_browser":
@@ -2510,6 +2523,11 @@ function validateState() {
                 if (a.Type === "package" && !a.Path)    stepIssues.push("Package action has no path.");
                 if (a.Type === "dialog"  && !a.Title)   stepIssues.push("Dialog action has no title.");
                 if (a.Type === "dialog"  && !a.Message) stepIssues.push("Dialog action has no message.");
+                if (a.Type === "dialog" && a.ExpectedButton
+                    && Array.isArray(a.Buttons) && a.Buttons.length
+                    && !a.Buttons.includes(a.ExpectedButton)) {
+                    stepIssues.push(`Expected button "${a.ExpectedButton}" is not one of the dialog's buttons — the step could never succeed.`);
+                }
             }
             (st.Conditions || []).forEach((c, ci) => {
                 const n = ci + 1;
@@ -4587,13 +4605,30 @@ function renderConditionCard(c, i, st) {
 
 function conditionFields(c) {
     switch (c.Type) {
-        case "shell":
+        case "shell": {
+            const condRunAsChecked = !!(c.RunAsUser);
             return [
                 row("Command",
                     h("textarea", { oninput: e => { c.Command = e.target.value; updatePreview(); } }, c.Command || ""),
                     hint("Exit 0 = pass.")),
+                row("Run as user",
+                    h("div", { style: "display:flex;flex-direction:column;gap:6px" },
+                        h("label", { style: "display:flex;align-items:center;gap:7px;cursor:pointer" },
+                            h("input", { type: "checkbox", checked: condRunAsChecked,
+                                onchange: e => {
+                                    c.RunAsUser = e.target.checked ? "$CONSOLE_USER" : "";
+                                    reopenStep();
+                                }
+                            }),
+                            h("span", { style: "font-size:12.5px" }, "Run as a different user")
+                        ),
+                        ...(condRunAsChecked ? [textInput(c.RunAsUser, v => { c.RunAsUser = v; }, "$CONSOLE_USER")] : [])
+                    ),
+                    hint("Default: runs as root. Check this for any command that reads the user's own settings or home directory — as root, `defaults read` sees /var/root and the check can never pass.")
+                ),
                 row("Timeout (s)", intInput(c.TimeoutSeconds, v => c.TimeoutSeconds = v, "15"))
             ];
+        }
         case "app_installed":
             return [
                 row("Bundle ID", textInput(c.BundleId, v => c.BundleId = v, "com.google.Chrome")),
@@ -4844,6 +4879,7 @@ function loadSample() {
     chromeFailed.Action.Title   = "Chrome Could Not Be Installed";
     chromeFailed.Action.Message = "Google Chrome couldn't be installed automatically. You can install it manually from [google.com/chrome](https://google.com/chrome) after setup finishes.\n\nSetup will continue with the remaining steps.";
     chromeFailed.Action.Buttons = ["Continue"];
+    chromeFailed.Action.ExpectedButton = "Continue";
     chromeFailed.Action.Width   = 520;
     chromeFailed.Action.Height  = 280;
     chromeFailed.OnSuccess = "set-default-browser";
@@ -5053,6 +5089,7 @@ function loadSample() {
     adobeNotice.Action.Title   = "Adobe Creative Cloud";
     adobeNotice.Action.Message = "Adobe Creative Cloud will be available in Self Service. Sign in with your `@example.com` address after setup completes.\n\nAsk IT if you need a licence assigned.";
     adobeNotice.Action.Buttons = ["Got it"];
+    adobeNotice.Action.ExpectedButton = "Got it";
     adobeNotice.Action.Width   = 500;
     adobeNotice.Action.Height  = 260;
     design.Steps.push(adobeNotice);
