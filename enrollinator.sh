@@ -29,7 +29,23 @@ ENROLLINATOR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENROLLINATOR_LIB="${ENROLLINATOR_ROOT}/lib"
 ENROLLINATOR_LOG="${ENROLLINATOR_LOG:-/var/log/enrollinator.log}"
 ENROLLINATOR_DOMAIN="${ENROLLINATOR_DOMAIN:-com.enrollinator.app}"
-ENROLLINATOR_STATE_DIR="${ENROLLINATOR_STATE_DIR:-/var/tmp/enrollinator}"
+# Runtime scratch state (swiftDialog command files, PID files, image cache).
+#
+# Under root this is a fixed, root-owned 0755 directory — see ensure_state_dir
+# for why these files must not sit loose in mode-1777 /var/tmp. That directory
+# is deliberately NOT writable by anyone else, which includes an unprivileged
+# `--skip-root-check` dev run, so those get their own per-user directory under
+# TMPDIR (already 0700 and per-user, so the same hardening applies for free).
+#
+# Resolved here, before lib/ui.sh is sourced: ui.sh derives every command and
+# PID file path from this value at source time.
+if [ -n "${ENROLLINATOR_STATE_DIR:-}" ]; then
+    :
+elif [ "$(/usr/bin/id -u)" -eq 0 ]; then
+    ENROLLINATOR_STATE_DIR="/var/tmp/enrollinator"
+else
+    ENROLLINATOR_STATE_DIR="${TMPDIR:-/tmp}/enrollinator-$(/usr/bin/id -u)"
+fi
 ENROLLINATOR_PERSIST_DIR="${ENROLLINATOR_PERSIST_DIR:-/var/lib/enrollinator}"
 ENROLLINATOR_COMPLETED_FLAG="${ENROLLINATOR_COMPLETED_FLAG:-${ENROLLINATOR_PERSIST_DIR}/completed}"
 
@@ -53,9 +69,22 @@ log() {
     # and nothing appears as bare un-timestamped continuation lines.
     while IFS= read -r line || [ -n "$line" ]; do
         printf '%s [%s] %s\n' "$ts" "$level" "$line" >> "$ENROLLINATOR_LOG"
-        # Also echo INFO+ to stderr when running interactively.
+        # Interactively, echo everything to stderr.
+        #
+        # Non-interactively, still echo warn and error. This used to be gated
+        # entirely on [ -t 2 ], which meant that under launchd or a Jamf policy
+        # script — the two contexts this actually ships in — a fatal config
+        # error produced exit 2 with ZERO output on stdout or stderr. The
+        # policy log showed a bare failure and the reason lived only in
+        # /var/log/enrollinator.log on the endpoint. Warnings and errors are
+        # low-volume, so surfacing them costs nothing and makes the daemon's
+        # StandardErrorPath and the Jamf policy log genuinely diagnostic.
         if [ -t 2 ]; then
             printf '%s [%s] %s\n' "$ts" "$level" "$line" >&2
+        else
+            case "$level" in
+                warn|error) printf '%s [%s] %s\n' "$ts" "$level" "$line" >&2 ;;
+            esac
         fi
     done <<< "$*"
 }
@@ -72,6 +101,70 @@ init_logging() {
 }
 
 # ----------------------------------------------------------------------------
+# Temp-file cleanup
+# ----------------------------------------------------------------------------
+
+# These four are deliberately GLOBAL, and main() assigns them without `local`.
+#
+# An EXIT trap fires after main() has already returned, so main's locals are
+# out of scope by then: a trap body of `rm -f "$cfg"` expanded to `rm -f ""`
+# and removed nothing. Every completed run leaked its resolved-config temp
+# file — which holds the entire config — plus three more into /var/folders.
+ENROLLINATOR_TMP_CFG=""
+ENROLLINATOR_TMP_STEPS=""
+ENROLLINATOR_TMP_RAN_IDS=""
+ENROLLINATOR_TMP_ID_MAP=""
+
+# Create the runtime state directory as a real, root-owned, 0755 directory.
+#
+# Everything Enrollinator writes at runtime (swiftDialog command files, PID
+# files, the image cache) lives here. The directory itself is the security
+# boundary: see the header comment in lib/ui.sh for why these files must not
+# sit loose in mode-1777 /var/tmp. Because root will `: >` and chown files in
+# here, we refuse to adopt a path we don't control — a symlink, or a directory
+# somebody else created first — and replace it instead.
+ensure_state_dir() {
+    local dir="$ENROLLINATOR_STATE_DIR"
+    local am_root=0
+    [ "$(/usr/bin/id -u)" -eq 0 ] && am_root=1
+
+    # A symlink or a non-directory at that path is never ours.
+    if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
+        log warn "State dir $dir is not a directory — replacing it"
+        /bin/rm -f "$dir" 2>/dev/null
+    fi
+    # A real directory owned by anyone but root can have had its contents
+    # pre-planted, so don't inherit it.
+    if [ "$am_root" -eq 1 ] && [ -d "$dir" ]; then
+        local owner
+        owner="$(/usr/bin/stat -f '%u' "$dir" 2>/dev/null)"
+        if [ -n "$owner" ] && [ "$owner" != "0" ]; then
+            log warn "State dir $dir is owned by uid $owner, not root — recreating"
+            /bin/rm -rf "$dir" 2>/dev/null
+        fi
+    fi
+
+    /bin/mkdir -p "$dir" 2>/dev/null || {
+        log error "Could not create state dir $dir"
+        return 1
+    }
+    /bin/chmod 0755 "$dir" 2>/dev/null
+    [ "$am_root" -eq 1 ] && /usr/sbin/chown root:wheel "$dir" 2>/dev/null
+    return 0
+}
+
+cleanup_temp_files() {
+    local f
+    for f in "$ENROLLINATOR_TMP_CFG" "$ENROLLINATOR_TMP_STEPS" \
+             "$ENROLLINATOR_TMP_RAN_IDS" "$ENROLLINATOR_TMP_ID_MAP"; do
+        [ -n "$f" ] && /bin/rm -f "$f" 2>/dev/null
+    done
+    # ui.sh's replay cache is a mktemp -d that nothing else removes.
+    [ -n "${UI_STATE_DIR:-}" ] && /bin/rm -rf "$UI_STATE_DIR" 2>/dev/null
+    return 0
+}
+
+# ----------------------------------------------------------------------------
 # Arg parsing
 # ----------------------------------------------------------------------------
 
@@ -82,6 +175,7 @@ CLI_DRY_RUN=0
 CLI_TEST=0
 CLI_SKIP_ROOT=0
 CLI_FORCE=0
+CLI_IGNORED_ARGS=""
 
 usage() {
     cat <<EOF
@@ -124,7 +218,14 @@ parse_args() {
             --dry-run)         CLI_DRY_RUN=1; shift ;;
             --skip-root-check) CLI_SKIP_ROOT=1; shift ;;
             -h|--help)         usage; exit 0 ;;
-            *)                 echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+            # Jamf passes $1=mount point, $2=computer name, $3=username to
+            # EVERY script it runs. Treating those as errors meant the
+            # standalone script exited 2 ("Unknown option: /") before doing
+            # anything at all when used as a policy script — the documented
+            # Method 2 deployment. Ignore bare positional arguments; a
+            # genuinely mistyped flag still fails loudly.
+            -*)                echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+            *)                 CLI_IGNORED_ARGS="${CLI_IGNORED_ARGS:+$CLI_IGNORED_ARGS }$1"; shift ;;
         esac
     done
     # Resolve config paths to absolute now — main() does `cd /` for daemon
@@ -165,22 +266,53 @@ wait_for_console_user() {
 # Config loading
 # ----------------------------------------------------------------------------
 
-# Returns a path to a plist containing just Enrollinator's config. Handles:
+# Sets ENROLLINATOR_CFG_PATH to a plist containing just Enrollinator's config.
+# Handles:
 #   * --xml file.plist           (bare plist, schema rooted at the top level)
 #   * --config file.mobileconfig (extracts the inner com.enrollinator.app payload)
 #   * enrollinator.xml alongside the script (bundled pkg config, no flags needed)
 #   * managed defaults domain    (snapshots via `defaults export`)
+#
+# It returns the path via a global rather than stdout because it also records
+# ENROLLINATOR_CONFIG_SOURCE. Called as `cfg="$(load_config)"` the whole thing
+# ran in a subshell, so that assignment — like any other state it wanted to
+# publish — was discarded the moment the subshell exited, and error messages
+# reported the config source as "unknown".
 ENROLLINATOR_BUNDLED_XML="${ENROLLINATOR_ROOT}/enrollinator.xml"
+# Where the active config actually came from. Reported in errors so a failure
+# names the delivery path, not just the symptom.
+ENROLLINATOR_CONFIG_SOURCE=""
+ENROLLINATOR_CFG_PATH=""
 load_config() {
     local raw
+    local managed_path="${ENROLLINATOR_MANAGED_PREFS_DIR:-/Library/Managed Preferences}/${ENROLLINATOR_DOMAIN}.plist"
     if [ -n "$CLI_XML" ]; then
+        ENROLLINATOR_CONFIG_SOURCE="--xml $CLI_XML"
         raw="$(load_bare_xml "$CLI_XML")" || exit $?
     elif [ -n "$CLI_CONFIG" ]; then
+        ENROLLINATOR_CONFIG_SOURCE="--config $CLI_CONFIG"
         raw="$(load_bare_xml "$CLI_CONFIG")" || exit $?
     elif [ -f "$ENROLLINATOR_BUNDLED_XML" ]; then
+        ENROLLINATOR_CONFIG_SOURCE="bundled $ENROLLINATOR_BUNDLED_XML"
         log info "Using bundled config: $ENROLLINATOR_BUNDLED_XML"
+        # A bundled XML outranks managed preferences. When a profile is ALSO
+        # installed, the admin has almost certainly just pushed it expecting it
+        # to take effect — and it silently does nothing. This is the "I updated
+        # the profile and the Mac ignored it" support ticket, so say so loudly
+        # rather than at info level.
+        if [ -f "$managed_path" ]; then
+            log warn "A managed profile for '$ENROLLINATOR_DOMAIN' is installed at $managed_path but is being IGNORED — the bundled config at $ENROLLINATOR_BUNDLED_XML takes precedence. Rebuild the pkg without enrollinator.xml (or delete that file) if the profile should win."
+        fi
         raw="$(load_bare_xml "$ENROLLINATOR_BUNDLED_XML")" || exit $?
     else
+        ENROLLINATOR_CONFIG_SOURCE="managed preferences domain '$ENROLLINATOR_DOMAIN'"
+        # Name the exact path and the two ways an MDM-delivered profile fails
+        # to land there. Both produce an empty config, and the downstream error
+        # ("No Playbooks defined") points at the config's contents rather than
+        # at the delivery problem that actually caused it.
+        if [ ! -f "$managed_path" ]; then
+            log warn "No managed preferences found at $managed_path. If the profile was deployed by MDM, check that the payload's preference domain is exactly '$ENROLLINATOR_DOMAIN', and that the profile is scoped at COMPUTER level — a user-level profile installs into the user's own Managed Preferences directory, which this daemon runs too early and too privileged to read."
+        fi
         raw="$(plist_export_managed "$ENROLLINATOR_DOMAIN")" || exit $?
     fi
     # Undo MDM stringification before anything else — a mangled
@@ -201,10 +333,11 @@ load_config() {
         if plist_repair_stringified "$inner"; then
             log warn "Extracted payload contained MDM-stringified keys — repaired automatically."
         fi
-        echo "$inner"
+        ENROLLINATOR_CFG_PATH="$inner"
         return 0
     fi
-    echo "$raw"
+    ENROLLINATOR_CFG_PATH="$raw"
+    return 0
 }
 
 # Copy a bare plist XML to a temp location and hand back the path. We normalize
@@ -299,9 +432,9 @@ pick_profile() {
             # The key exists but :Playbooks:0 doesn't — it's not an array of
             # dicts. The usual culprit is an MDM editor re-serializing the
             # array as a single string on upload/edit.
-            log error "Playbooks key exists but is not a readable array of dicts, and automatic repair could not recover it. Re-upload the bare plist (never edit the payload in the MDM console) or deploy a signed .mobileconfig."
+            log error "Playbooks key exists but is not a readable array of dicts, and automatic repair could not recover it. Re-upload the bare plist (never edit the payload in the MDM console) or deploy a signed .mobileconfig. Config source: ${ENROLLINATOR_CONFIG_SOURCE:-unknown}"
         else
-            log error "No Playbooks defined in config"
+            log error "No Playbooks defined in config. Config source: ${ENROLLINATOR_CONFIG_SOURCE:-unknown}"
         fi
         exit 2
     fi
@@ -425,6 +558,21 @@ run_step() {
     poll="${poll:-5}"
     timeout="$(plist_get "$cfg" "$skey:TimeoutSeconds")"
     timeout="${timeout:-0}"   # 0 = no timeout
+
+    # An MDM editor can hand us a <string> where the schema wants an <integer>
+    # ("300", "5 minutes"). Unvalidated, those reach `sleep` and `[ -gt ]`:
+    # the timeout comparison errors out with "integer expression expected" on
+    # every poll, and a bad interval makes `sleep` fail instantly, spinning
+    # the blocking loop as fast as the CPU allows.
+    if ! [[ "$poll" =~ ^[0-9]+$ ]] || [ "$poll" -lt 1 ]; then
+        [ -n "$poll" ] && [ "$poll" != "5" ] \
+            && log warn "step=$id PollIntervalSeconds='$poll' is not a positive integer — using 5"
+        poll=5
+    fi
+    if ! [[ "$timeout" =~ ^[0-9]+$ ]]; then
+        log warn "step=$id TimeoutSeconds='$timeout' is not an integer — treating as no timeout"
+        timeout=0
+    fi
 
     # Test mode caps blocking steps at 5s so a rehearsal doesn't actually hang
     # the installer waiting for the tester to go sign into ZScaler.
@@ -574,6 +722,17 @@ run_step() {
         return 1
     fi
 
+    # A rc=2 condition is malformed config, not an unmet state: an unknown
+    # Type, a missing required key. It can never become true, so blocking on
+    # it would hang the run forever — TimeoutSeconds defaults to "no timeout",
+    # and there is no user action that could ever satisfy it. Fail the step.
+    if [ $cond_rc -eq 2 ]; then
+        log error "step=$id has a malformed condition; refusing to block on it: $cond_msg"
+        ui_set_step_status "$ui_idx" error "$(trim_one_line "$cond_msg")"
+        [ "$continue_on_failure" = "true" ] && return 0
+        return 1
+    fi
+
     # 4. Blocking: poll until pass (or timeout). Prefer a WaitWindow popup
     # over stomping on the main window's subtitle.
     if [ "$ww_has" -eq 1 ]; then
@@ -589,8 +748,9 @@ run_step() {
     elif [ -n "$user_prompt" ]; then
         ui_set_banner "$user_prompt"
     fi
-    local start_ts now_ts elapsed
-    start_ts="$(/bin/date +%s)"
+    local now_ts elapsed last_ts
+    last_ts="$(/bin/date +%s)"
+    elapsed=0
 
     while :; do
         ui_set_step_status "$ui_idx" wait "$(trim_one_line "$cond_msg")"
@@ -610,12 +770,16 @@ run_step() {
 
         if [ "$timeout" -gt 0 ]; then
             now_ts="$(/bin/date +%s)"
-            # Pause the clock while the user is reviewing back-slides so a
-            # mid-navigation timer expiry doesn't end the step under their feet.
-            if [ -f "${WAIT_NAVIGATING_FILE:-}" ]; then
-                start_ts="$now_ts"
+            # Pause — don't reset — the clock while the user is reviewing
+            # back-slides, so a mid-navigation expiry doesn't end the step
+            # under their feet. Accumulate only the intervals they weren't
+            # navigating through. The old code assigned start_ts=now on every
+            # navigating poll, which threw away ALL the time banked so far:
+            # one "← Back" click silently granted a fresh full timeout.
+            if [ ! -f "${WAIT_NAVIGATING_FILE:-}" ]; then
+                elapsed=$(( elapsed + (now_ts - last_ts) ))
             fi
-            elapsed=$((now_ts - start_ts))
+            last_ts="$now_ts"
             if [ "$elapsed" -ge "$timeout" ]; then
                 log warn "step=$id blocking timeout after ${elapsed}s"
                 if [ "$ww_has" -eq 1 ]; then
@@ -979,13 +1143,26 @@ show_welcome_screen() {
                 _pp_scratch="$(/usr/bin/mktemp -t enrollinator-scratch)"
                 _ui_own_cmdfile "$_pp_scratch"
                 _pp_args+=( --commandfile "$_pp_scratch" )
+                local _pp_rc
                 pp_json="$(_ui_user_exec "$DIALOG_BIN" "${_pp_args[@]}" 2>/dev/null)"
+                # Capture BEFORE the rm — `$?` after it reads the rm's status,
+                # which is ~always 0, so the dialog's exit code was discarded.
+                _pp_rc=$?
                 /bin/rm -f "$_pp_scratch"
-                if [ $? -eq 0 ] && [ -n "$pp_json" ]; then
-                    pp_selected="$(printf '%s' "$pp_json" \
-                        | /usr/bin/python3 -c \
-                          "import sys,json; d=json.load(sys.stdin); print(d.get('Playbook',''))" \
-                          2>/dev/null)"
+                if [ "$_pp_rc" -eq 0 ] && [ -n "$pp_json" ]; then
+                    # plutil, not python3: /usr/bin/python3 is a stub that
+                    # triggers the Xcode CLT installer when the tools aren't
+                    # present, which is the normal state of a freshly enrolled
+                    # Mac. See the matching note in ui_addon_picker.
+                    local _pp_plist
+                    _pp_plist="$(/usr/bin/mktemp -t enrollinator-picker-json)"
+                    if printf '%s' "$pp_json" | /usr/bin/plutil -convert xml1 -o "$_pp_plist" - 2>/dev/null; then
+                        pp_selected="$(plist_get "$_pp_plist" ":Playbook")"
+                    else
+                        log warn "Playbook picker: could not parse swiftDialog JSON output"
+                        pp_selected=""
+                    fi
+                    /bin/rm -f "$_pp_plist"
                     if [ -n "$pp_selected" ]; then
                         ENROLLINATOR_PICKER_PROFILE="$pp_selected"
                         export ENROLLINATOR_PICKER_PROFILE
@@ -1015,25 +1192,32 @@ show_welcome_screen() {
 # swiftDialog auto-install
 # ----------------------------------------------------------------------------
 
-# ensure_swiftdialog
+# ensure_swiftdialog <config_plist>
 # If $DIALOG_BIN is already executable, returns immediately (nothing to do).
 # Otherwise: shows an osascript "please wait" popup to the console user,
 # downloads the latest swiftDialog release from GitHub, installs it, then
 # dismisses the popup.
 ensure_swiftdialog() {
+    local cfg_path="${1:-}"
     [ -x "$DIALOG_BIN" ] && return 0
 
     log info "swiftDialog not found at $DIALOG_BIN — installing latest release…"
 
     # Show a non-blocking osascript popup while we work.  'giving up after'
     # acts as a safety net so it never hangs permanently.
-    local _osa_pid=""
+    #
+    # The trailing `-e` is an AppleScript comment carrying a unique marker.
+    # It exists purely so _dismiss_osa can find the real osascript process:
+    # $! is the launchctl wrapper, and killing that leaves the actual dialog
+    # sitting on the user's screen for the full 'giving up after' window.
+    local _osa_pid="" _osa_uid=""
+    local _osa_marker="enrollinator-swiftdialog-install-notice"
     if [ -n "${ENROLLINATOR_CONSOLE_USER:-}" ] && [ "$ENROLLINATOR_CONSOLE_USER" != "root" ]; then
-        local _uid
-        _uid="$(/usr/bin/id -u "$ENROLLINATOR_CONSOLE_USER" 2>/dev/null)"
-        if [ -n "$_uid" ]; then
-            /bin/launchctl asuser "$_uid" /usr/bin/osascript -e \
-                'display dialog "Your new computer setup will start in a moment — please wait while a few required components are installed." buttons {"OK"} giving up after 300 with title "Getting Ready…" with icon note' \
+        _osa_uid="$(/usr/bin/id -u "$ENROLLINATOR_CONSOLE_USER" 2>/dev/null)"
+        if [ -n "$_osa_uid" ]; then
+            /bin/launchctl asuser "$_osa_uid" /usr/bin/osascript \
+                -e 'display dialog "Your new computer setup will start in a moment — please wait while a few required components are installed." buttons {"OK"} giving up after 300 with title "Getting Ready…" with icon note' \
+                -e "-- $_osa_marker" \
                 >/dev/null 2>&1 &
             _osa_pid=$!
         fi
@@ -1043,6 +1227,10 @@ ensure_swiftdialog() {
     _dismiss_osa() {
         [ -n "$_osa_pid" ] && kill "$_osa_pid" 2>/dev/null
         wait "$_osa_pid" 2>/dev/null
+        # Now the process that actually owns the window. Scoped to the console
+        # user and matched on our marker, so it can't hit anything else.
+        [ -n "$_osa_uid" ] && /usr/bin/pkill -u "$_osa_uid" -f "$_osa_marker" 2>/dev/null
+        return 0
     }
 
     # Fetch the latest pkg URL from the GitHub releases API.
@@ -1072,10 +1260,16 @@ ensure_swiftdialog() {
         return 1
     fi
 
-    # Verify the package is signed before installing as root.
-    # A MITM or supply-chain attacker could substitute an unsigned pkg; we
-    # refuse to install anything that doesn't carry a valid Developer ID.
-    local sig_check
+    # Verify the package before installing it as root.
+    #
+    # "Status: signed by" alone is NOT a supply-chain control: it is satisfied
+    # by ANY valid Developer ID, including one an attacker holds. Since we
+    # install this as root, pin the signer to swiftDialog's own team as well.
+    # PWA5E9TQ59 is CSIRO, who publish swiftDialog; override with
+    # SwiftDialogTeamID in the config if you mirror your own rebuilt package.
+    local sig_check team_id
+    team_id="$(plist_get "$cfg_path" ":SwiftDialogTeamID")"
+    team_id="${team_id:-PWA5E9TQ59}"
     sig_check="$(/usr/sbin/pkgutil --check-signature "$tmp_pkg" 2>&1)"
     if ! printf '%s\n' "$sig_check" | /usr/bin/grep -q "Status: signed by"; then
         log warn "swiftDialog pkg failed signature check — aborting install."
@@ -1084,7 +1278,14 @@ ensure_swiftdialog() {
         _dismiss_osa
         return 1
     fi
-    log info "swiftDialog pkg signature OK: $(printf '%s\n' "$sig_check" | /usr/bin/grep 'Developer ID' | /usr/bin/head -1 | /usr/bin/xargs)"
+    if ! printf '%s\n' "$sig_check" | /usr/bin/grep -qF "($team_id)"; then
+        log warn "swiftDialog pkg is signed, but not by the expected team ($team_id) — aborting install."
+        log warn "pkgutil output: $sig_check"
+        /bin/rm -f "$tmp_pkg"
+        _dismiss_osa
+        return 1
+    fi
+    log info "swiftDialog pkg signature OK (team $team_id): $(printf '%s\n' "$sig_check" | /usr/bin/grep 'Developer ID' | /usr/bin/head -1 | /usr/bin/xargs)"
 
     log info "Installing swiftDialog…"
     /usr/sbin/installer -pkg "$tmp_pkg" -target / >/dev/null 2>&1
@@ -1220,7 +1421,13 @@ run_addon_profiles() {
     fi
 
     ui_set_progress 0 "Running add-ons…"
-    local ui_idx rc any_fail=0
+    # Per-addon test mode is applied around each step and restored afterwards.
+    # Leaving it set leaked a TestMode add-on's flag into the caller, where the
+    # end-of-run check reads it and skips the completion flag for the WHOLE
+    # run — so a real onboarding that happened to end with a test add-on would
+    # replay from scratch at the next login.
+    local _saved_test_mode="$ENROLLINATOR_TEST_MODE"
+    local ui_idx rc addon_fail=0
     for (( i=0; i<total_addon; i++ )); do
         ui_idx=$(( list_item_base + i ))
         ui_set_progress $(( (i * 100) / total_addon )) "Add-on step $((i+1)) of $total_addon"
@@ -1229,14 +1436,19 @@ run_addon_profiles() {
         export ENROLLINATOR_TEST_MODE
         run_step "$cfg" "${addon_run_pkeys[$i]}" "${addon_run_idxs[$i]}" "$ui_idx"
         rc=$?
-        [ $rc -ne 0 ] && any_fail=1
+        [ $rc -ne 0 ] && addon_fail=1
         # Record this step as done so future addons in the same session can dedup.
         local done_id
         done_id="$(plist_get "$cfg" "${addon_run_pkeys[$i]}:Steps:${addon_run_idxs[$i]}:Id")"
         [ -z "$done_id" ] && done_id="addon-step-$i"
         printf '%s\n' "$done_id" >> "$ran_ids_file"
     done
+    ENROLLINATOR_TEST_MODE="$_saved_test_mode"
+    export ENROLLINATOR_TEST_MODE
     ui_set_progress 100 "Add-ons complete"
+    # Report failure to the caller. This used to be a `local any_fail` that
+    # shadowed main's, so add-on failures were invisible to the completion gate.
+    return $addon_fail
 }
 
 # ----------------------------------------------------------------------------
@@ -1254,7 +1466,8 @@ main() {
     init_logging
     log info "Enrollinator starting (root=$ENROLLINATOR_ROOT domain=$ENROLLINATOR_DOMAIN pid=$$)"
 
-    /bin/mkdir -p "$ENROLLINATOR_STATE_DIR" "$ENROLLINATOR_PERSIST_DIR" 2>/dev/null
+    ensure_state_dir
+    /bin/mkdir -p "$ENROLLINATOR_PERSIST_DIR" 2>/dev/null
 
     # Already-completed gate. --force re-runs. Dry-run and explicit test-mode
     # bypass the gate too — those are developer workflows.
@@ -1280,12 +1493,26 @@ main() {
     fi
     export ENROLLINATOR_CONSOLE_USER
 
-    local cfg
-    # The `|| exit` matters: these helpers exit non-zero on fatal errors, but
-    # inside $(...) that only kills the subshell — without it the script
-    # would limp on with an empty value and misreport the failure as a
-    # benign no-op ("Profile '' has no steps").
-    cfg="$(load_config)" || exit $?
+    # NOT `local` — see cleanup_temp_files. Same for steps_file, ran_ids_file
+    # and id_map_file below.
+    #
+    # load_config runs in THIS shell, not a subshell, so it can publish both
+    # the config path and the config source. A fatal error inside it exits the
+    # script directly, which is what we want — the old `cfg="$(load_config)"`
+    # form needed `|| exit $?` precisely because the exit only killed the
+    # subshell, leaving the caller to limp on with an empty value and
+    # misreport the failure as a benign no-op ("Profile '' has no steps").
+    load_config
+    cfg="$ENROLLINATOR_CFG_PATH"
+    if [ -z "$cfg" ] || [ ! -f "$cfg" ]; then
+        log error "Config could not be resolved. Config source: ${ENROLLINATOR_CONFIG_SOURCE:-unknown}"
+        exit 2
+    fi
+    ENROLLINATOR_TMP_CFG="$cfg"
+    # Install file cleanup as soon as there's something to clean. Every exit
+    # from here on is covered, including the welcome-screen deferral. The trap
+    # is upgraded to also tear down the UI once ui_start has run.
+    trap 'cleanup_temp_files' EXIT
     log info "Config loaded: $cfg"
 
     # Pick profile.
@@ -1319,8 +1546,8 @@ main() {
     fi
 
     # Build step manifest for the UI.
-    local steps_file
     steps_file="$(build_steps_manifest "$cfg" "$pkey")"
+    ENROLLINATOR_TMP_STEPS="$steps_file"
     local total
     total="$(plist_array_count "$cfg" "$pkey:Steps")"
     if [ "$total" -eq 0 ]; then
@@ -1376,7 +1603,7 @@ main() {
 
     # Auto-install swiftDialog if the config requests it.
     if [ "$(plist_bool "$cfg" ":InstallSwiftDialog" false)" = "true" ]; then
-        ensure_swiftdialog || true   # non-fatal — ui_require_dialog will catch a missing binary
+        ensure_swiftdialog "$cfg" || true   # non-fatal — ui_require_dialog will catch a missing binary
     fi
 
     ui_require_dialog
@@ -1393,6 +1620,7 @@ main() {
             log info "Playbook picker override applied: '$pname' (index $pidx)"
             /bin/rm -f "$steps_file"
             steps_file="$(build_steps_manifest "$cfg" "$pkey")"
+            ENROLLINATOR_TMP_STEPS="$steps_file"
             total="$(plist_array_count "$cfg" "$pkey:Steps")"
             if [ "$total" -eq 0 ]; then
                 log warn "Picker-selected profile '$pname' has no steps; nothing to do."
@@ -1421,10 +1649,11 @@ main() {
     fi
 
     ui_start "$title" "$subtitle" "$accent" "$logo" "$steps_file"
-    local ran_ids_file id_map_file
     ran_ids_file="$(/usr/bin/mktemp -t enrollinator-ran-ids)"
     id_map_file="$(/usr/bin/mktemp -t enrollinator-id-map)"
-    trap 'ui_stop; /bin/rm -f "$cfg" "$steps_file" "$ran_ids_file" "$id_map_file"' EXIT
+    ENROLLINATOR_TMP_RAN_IDS="$ran_ids_file"
+    ENROLLINATOR_TMP_ID_MAP="$id_map_file"
+    trap 'ui_stop; cleanup_temp_files' EXIT
 
     # Build a step-ID → index map for branch resolution.
     # Uses a tab-delimited temp file instead of a bash 4+ associative array so
@@ -1500,8 +1729,9 @@ main() {
 
     ui_set_progress 100 "Finished"
 
-    # Offer addon profiles if any are defined.
-    run_addon_profiles "$cfg" "$ran_ids_file" "$total"
+    # Offer addon profiles if any are defined. A failed add-on step counts
+    # toward the run result, same as a main-playbook step.
+    run_addon_profiles "$cfg" "$ran_ids_file" "$total" || any_fail=1
 
     # Finish. If AllowClose, leave a Done button; otherwise auto-quit.
     local allow_close
@@ -1545,7 +1775,30 @@ main() {
 
     # Mark the run complete so we don't bother the user on next login. Test mode
     # does NOT count — the point is to rehearse the run, not consume it.
-    if [ $any_fail -eq 0 ] && [ "$ENROLLINATOR_TEST_MODE" != "1" ]; then
+    #
+    # Neither does a run the user never saw. Two ways that happened, both of
+    # which used to write the flag and permanently suppress onboarding:
+    #
+    #   * No console user. wait_for_console_user gives up after 5 minutes and
+    #     logs "continuing anyway" — routine during ADE when Setup Assistant is
+    #     still on screen. With no console user, _ui_user_exec cannot place a
+    #     window in any GUI session, so every step ran headlessly.
+    #   * The dialog died during startup (ENROLLINATOR_UI_FAILED), which
+    #     ui_start already detects and warns about.
+    #
+    # In both cases the work may well have succeeded, but the user saw nothing.
+    # Leaving the flag unwritten costs one repeat run; writing it costs the
+    # entire onboarding, silently and permanently.
+    local ui_was_shown=1
+    if [ -z "${ENROLLINATOR_CONSOLE_USER:-}" ]; then
+        log error "No console user was ever available — this run had nowhere to display. NOT writing the completion flag, so onboarding will be retried."
+        ui_was_shown=0
+    elif [ "${ENROLLINATOR_UI_FAILED:-0}" = "1" ]; then
+        log error "The setup window never came up — this run was invisible to the user. NOT writing the completion flag, so onboarding will be retried."
+        ui_was_shown=0
+    fi
+
+    if [ $any_fail -eq 0 ] && [ "$ENROLLINATOR_TEST_MODE" != "1" ] && [ "$ui_was_shown" -eq 1 ]; then
         /usr/bin/touch "$ENROLLINATOR_COMPLETED_FLAG" 2>/dev/null || true
         # A completed run resets the welcome-screen deferral budget, so a
         # future re-run (--force / daemon kickstart) starts fresh.
