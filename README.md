@@ -19,6 +19,19 @@ any browser (tested in Chrome). No server, no install, no build step.
 The Profile Builder is the primary way to create and maintain Enrollinator
 configs. It gives you a full visual editor for every key in the schema:
 
+- **Starts by asking how you're starting** — new config, open an existing one,
+  or explore the sample. A new config gets a couple of questions about your
+  fleet; the other two are read straight out of the config you loaded.
+- **Set your MDM once** — the builder narrows the step catalogue and every
+  command picker to that MDM, macOS built-ins, and whatever tooling you named.
+  Every other preset stays one click away under **Show all sources**.
+- **Guided steps** — adding a step opens a searchable catalogue of tasks ("Run
+  a Jamf policy", "Wait for the user, with a guide"), then asks only for the
+  values it can't infer, one question at a time. Everything else — action,
+  conditions, timeout, icon, blocking behaviour — is filled in for you.
+- **…or don't be guided** — **Open the full editor** sits on every question
+  screen and hands the half-built step straight over, and **Advanced mode**
+  turns the questions off entirely and shows every source.
 - **Playbook editor** — create multiple playbooks (Standard, Engineering,
   Design, …) and drag-and-drop steps within and across playbooks.
 - **Step editor** — four tabs per step: Info, Action, Conditions, Behavior.
@@ -26,9 +39,10 @@ configs. It gives you a full visual editor for every key in the schema:
 - **If/else branching** — click the ⎇ button on any step to open an inline
   branch block and wire `OnSuccess` / `OnFailure` to any other step ID,
   `$next`, or `$end`.
-- **SF Symbol picker** — enter `SF=symbol.name` in any icon field to get an
-  inline animation dropdown (pulse, bounce, rotate, …) and a direct link to
-  the [SF Symbols library](https://developer.apple.com/sf-symbols/).
+- **SF Symbol picker** — every icon and logo field has an **SF** button that
+  opens a searchable shortlist of symbols suited to Mac setup, labelled in
+  plain language (`vpn` → `lock.shield`), with an animation dropdown (pulse,
+  bounce, rotate, …) and a free-text field that accepts any symbol name.
 - **Token substitution** — `{ }` button next to Title / Subtitle inserts
   live tokens like `{console_user}`, `{serial_number}`, etc.
 - **Import / export** — drag in an existing `.mobileconfig` or bare plist to
@@ -42,7 +56,9 @@ configs. It gives you a full visual editor for every key in the schema:
   (auto, or 90–175%) and content width, so the builder is as usable on a 5K
   monitor as on a laptop.
 - **Built-in help centre** — the **?** button opens a searchable reference for
-  every panel, action, condition, and export option. No network required.
+  every panel, action, condition, and export option. No network required, and
+  **⧉** pops it into its own window so it can sit beside your config instead of
+  on top of it.
 
 No XML by hand required. The builder is a single self-contained HTML file
 you can keep in the repo, share with teammates, or drop into a wiki.

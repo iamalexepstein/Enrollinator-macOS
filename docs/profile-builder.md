@@ -9,9 +9,10 @@ and everything runs locally in the page.
 ## Contents
 
 - [Getting started](#getting-started)
+- [Deployment target](#deployment-target) — [What it changes](#what-it-changes) · [Advanced mode](#advanced-mode) · [Nothing is removed](#nothing-is-removed)
 - [Global settings ⚙](#global-settings-) — [Token substitution](#token-substitution)
 - [Playbooks](#playbooks) — [Selectors (removed)](#selectors-removed) · [Addon playbooks](#addon-playbooks)
-- [Steps](#steps)
+- [Steps](#steps) — [The step catalogue](#the-step-catalogue) · [The SF Symbol picker](#the-sf-symbol-picker) · [Guided mode](#guided-mode)
   — [Info tab](#info-tab) · [Action tab](#action-tab) · [Conditions tab](#conditions-tab) · [Behavior tab](#behavior-tab)
 - [Wait window](#wait-window)
 - [Branching](#branching)
@@ -22,6 +23,18 @@ and everything runs locally in the page.
 ---
 
 ## Getting started
+
+On load the builder asks how you're starting:
+
+| Choice | What happens |
+|---|---|
+| **Start a new config** | Goes on to the [deployment questions](#deployment-target) — which MDM, which tooling, your organisation name — then drops you on an empty playbook. |
+| **Open an existing config** | Opens the file picker. The config's MDM is [read out of its own commands](#deployment-target), so you aren't asked again. |
+| **Explore the sample** | Loads the worked example, likewise detecting its MDM. |
+
+Tick **Don't show again** to skip the launcher on later visits. **Take the
+tour** opens the four-card orientation, which is also always available from the
+**?** menu.
 
 **Load sample** — populates the builder with a fully-formed example config you
 can explore and modify. Good starting point for a new deployment.
@@ -59,6 +72,71 @@ Changes are not persisted across page reloads — download before closing.
 searchable reference covering playbooks, actions, conditions, branching,
 media, tokens, export, and troubleshooting. It mirrors this document and is
 available offline, since the builder is a single self-contained file.
+
+The **⧉** button beside the help search box moves the panel into its own
+window, so a section stays open beside the config you're editing rather than
+over it. The window keeps the section you were reading, follows the builder's
+appearance and scale settings as you change them, and searches identically —
+it's constructed from the page in memory, so it needs no network and works
+from `file://`. Closing the builder closes it. If the browser blocks the
+pop-up the panel stays where it is and says so.
+
+---
+
+## Deployment target
+
+A fleet has one MDM, but a config has many shell steps. The builder asks once
+and shapes what it offers from the answer. The chip at the left of the header
+shows the current target and reopens the setup sheet.
+
+| Question | Why |
+|---|---|
+| What manages these Macs? | Picks one MDM, which turns on [guided mode](#guided-mode). Or pick **Advanced mode** — see below. |
+| Also deployed on this fleet? | Tooling that pairs with any MDM — currently Installomator. Zero or more. |
+| Organisation | Optional name and logo. The name fills in `PayloadOrganization` and `PayloadIdentifier` so they aren't left as `com.example` placeholders; the logo becomes `Branding.Logo`, the image at the top of the onboarding window. Anything you've already edited in Profile Settings is left alone. |
+
+This is **builder context, not configuration**. It lives in the browser's local
+storage and never reaches the exported profile — two people building the same
+config on different MDMs get byte-identical output.
+
+### What it changes
+
+| Surface | Effect |
+|---|---|
+| Adding a step | Guided mode asks a few follow-up questions instead of opening the four-tab editor. |
+| [Step catalogue](#the-step-catalogue) | Your MDM's tasks lead the *Install software* group, then your tooling, then macOS built-ins. Other MDMs' tasks are not offered. |
+| **MDM / source** picker | Narrows to your MDM, macOS built-ins, your tooling, and Custom. Other MDMs' presets are hidden, not reordered. |
+| Profile identity | Seeded from the organisation name, as above. |
+| Branding logo | Seeded from the organisation logo. The welcome screen and add-on picker both fall back to it, so setting it here covers all three windows. |
+
+### Advanced mode
+
+Picking **Advanced mode** instead of an MDM turns all of that off: every source
+in every picker, the whole catalogue, and recipes that go straight to the full
+step editor with no questions. It's also the right answer when your MDM isn't
+listed, or when Enrollinator runs from a package with no MDM binary involved.
+
+Advanced mode is a setting, not a one-way door — switch back to an MDM from the
+header chip whenever you like.
+
+### Nothing is removed
+
+Narrowing is a default, never a wall:
+
+- **Show all sources**, under any narrowed picker, restores the full list. The
+  link flips to **Narrow to …** so you can go back.
+- A step already using a source from outside your fleet always keeps that
+  source in its dropdown. Importing a Kandji config while set to Jamf never
+  hides the commands that config is built on.
+- Every preset in [MDM presets](#action-tab) remains reachable, whichever MDM
+  you picked.
+- Every guided question screen carries **Open the full editor**.
+
+**Imported configs answer for themselves.** Import and Load sample read the MDM
+back out of the commands a config already contains and adopt it, rather than
+asking a second time. Tooling is additive — importing a config that uses
+Installomator adds Installomator to your fleet rather than replacing what was
+there.
 
 ---
 
@@ -168,6 +246,76 @@ skipped.
 Click **+ Add step** in the canvas to create a step, or click any existing step
 to open its editor. Each step editor has four tabs.
 
+### The step catalogue
+
+**+ Add step** — and the `+` that fades in between two steps — opens a
+searchable catalogue of tasks rather than an empty editor. Pick what you want
+to happen and the step arrives with its action, conditions, timeout, blocking
+behaviour and icon already filled in.
+
+| Group | Covers |
+|---|---|
+| Install software | Your MDM's install tasks, your tooling's, macOS built-ins (Rosetta 2, Xcode CLT, software updates), and a local `.pkg`. |
+| Wait for something | MDM enrolment, an app appearing, or the user finishing something themselves — the last arriving with a [wait window](#wait-window) and slideshow already set up. |
+| Talk to the user | A message, a policy to accept, a slideshow walkthrough, or a video. |
+| Flow & custom | Pause, branch checkpoint, custom shell command, blank step. |
+
+A recipe is a starting point, not a track. Every one produces an ordinary step
+with nothing locked or hidden, and **Blank step** gives you the empty editor if
+you'd rather build it up by hand. Step IDs are derived from the name and made
+unique within the playbook, so branch targets have something to point at
+immediately.
+
+### The SF Symbol picker
+
+Every icon and logo field in the builder — the organisation **Logo** in
+[deployment setup](#deployment-target), step **Icon**, branding **Logo** and
+**Banner**, the welcome screen's **Logo / icon**, the playbook picker's
+**Icon**, and the add-on picker's **Icon** — has an **SF** button beside it.
+
+It opens a searchable shortlist of about a hundred symbols relevant to setting
+up a Mac, grouped by what they're for (progress, install, security, network,
+hardware, people, files, media) and labelled in the words you'd search for:
+typing `vpn` finds `lock.shield`, `restart` finds `powerplug`. Pick one, choose
+an animation, and **Use symbol** writes the `SF=…` token back into the field.
+
+| Control | What it does |
+|---|---|
+| Search | Matches symbol names, plain-language labels, and group names. |
+| Symbol | Free-text — accepts **any** SF Symbol name, not just the shortlist. |
+| Animation | `pulse`, `bounce`, `variableColor`, `appear`, `disappear`, `rotate`, plus `breathe` and `wiggle` on macOS 14+. |
+| Remove icon | Clears the field. |
+
+The picker lists names rather than drawing the symbols: SF Symbols is a system
+font with no web distribution, so a browser has nothing to render. Use Apple's
+free [SF Symbols app](https://developer.apple.com/sf-symbols/) to see the
+artwork, then paste any name into the **Symbol** field.
+
+### Guided mode
+
+With an MDM set, picking a recipe asks for the handful of values the recipe
+can't know — one question per screen, with everything else filled in behind
+you. "Run a Jamf policy" asks which custom event and what to call the step, and
+that's the whole interaction; the command, timeout and icon are already right.
+
+- The closing question pairs the step **name** with its **icon**, since those
+  are the two things shown side by side in the progress window. The icon field
+  carries the same **SF** picker as everywhere else.
+- **Enter** moves to the next question. In a message box, `⌘`/`Ctrl` + `Enter`
+  does, since plain Enter is a newline.
+- **Back** revisits an answer. **Skip** appears on optional questions.
+- Questions can depend on earlier answers — *Wait for the user* asks how the
+  step should know it's finished, then follows up with the right field for the
+  check you chose.
+- **Open the full editor**, on every screen, hands the half-built step to the
+  four-tab editor with your answers applied. Nothing is lost either way.
+- **Cancel** discards the step entirely. It isn't added to the playbook until
+  the last question.
+
+In [Advanced mode](#advanced-mode) there are no questions: recipes open the
+full editor directly, on whichever tab holds the field worth filling in —
+Action for a policy step, Conditions for a wait, Behavior for a guided wait.
+
 ### Info tab
 
 | Field | Description |
@@ -175,7 +323,7 @@ to open its editor. Each step editor has four tabs.
 | Name | Displayed in the step list during the run. |
 | Description | Shown in the step list subtitle. |
 | ID | Optional stable identifier for branching (`OnSuccess` / `OnFailure`). Auto-generated if left blank. |
-| Icon | SF Symbol token (`SF=checkmark.circle`), absolute path, or `https://` URL. The **SF** button opens a searchable symbol picker with animation options (pulse, bounce, rotate, …). |
+| Icon | SF Symbol token (`SF=checkmark.circle`), absolute path, or `https://` URL. The **SF** button opens the [symbol picker](#the-sf-symbol-picker). |
 
 ### Action tab
 
@@ -194,6 +342,11 @@ Use the **MDM / source** picker to get pre-filled commands for common tasks:
 | Addigy | Run a policy |
 | macOS built-ins | Rosetta 2, Xcode CLT, Software Update, `installer` |
 | Custom | Write any shell command directly |
+
+The picker itself is narrowed to your [deployment target](#deployment-target)
+— your MDM, macOS built-ins, your tooling, and Custom. **Show all sources**
+beneath it brings back the whole table, and a step already using another MDM's
+command keeps that source listed regardless.
 
 Set **Timeout** to cap how long the command can run (seconds). Useful for
 package installs or MDM policy calls that might hang.
