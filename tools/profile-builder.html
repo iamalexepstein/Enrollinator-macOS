@@ -1583,6 +1583,7 @@ function defaultState() {
         AllowClose: false,
         TestMode: false,
         InstallSwiftDialog: false,
+        SwiftDialogTeamID: "",
         BlurScreen: false,
         AlwaysOnTop: true,
         HardwareInfo: {
@@ -1714,6 +1715,10 @@ function buildInnerPayload(s) {
         AllowClose: s.AllowClose === true ? true : undefined,
         TestMode: s.TestMode === true ? true : undefined,
         InstallSwiftDialog: s.InstallSwiftDialog === true ? true : undefined,
+        // Only meaningful alongside InstallSwiftDialog, and only when the admin
+        // overrides the built-in default, so don't emit it otherwise.
+        SwiftDialogTeamID: (s.InstallSwiftDialog === true && s.SwiftDialogTeamID)
+                               ? s.SwiftDialogTeamID : undefined,
         BlurScreen: s.BlurScreen === true ? true : undefined,
         AlwaysOnTop: s.AlwaysOnTop === false ? false : undefined,
 
@@ -2141,6 +2146,7 @@ function importFromMobileconfig(xml) {
     next.AllowClose = !!inner.AllowClose;
     next.TestMode = !!inner.TestMode;
     next.InstallSwiftDialog = !!inner.InstallSwiftDialog;
+    next.SwiftDialogTeamID  = inner.SwiftDialogTeamID || "";
     next.BlurScreen  = !!inner.BlurScreen;
     next.AlwaysOnTop = inner.AlwaysOnTop !== false;
     next.HardwareInfo = {
@@ -3507,9 +3513,12 @@ function renderRuntimeTile() {
                 "Simulate actions; evaluate conditions"),
             hint("Actions are skipped so no software is installed. Conditions still run. Blocking steps time out after 5 s. The completed flag is not written, so the run can be repeated freely.")),
         row("swiftDialog",
-            checkbox(state.InstallSwiftDialog, v => state.InstallSwiftDialog = v,
+            checkbox(state.InstallSwiftDialog, v => { state.InstallSwiftDialog = v; reopenSettings(); },
                 "Auto-install swiftDialog if missing"),
-            hint("If swiftDialog is not found at /usr/local/bin/dialog when the script runs, Enrollinator will download and install the latest release from GitHub. A system dialog tells the user to wait while it installs.")),
+            hint("If swiftDialog is not found at /usr/local/bin/dialog when the script runs, Enrollinator will download and install the latest release from GitHub. A system dialog tells the user to wait while it installs. Prefer deploying swiftDialog as a managed package — this needs api.github.com reachable at enrollment time, which is often exactly when it isn't.")),
+        ...(state.InstallSwiftDialog ? [row("Signing team ID",
+            textInput(state.SwiftDialogTeamID, v => { state.SwiftDialogTeamID = v; }, "PWA5E9TQ59"),
+            hint("The downloaded package must be signed by this Developer ID team or the install is refused. Leave blank to use the default, PWA5E9TQ59 (CSIRO, who publish swiftDialog). Only change this if you mirror your own rebuilt package."))] : []),
         row("Always on top",
             checkbox(state.AlwaysOnTop, v => state.AlwaysOnTop = v,
                 "Keep all windows above other apps"),

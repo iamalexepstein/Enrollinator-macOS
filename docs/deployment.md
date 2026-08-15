@@ -77,7 +77,7 @@ outside of MDM (e.g. direct download). Pass it as the second argument:
 /var/log/enrollinator.stderr.log           # daemon stderr
 /var/tmp/enrollinator/                     # runtime scratch: root-owned 0755
 /var/tmp/enrollinator/dialog.log           # swiftDialog command file (chowned to the console user)
-/var/lib/enrollinator/completed            # present after a successful run; gates re-runs
+/var/lib/enrollinator/completed            # present after a successful VISIBLE run; gates re-runs
 ```
 
 ## LaunchDaemon
@@ -202,6 +202,25 @@ launchctl kickstart -k system/com.enrollinator.app
 
 This exits immediately; `launchd` relaunches Enrollinator in its normal
 context.
+
+#### When the completion flag is *not* written
+
+The flag is a one-shot: once present, later runs skip. Enrollinator therefore
+declines to write it for any run the user could not actually have seen, so the
+onboarding is retried rather than silently consumed. It is skipped when:
+
+* **no console user was ever available** — `wait_for_console_user` gives up
+  after five minutes, which happens routinely during ADE if Setup Assistant is
+  still on screen. With no user session there is nowhere to place a window, so
+  every step would have run invisibly;
+* **the setup window never came up** — swiftDialog died during startup;
+* **any step failed** (and the failure was not absorbed by `ContinueOnFailure`);
+* **test mode**, which is the point of a rehearsal.
+
+The first two log an `error` explaining the decision. Because warnings and
+errors are written to stderr as well as to `/var/log/enrollinator.log`, they
+appear in `/var/log/enrollinator.stderr.log` under the LaunchDaemon and in the
+policy log under Jamf.
 
 ---
 
