@@ -1657,6 +1657,32 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     flex-shrink: 0;
 }
 .help-close:hover { background: var(--surface-2); color: var(--text); }
+.help-popout {
+    width: 28px; height: 28px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--btn-bg); cursor: pointer;
+    color: var(--text-3); font-size: 13px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-left: auto;
+}
+.help-popout:hover { background: var(--surface-2); color: var(--text); }
+.help-popout.blocked { border-color: var(--tint-amber-fg); color: var(--tint-amber-fg); }
+/* With a pop-out button present, it owns the margin that pushes the pair right. */
+.help-popout + .help-close { margin-left: 0; }
+.help-popout-blocked {
+    margin-left: auto; font-size: 11.5px; color: var(--tint-amber-fg);
+    white-space: nowrap; padding-right: 2px;
+}
+.help-popout-blocked + .help-popout { margin-left: 0; }
+
+/* Popped out into its own window: fill it, and drop the overlay affordances
+   (rounded corners, drop shadow, entrance animation) that only make sense
+   when the panel is floating above the builder. */
+body.help-window { background: var(--surface-2); }
+.help-modal.popped {
+    width: 100%; max-width: none;
+    height: var(--app-vh); max-height: none;
+    border-radius: 0; box-shadow: none; animation: none;
+}
 
 .help-body { display: flex; flex: 1; min-height: 0; }
 .help-nav {
@@ -2269,6 +2295,13 @@ let state = defaultState();
 // serialized state so it never leaks into the generated mobileconfig.
 let ui = { openStep: null, draftStep: null, stepTab: "info", settingsOpen: false, settingsTab: "identity", welcomeOpen: false, pendingStep: null, expandedOptional: new Set(), expandedBranches: new Set(), selectedPlaybook: 0, sidebarCollapsed: false };
 
+// The popped-out help window, when there is one. Declared up here rather than
+// beside the help code at the bottom because applyTheme() and
+// applyDisplaySettings() both push changes into it, and both run during boot —
+// a `let` further down would still be in its temporal dead zone by then.
+let helpWindow = null;
+let helpWindowApi = null;
+
 // ============================================================================
 // Display scaling
 //
@@ -2308,6 +2341,7 @@ function applyTheme() {
         (display.theme === "system" &&
          window.matchMedia("(prefers-color-scheme: dark)").matches);
     document.documentElement.dataset.theme = dark ? "dark" : "light";
+    syncHelpWindow();
 }
 
 function setTheme(theme) {
@@ -2366,6 +2400,7 @@ function applyDisplaySettings() {
 
     document.body.classList.toggle("narrow-layout", local.width < 1000);
     refreshViewMenu();
+    syncHelpWindow();
 }
 
 function setScale(scale) {
@@ -7580,7 +7615,11 @@ const HELP_SECTIONS = [
         { h: "Your work is not saved automatically", body: `
             <div class="help-tip"><b>Download before you close the tab.</b> The builder keeps no server-side state and does not persist the config across reloads. Only your Display and Deployment target preferences are remembered.</div>` },
         { h: "Replay the quick tour", body: `
-            <p>The four-card welcome shown on first load can be reopened any time: <button class="help-inline-btn" data-help-action="tour">show the quick tour</button>.</p>` }
+            <p>The four-card welcome shown on first load can be reopened any time: <button class="help-inline-btn" data-help-action="tour">show the quick tour</button>.</p>` },
+        { h: "Keeping help open while you work", body: `
+            <p>The <b>⧉</b> button beside the search box moves this panel into its own window, so you can read a section and edit the config side by side instead of closing and reopening the overlay.</p>
+            <p>The window carries the section you were reading, follows the builder's Light/Dark setting and interface scale, and searches exactly the same. It's built from this page in memory — nothing is fetched — so it works offline and from <code>file://</code> like everything else here. Closing the builder closes it too.</p>
+            <div class="help-tip">If nothing happens, your browser blocked the pop-up — the panel stays put and says so. Allow pop-ups for this page and click <b>⧉</b> again.</div>` }
     ]
 },
 {
@@ -7935,58 +7974,60 @@ function helpSearchIndex() {
     return entries;
 }
 
-function showHelpCenter(sectionId) {
-    const existing = document.getElementById("help-root");
-    if (existing) existing.remove();
-
-    let activeId = sectionId || HELP_SECTIONS[0].id;
+/** Build the help panel into `doc`, which is this document for the modal and
+ *  the popped-out window's for the standalone one. Everything below is written
+ *  against `doc` rather than the global so the two stay one implementation —
+ *  a second copy of the search and nav logic would drift within a release.
+ *
+ *  @param {Document} doc
+ *  @param {{sectionId?: string, popped?: boolean, onClose?: Function,
+ *           onPopOut?: Function, onTour?: Function}} opts
+ *  @returns {{modal: Element, focusSearch: Function, setSection: Function}} */
+function mountHelpCentre(doc, opts) {
+    opts = opts || {};
+    let activeId = opts.sectionId || HELP_SECTIONS[0].id;
     const index = helpSearchIndex();
 
-    const root = document.createElement("div");
-    root.id = "help-root";
+    const modal = doc.createElement("div");
+    modal.className = "help-modal" + (opts.popped ? " popped" : "");
 
-    const backdrop = document.createElement("div");
-    backdrop.className = "gs-backdrop";
-    backdrop.addEventListener("click", e => { if (e.target === backdrop) close(); });
-
-    const modal = document.createElement("div");
-    modal.className = "help-modal";
-
-    const head = document.createElement("div");
+    const head = doc.createElement("div");
     head.className = "help-head";
     head.innerHTML = `
         <h2>📘 Profile Builder help</h2>
-        <input type="text" class="help-search" id="help-search" placeholder="Search help…" autocomplete="off">
-        <button class="help-close" id="help-close" title="Close">✕</button>`;
+        <input type="text" class="help-search" placeholder="Search help…" autocomplete="off">
+        ${opts.onPopOut ? `<button class="help-popout" title="Open help in its own window">⧉</button>` : ""}
+        <button class="help-close" title="${opts.popped ? "Close window" : "Close"}">✕</button>`;
 
-    const body = document.createElement("div");
+    const body = doc.createElement("div");
     body.className = "help-body";
-    const nav = document.createElement("div");
+    const nav = doc.createElement("div");
     nav.className = "help-nav";
-    const content = document.createElement("div");
+    const content = doc.createElement("div");
     content.className = "help-content";
     body.append(nav, content);
     modal.append(head, body);
-    backdrop.appendChild(modal);
-    root.appendChild(backdrop);
-    document.body.appendChild(root);
 
-    function close() {
-        root.remove();
-        document.removeEventListener("keydown", onKey, true);
+    const search = head.querySelector(".help-search");
+    head.querySelector(".help-close").addEventListener("click", () => {
+        if (opts.onClose) opts.onClose();
+    });
+    const popBtn = head.querySelector(".help-popout");
+    if (popBtn) popBtn.addEventListener("click", () => opts.onPopOut());
+
+    /** Browsers block window.open often enough that failing silently would
+     *  look like a dead button. Say what happened, in place. */
+    function reportPopOutBlocked() {
+        if (!popBtn || head.querySelector(".help-popout-blocked")) return;
+        const note = doc.createElement("span");
+        note.className = "help-popout-blocked";
+        note.textContent = "Pop-up blocked — allow pop-ups for this page.";
+        head.insertBefore(note, popBtn);
+        popBtn.classList.add("blocked");
     }
-    function onKey(e) {
-        if (e.key !== "Escape") return;
-        // Swallow it so the shared Esc handler doesn't also close a step editor
-        // sitting behind the help centre.
-        e.stopPropagation();
-        close();
-    }
-    document.addEventListener("keydown", onKey, true);
-    head.querySelector("#help-close").addEventListener("click", close);
 
     function blockNode(block, sectionTitle) {
-        const el = document.createElement("div");
+        const el = doc.createElement("div");
         el.className = "help-block";
         el.innerHTML =
             (sectionTitle ? `<div class="help-result-section">${sectionTitle}</div>` : "") +
@@ -7997,12 +8038,12 @@ function showHelpCenter(sectionId) {
     function renderNav() {
         nav.innerHTML = "";
         HELP_SECTIONS.forEach(sec => {
-            const b = document.createElement("button");
+            const b = doc.createElement("button");
             b.className = sec.id === activeId ? "active" : "";
             b.innerHTML = `<span class="help-nav-icon">${sec.icon}</span><span>${sec.title}</span>`;
             b.addEventListener("click", () => {
                 activeId = sec.id;
-                head.querySelector("#help-search").value = "";
+                search.value = "";
                 renderNav(); renderSection();
             });
             nav.appendChild(b);
@@ -8021,7 +8062,7 @@ function showHelpCenter(sectionId) {
         const hits = index.filter(e => terms.every(t => e.text.includes(t)));
         content.innerHTML = `<h3>Search</h3><p class="help-section-lede">${hits.length} result${hits.length === 1 ? "" : "s"} for “${q}”.</p>`;
         if (!hits.length) {
-            const none = document.createElement("div");
+            const none = doc.createElement("div");
             none.className = "help-empty";
             none.textContent = "Nothing matched. Try a single keyword — blocking, slideshow, Jamf, token…";
             content.appendChild(none);
@@ -8031,7 +8072,7 @@ function showHelpCenter(sectionId) {
         content.scrollTop = 0;
     }
 
-    head.querySelector("#help-search").addEventListener("input", e => {
+    search.addEventListener("input", e => {
         const q = e.target.value.trim();
         if (q) {
             // Results span every section, so no nav entry is "current".
@@ -8043,19 +8084,165 @@ function showHelpCenter(sectionId) {
         }
     });
 
-    // Inline actions embedded in help copy (e.g. "show the quick tour").
+    // Inline actions embedded in help copy (e.g. "show the quick tour"). The
+    // popped-out window runs these back in the builder, since that's where the
+    // thing being demonstrated lives.
     content.addEventListener("click", e => {
         const t = e.target.closest("[data-help-action]");
         if (!t) return;
-        if (t.dataset.helpAction === "tour") { close(); showGettingStarted(); }
+        if (t.dataset.helpAction === "tour" && opts.onTour) opts.onTour();
     });
 
     renderNav();
     renderSection();
-    setTimeout(() => head.querySelector("#help-search").focus(), 30);
+
+    return {
+        modal,
+        focusSearch: () => search.focus(),
+        reportPopOutBlocked,
+        currentSection: () => activeId,
+        setSection: id => {
+            activeId = id;
+            search.value = "";
+            renderNav(); renderSection();
+        }
+    };
+}
+
+function showHelpCenter(sectionId) {
+    // Already popped out? Raise that window rather than opening a second copy.
+    if (helpWindowOpen()) {
+        helpWindow.focus();
+        if (sectionId && helpWindowApi) helpWindowApi.setSection(sectionId);
+        return;
+    }
+
+    const existing = document.getElementById("help-root");
+    if (existing) existing.remove();
+
+    const root = document.createElement("div");
+    root.id = "help-root";
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "gs-backdrop";
+    backdrop.addEventListener("click", e => { if (e.target === backdrop) close(); });
+
+    function close() {
+        root.remove();
+        document.removeEventListener("keydown", onKey, true);
+    }
+    function onKey(e) {
+        if (e.key !== "Escape") return;
+        // Swallow it so the shared Esc handler doesn't also close a step editor
+        // sitting behind the help centre.
+        e.stopPropagation();
+        close();
+    }
+    document.addEventListener("keydown", onKey, true);
+
+    const api = mountHelpCentre(document, {
+        sectionId: sectionId || HELP_SECTIONS[0].id,
+        onClose: close,
+        onTour: () => { close(); showGettingStarted(); },
+        onPopOut: () => {
+            // Only dismiss the modal once the window is actually up — a
+            // blocked pop-up would otherwise leave the reader with nothing.
+            if (popOutHelpCentre(api.currentSection())) close();
+            else api.reportPopOutBlocked();
+        }
+    });
+
+    backdrop.appendChild(api.modal);
+    root.appendChild(backdrop);
+    document.body.appendChild(root);
+    setTimeout(api.focusSearch, 30);
+}
+
+// ----------------------------------------------------------------------------
+// Popped-out help
+//
+// The builder is one self-contained file with no server, so the second window
+// can't just load a URL — it's opened blank and built in place: this page's own
+// <style> elements are copied across, then the same mountHelpCentre() renders
+// into it. Nothing is fetched, so it works offline and from file:// exactly
+// like the rest of the tool.
+// ----------------------------------------------------------------------------
+
+function helpWindowOpen() {
+    return !!(helpWindow && !helpWindow.closed && helpWindow.document);
+}
+
+/** Push the builder's current theme and interface scale onto the popped-out
+ *  window. Called when it opens, when it resizes, and whenever the builder's
+ *  own appearance settings change, so the two never drift apart. */
+function syncHelpWindow() {
+    if (!helpWindowOpen()) return;
+    try {
+        const el = helpWindow.document.documentElement;
+        el.dataset.theme = document.documentElement.dataset.theme || "light";
+        // The help window scales with the builder, but measures its own
+        // viewport — the same innerHeight ÷ scale that applyDisplaySettings()
+        // does here, since .help-modal.popped is sized from --app-vh.
+        const scale = effectiveScale();
+        el.style.setProperty("--ui-scale", String(scale));
+        el.style.setProperty("--app-vh", (helpWindow.innerHeight / scale) + "px");
+    } catch (e) { /* window went away mid-call — nothing to sync */ }
+}
+
+/** @returns {boolean} false when the browser blocked the popup. */
+function popOutHelpCentre(sectionId) {
+    if (helpWindowOpen()) {
+        helpWindow.focus();
+        if (sectionId && helpWindowApi) helpWindowApi.setSection(sectionId);
+        return true;
+    }
+
+    const w = window.open("", "enrollinator-help",
+        "popup=yes,width=1040,height=840,menubar=no,toolbar=no,location=no,status=no");
+    if (!w) return false;
+    helpWindow = w;
+
+    const doc = w.document;
+    doc.open();
+    doc.write('<!doctype html><html><head><meta charset="utf-8">' +
+              "<title>Profile Builder help</title></head><body></body></html>");
+    doc.close();
+
+    // Same stylesheet, same rules — the panel looks identical to the modal.
+    const style = doc.createElement("style");
+    style.textContent = [...document.querySelectorAll("style")]
+        .map(s => s.textContent).join("\n");
+    doc.head.appendChild(style);
+    doc.body.className = "help-window";
+
+    helpWindowApi = mountHelpCentre(doc, {
+        sectionId,
+        popped: true,
+        onClose: () => w.close(),
+        onTour: () => {
+            // The tour belongs to the builder window; raise it and run it there.
+            try { window.focus(); } catch (e) { /* focus refused — still runs */ }
+            showGettingStarted();
+        }
+    });
+    doc.body.appendChild(helpWindowApi.modal);
+
+    syncHelpWindow();
+    w.addEventListener("resize", syncHelpWindow);
+    w.addEventListener("pagehide", () => { helpWindow = null; helpWindowApi = null; });
+    // Esc closes it, matching the modal it came from.
+    doc.addEventListener("keydown", e => { if (e.key === "Escape") w.close(); });
+
+    setTimeout(() => { try { w.focus(); helpWindowApi.focusSearch(); } catch (e) {} }, 40);
+    return true;
 }
 
 document.getElementById("help-btn").addEventListener("click", () => showHelpCenter());
+// A stranded help window outlives its builder awkwardly — it can't run the
+// tour, and reloading the builder would orphan a second one.
+window.addEventListener("pagehide", () => {
+    if (helpWindowOpen()) helpWindow.close();
+});
 
 // Fleet context: restore it, paint the header chip, and make the chip a way
 // back into setup.

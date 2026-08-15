@@ -55,7 +55,9 @@ configs. It gives you a full visual editor for every key in the schema:
   (auto, or 90–175%) and content width, so the builder is as usable on a 5K
   monitor as on a laptop.
 - **Built-in help centre** — the **?** button opens a searchable reference for
-  every panel, action, condition, and export option. No network required.
+  every panel, action, condition, and export option. No network required, and
+  **⧉** pops it into its own window so it can sit beside your config instead of
+  on top of it.
 
 No XML by hand required. The builder is a single self-contained HTML file
 you can keep in the repo, share with teammates, or drop into a wiki.

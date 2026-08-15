@@ -73,6 +73,14 @@ searchable reference covering playbooks, actions, conditions, branching,
 media, tokens, export, and troubleshooting. It mirrors this document and is
 available offline, since the builder is a single self-contained file.
 
+The **⧉** button beside the help search box moves the panel into its own
+window, so a section stays open beside the config you're editing rather than
+over it. The window keeps the section you were reading, follows the builder's
+appearance and scale settings as you change them, and searches identically —
+it's constructed from the page in memory, so it needs no network and works
+from `file://`. Closing the builder closes it. If the browser blocks the
+pop-up the panel stays where it is and says so.
+
 ---
 
 ## Deployment target
