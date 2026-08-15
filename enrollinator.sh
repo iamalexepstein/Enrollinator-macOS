@@ -798,6 +798,18 @@ run_step() {
     done
 }
 
+# mark_unvisited_skipped <from> <to>
+# Mark every step in [from, to) that hasn't run yet as Skipped in the UI.
+# Reads main()'s _visited_idx via bash's dynamic scoping, and is idempotent —
+# the end-of-run sweep calls it over the whole range as a backstop.
+mark_unvisited_skipped() {
+    local from="$1" to="$2" k
+    for (( k=from; k<to; k++ )); do
+        [ -n "${_visited_idx[$k]:-}" ] && continue
+        ui_set_step_status "$k" pending "Skipped"
+    done
+}
+
 # First line only, trimmed to something UI-friendly (80 chars).
 trim_one_line() {
     local s="$1"
@@ -1716,6 +1728,8 @@ main() {
             i=$(( i + 1 ))
         elif [ "$branch_target" = '$end' ]; then
             log info "step=$step_id branch → end (rc=$rc)"
+            # Nothing else will run, so everything still unvisited is skipped.
+            mark_unvisited_skipped 0 "$total"
             break
         elif [ "$branch_target" = '$next' ]; then
             log info "step=$step_id branch → next (continue despite rc=$rc)"
@@ -1729,6 +1743,17 @@ main() {
                 i=$(( i + 1 ))
             else
                 log info "step=$step_id branch → $branch_target (idx=$target_idx rc=$rc)"
+                # Label the steps we just jumped over NOW rather than at the end
+                # of the run. A branch at step 0 that lands on the last step
+                # otherwise leaves every step between them reading "Pending"
+                # for the entire run — and if the landing step is a blocking
+                # one, the user sits looking at a list that claims work is
+                # still coming while nothing is happening. A backward branch
+                # can bring one of these back into play; run_step overwrites
+                # the status when it actually runs, so this self-corrects.
+                if [ "$target_idx" -gt $(( i + 1 )) ]; then
+                    mark_unvisited_skipped $(( i + 1 )) "$target_idx"
+                fi
                 i=$target_idx
             fi
         fi
@@ -1737,13 +1762,10 @@ main() {
         log warn "Step execution halted after $steps_done iterations — possible branch cycle detected"
     fi
 
-    # Mark any steps that were never visited (branched over / unreachable) as Skipped.
-    local _sk
-    for (( _sk=0; _sk<total; _sk++ )); do
-        if [ -z "${_visited_idx[$_sk]:-}" ]; then
-            ui_set_step_status "$_sk" pending "Skipped"
-        fi
-    done
+    # Backstop: anything still unvisited (unreachable, or skipped by a path the
+    # loop above didn't label) gets marked here. Branch-time marking handles the
+    # common case early; this catches the rest.
+    mark_unvisited_skipped 0 "$total"
 
     ui_set_progress 100 "Finished"
 
