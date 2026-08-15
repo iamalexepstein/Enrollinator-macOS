@@ -7,6 +7,25 @@ Everything here composes from the generic primitives in
 [`lib/plugins.sh`](../lib/plugins.sh); there is no vendor-specific code in
 Enrollinator itself.
 
+## Contents
+
+**Gates that block until the user acts**
+- [ZScaler: installed, running, and tunnel up](#zscaler-installed-running-and-tunnel-up)
+- [GlobalProtect](#globalprotect)
+- [CrowdStrike Falcon: installed and communicating](#crowdstrike-falcon-installed-and-communicating)
+- [FileVault is on](#filevault-is-on)
+- [Set Chrome as default browser](#set-chrome-as-default-browser)
+- [iCloud signed in (best-effort)](#icloud-signed-in-best-effort)
+
+**Actions and checks**
+- [Install Rosetta 2 (one-shot action, tolerate failure)](#install-rosetta-2-one-shot-action-tolerate-failure)
+- [Run a command as the logged-in user](#run-a-command-as-the-logged-in-user)
+- [Verify a configuration profile is installed](#verify-a-configuration-profile-is-installed)
+- [Optional add-on playbooks](#optional-add-on-playbooks)
+
+**Reference**
+- [Notes on composition](#notes-on-composition)
+
 ## ZScaler: installed, running, and tunnel up
 
 ```xml

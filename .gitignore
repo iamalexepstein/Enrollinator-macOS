@@ -17,5 +17,6 @@
 pkg/dist/
 *.pkg.bak
 
-# Claude Code local config
+# Claude Code local config — keep out of the repo entirely
 .claude/
+CLAUDE.md

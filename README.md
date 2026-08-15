@@ -20,7 +20,7 @@ The Profile Builder is the primary way to create and maintain Enrollinator
 configs. It gives you a full visual editor for every key in the schema:
 
 - **Playbook editor** — create multiple playbooks (Standard, Engineering,
-  Design, …), set selectors, drag-and-drop steps within and across playbooks.
+  Design, …) and drag-and-drop steps within and across playbooks.
 - **Step editor** — four tabs per step: Info, Action, Conditions, Behavior.
   All changes are buffered in a draft and committed only when you click Done.
 - **If/else branching** — click the ⎇ button on any step to open an inline
@@ -50,9 +50,10 @@ you can keep in the repo, share with teammates, or drop into a wiki.
   hand-installed profiles work identically.
 - **Single source of truth.** Branding, playbook selection, and every step
   live in one `.mobileconfig`. Swap configs without rebuilding the pkg.
-- **Playbooks with selectors.** One config defines Engineering, Design,
-  Standard, etc. Enrollinator picks one at launch based on hostname regex,
-  Mac model identifier, or a flag file. You can also scope the
+- **Multiple playbooks per config.** One config defines Engineering, Design,
+  Standard, etc. Which one runs is set by `DefaultPlaybook`, overridden per
+  run with `--profile`, or chosen by the user when the welcome screen's
+  playbook picker is enabled. To vary the playbook by machine, scope the
   `.mobileconfig` itself to a smart group in your MDM.
 - **Conditional gating.** A step can require a user action to complete
   before Enrollinator proceeds. The runner polls the condition and surfaces a
@@ -103,7 +104,8 @@ you can keep in the repo, share with teammates, or drop into a wiki.
   └─────────────────────────┘
 ```
 
-Enrollinator itself is ~500 lines of bash. It calls out to
+Enrollinator itself is ~3,700 lines of bash across the runner and its three
+libs. It calls out to
 `/usr/bin/defaults`, `/usr/libexec/PlistBuddy`, `/usr/bin/plutil`,
 `/usr/sbin/installer`, `/usr/bin/profiles`, and a few other standard
 utilities — all shipped in the base macOS install. The only external
