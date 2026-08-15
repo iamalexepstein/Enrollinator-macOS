@@ -39,9 +39,10 @@ configs. It gives you a full visual editor for every key in the schema:
 - **If/else branching** — click the ⎇ button on any step to open an inline
   branch block and wire `OnSuccess` / `OnFailure` to any other step ID,
   `$next`, or `$end`.
-- **SF Symbol picker** — enter `SF=symbol.name` in any icon field to get an
-  inline animation dropdown (pulse, bounce, rotate, …) and a direct link to
-  the [SF Symbols library](https://developer.apple.com/sf-symbols/).
+- **SF Symbol picker** — every icon and logo field has an **SF** button that
+  opens a searchable shortlist of symbols suited to Mac setup, labelled in
+  plain language (`vpn` → `lock.shield`), with an animation dropdown (pulse,
+  bounce, rotate, …) and a free-text field that accepts any symbol name.
 - **Token substitution** — `{ }` button next to Title / Subtitle inserts
   live tokens like `{console_user}`, `{serial_number}`, etc.
 - **Import / export** — drag in an existing `.mobileconfig` or bare plist to

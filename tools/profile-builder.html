@@ -1134,6 +1134,87 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 .cat-card-desc { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
 .cat-empty { padding: 34px 0; text-align: center; font-size: 13px; color: var(--text-4); }
 
+/* --------------------------------------------------------- icon / SF picker */
+.icon-input-row { display: flex; gap: 6px; align-items: center; }
+.icon-input-row > input { flex: 1; min-width: 0; }
+.sf-pick-btn {
+    flex-shrink: 0; height: 30px; padding: 0 11px;
+    border: 1px solid var(--border); background: var(--btn-bg);
+    border-radius: 7px; cursor: pointer;
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em;
+    color: var(--accent-text);
+}
+.sf-pick-btn:hover { background: var(--accent-tint); border-color: var(--accent-line); }
+
+/* The picker layers above the step editor / guide it was opened from. */
+.sf-backdrop {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(0,0,0,0.45); padding: 22px;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+.sf-modal {
+    background: var(--surface-2);
+    border: 1px solid var(--modal-edge);
+    border-radius: 16px;
+    box-shadow: 0 28px 80px rgba(0,0,0,0.35);
+    width: 100%; max-width: 640px;
+    max-height: calc(var(--app-vh) * 0.86);
+    display: flex; flex-direction: column; overflow: hidden;
+}
+.sf-search-row { padding: 13px 18px; border-bottom: 1px solid var(--hairline-line); }
+.sf-search {
+    width: 100%; height: 34px; padding: 0 12px; font-size: 13px;
+    background: var(--field-bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+}
+.sf-search:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-line-faint);
+}
+.sf-body { flex: 1; overflow-y: auto; padding: 4px 18px 14px; }
+.sf-group-title {
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-4);
+    margin: 14px 0 7px;
+}
+.sf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.sf-item {
+    display: flex; flex-direction: column; gap: 1px;
+    padding: 8px 10px; text-align: left; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--card-border);
+    border-radius: 8px; font: inherit; color: var(--text);
+}
+.sf-item:hover { border-color: var(--accent-line); background: var(--accent-tint); }
+.sf-item.selected {
+    border-color: var(--accent); background: var(--accent-tint);
+    box-shadow: 0 0 0 2px var(--accent-line-faint);
+}
+.sf-item-name {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11.5px; color: var(--accent-deep); word-break: break-all;
+}
+.sf-item-label { font-size: 11.5px; color: var(--text-3); }
+.sf-empty { padding: 26px 0; text-align: center; font-size: 12.5px; color: var(--text-4); }
+.sf-foot {
+    border-top: 1px solid var(--hairline-line);
+    background: var(--surface-3);
+    padding: 12px 18px;
+    display: flex; flex-direction: column; gap: 10px;
+}
+.sf-foot-row { display: flex; align-items: center; gap: 9px; }
+.sf-foot-row > label {
+    font-size: 11.5px; color: var(--text-4); white-space: nowrap;
+    text-transform: uppercase; letter-spacing: 0.05em; font-weight: 700;
+}
+.sf-foot-row input[type="text"], .sf-foot-row select {
+    flex: 1; height: 32px; padding: 0 10px; font-size: 12.5px;
+    background: var(--field-bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 7px;
+}
+.sf-foot-actions { display: flex; align-items: center; gap: 8px; }
+.sf-foot-note { font-size: 11px; color: var(--text-4); flex: 1; line-height: 1.45; }
+
 /* ------------------------------------------------------------ guided step */
 .guide-modal { max-width: 560px; }
 .guide-progress {
@@ -1171,6 +1252,17 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     outline: none; border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-line-faint);
 }
+.guide-icon-field {
+    display: flex; flex-direction: column; gap: 6px;
+    margin-top: 4px; padding: 11px 12px;
+    background: var(--surface-inset);
+    border: 1px solid var(--hairline); border-radius: 10px;
+}
+.guide-icon-label {
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-4);
+}
+.guide-icon-field .hint { margin: 0; }
 .guide-choices { display: flex; flex-direction: column; gap: 7px; }
 .guide-choice {
     display: flex; flex-direction: column; gap: 2px;
@@ -1885,6 +1977,148 @@ function sfLink() {
         target: "_blank", rel: "noopener",
         title: "Browse the SF Symbols library (requires the free SF Symbols app)"
     }, "SF Symbols library ↗");
+}
+
+// ----------------------------------------------------------------------------
+// SF Symbol catalogue
+//
+// Apple ships thousands of symbols; this is the couple of hundred that come up
+// when describing a Mac being set up, grouped and labelled in the words an
+// admin would search for ("vpn", "install", "restart") rather than only by
+// symbol name. The picker's free-text field takes any name at all, so the
+// curation is a shortcut, never a limit.
+//
+// Note the glyphs themselves aren't shown: SF Symbols is a system font with no
+// web distribution, so a browser has nothing to draw. Names and labels are what
+// we can honestly render, and the picker says so.
+// ----------------------------------------------------------------------------
+
+const SF_SYMBOL_GROUPS = [
+    { label: "Progress & status", symbols: [
+        ["checkmark.circle",            "Done"],
+        ["checkmark.circle.fill",       "Done, filled"],
+        ["checkmark.seal",              "Verified"],
+        ["hourglass",                   "Waiting"],
+        ["clock",                       "Time"],
+        ["arrow.clockwise",             "Retry"],
+        ["arrow.triangle.2.circlepath", "Sync, check in"],
+        ["ellipsis.circle",             "In progress"],
+        ["exclamationmark.triangle",    "Warning"],
+        ["xmark.octagon",               "Failed"],
+        ["info.circle",                 "Information"],
+        ["questionmark.circle",         "Help"],
+        ["bell",                        "Notification"],
+        ["flag",                        "Checkpoint"]
+    ]},
+    { label: "Install & software", symbols: [
+        ["arrow.down.app",              "Install an app"],
+        ["arrow.down.circle",           "Download"],
+        ["square.and.arrow.down",       "Download to disk"],
+        ["shippingbox",                 "Package"],
+        ["cube.box",                    "Bundle"],
+        ["app.badge",                   "App update"],
+        ["square.stack.3d.up",          "Library items"],
+        ["gearshape",                   "Settings"],
+        ["gearshape.2",                 "System configuration"],
+        ["wrench.and.screwdriver",      "Maintenance"],
+        ["hammer",                      "Developer tools"],
+        ["curlybraces",                 "Code editor"],
+        ["terminal",                    "Shell command"],
+        ["bolt.badge.automatic",        "Policy, automation"],
+        ["cpu",                         "Rosetta, architecture"],
+        ["arrow.up.circle",             "Software update"]
+    ]},
+    { label: "Security & identity", symbols: [
+        ["lock",                        "Locked"],
+        ["lock.shield",                 "VPN, secure connection"],
+        ["lock.open",                   "Unlocked"],
+        ["key",                         "Credentials"],
+        ["key.horizontal",              "Licence key"],
+        ["person.badge.key",            "Account sign-in"],
+        ["faceid",                      "Face ID"],
+        ["touchid",                     "Touch ID"],
+        ["checkmark.shield",            "Compliant"],
+        ["exclamationmark.shield",      "Not compliant"],
+        ["shield.lefthalf.filled",      "Security agent"],
+        ["network.badge.shield.half.filled", "MDM enrolment"],
+        ["hand.raised",                 "Privacy"],
+        ["eye.slash",                   "Hidden, private"]
+    ]},
+    { label: "Network & cloud", symbols: [
+        ["wifi",                        "Wi-Fi"],
+        ["network",                     "Network"],
+        ["globe",                       "Internet"],
+        ["antenna.radiowaves.left.and.right", "Connectivity"],
+        ["cloud",                       "Cloud"],
+        ["icloud",                      "iCloud"],
+        ["arrow.up.arrow.down.circle",  "Transfer"],
+        ["externaldrive.connected.to.line.below", "Network drive"],
+        ["server.rack",                 "Server"],
+        ["point.3.connected.trianglepath.dotted", "Mesh, agent"]
+    ]},
+    { label: "Device & hardware", symbols: [
+        ["laptopcomputer",              "Mac laptop"],
+        ["desktopcomputer",             "Mac desktop"],
+        ["macwindow",                   "Window, app"],
+        ["display",                     "External display"],
+        ["memorychip",                  "Memory"],
+        ["internaldrive",               "Disk"],
+        ["externaldrive",               "External disk"],
+        ["printer",                     "Printer"],
+        ["keyboard",                    "Keyboard"],
+        ["battery.100",                 "Battery, power"],
+        ["iphone",                      "iPhone"],
+        ["ipad",                        "iPad"],
+        ["headphones",                  "Audio device"],
+        ["powerplug",                   "Power, restart"]
+    ]},
+    { label: "People & communication", symbols: [
+        ["person.crop.circle",          "User"],
+        ["person.2",                    "Team"],
+        ["person.3",                    "Department"],
+        ["hand.wave",                   "Welcome"],
+        ["envelope",                    "Email"],
+        ["bubble.left.and.bubble.right","Chat, Slack"],
+        ["phone",                       "Phone"],
+        ["video",                       "Video call"],
+        ["calendar",                    "Calendar"],
+        ["building.2",                  "Office, company"],
+        ["lifepreserver",               "Support, help desk"]
+    ]},
+    { label: "Files & documents", symbols: [
+        ["doc",                         "Document"],
+        ["doc.text",                    "Text document"],
+        ["doc.badge.checkmark",         "Signed, accepted"],
+        ["doc.on.doc",                  "Copy"],
+        ["folder",                      "Folder"],
+        ["tray.full",                   "Inbox"],
+        ["list.clipboard",              "Inventory, checklist"],
+        ["list.bullet",                 "List"],
+        ["book",                        "Documentation"],
+        ["signature",                   "Agreement"],
+        ["trash",                       "Delete, clean up"]
+    ]},
+    { label: "Media", symbols: [
+        ["photo",                       "Image"],
+        ["photo.on.rectangle",          "Slideshow"],
+        ["play.rectangle",              "Video"],
+        ["play.circle",                 "Play"],
+        ["film",                        "Film"],
+        ["camera",                      "Camera"],
+        ["speaker.wave.2",              "Sound"],
+        ["mic",                         "Microphone"],
+        ["paintpalette",                "Design, branding"],
+        ["sparkles",                    "Default, highlight"]
+    ]}
+];
+
+/** Flat [name, label, group] for searching. */
+function sfSymbolIndex() {
+    const out = [];
+    for (const g of SF_SYMBOL_GROUPS) {
+        for (const [name, label] of g.symbols) out.push({ name, label, group: g.label });
+    }
+    return out;
 }
 const HARDWARE_FIELDS = [
     ["console_user",   "Current user"],
@@ -3475,7 +3709,18 @@ function renderIconInput(value, onChange, updateFn) {
         if (updateFn) updateFn();
     }, sf ? "SF=symbol.name" : "/path/img.png, https://…, or SF=symbol.name");
 
-    const nodes = [inputEl];
+    // The field takes a path, a URL or a symbol token; the SF button is for the
+    // last of those, which is the one nobody can type from memory.
+    const sfBtn = h("button", {
+        class: "sf-pick-btn",
+        "data-tooltip": "Browse SF Symbols",
+        onclick: () => openSFPicker(value, v => {
+            onChange(v);
+            if (updateFn) updateFn();
+        })
+    }, "SF");
+
+    const nodes = [h("div", { class: "icon-input-row" }, inputEl, sfBtn)];
 
     if (sf) {
         const animSel = h("div", { class: "sf-anim-row" },
@@ -3501,6 +3746,135 @@ function renderIconInput(value, onChange, updateFn) {
     ));
 
     return nodes;
+}
+
+/**
+ * Searchable SF Symbol picker. Layers above whatever opened it (step editor,
+ * guided question, settings popover) in its own root, so the caller's DOM is
+ * left alone and closing the picker returns to exactly what was there.
+ *
+ * @param {string} current  the field's current value — a symbol token, a path,
+ *                          or empty. Non-symbol values just leave nothing
+ *                          preselected; the picker never destroys a path
+ *                          unless the user actually chooses something.
+ * @param {(value: string) => void} onPick
+ */
+function openSFPicker(current, onPick) {
+    const existing = document.getElementById("sf-picker-root");
+    if (existing) existing.remove();
+
+    const parsed = parseSFValue(current);
+    let name = parsed ? parsed.name : "";
+    let animation = parsed ? parsed.animation : "";
+    let query = "";
+
+    const index = sfSymbolIndex();
+    const root = h("div", { id: "sf-picker-root" });
+
+    function close() {
+        root.remove();
+        document.removeEventListener("keydown", onKey, true);
+    }
+    function onKey(e) {
+        if (e.key !== "Escape") return;
+        // Swallow it: Esc here means "close the picker", not "discard the step
+        // editor underneath".
+        e.stopPropagation();
+        close();
+    }
+    document.addEventListener("keydown", onKey, true);
+
+    const body = h("div", { class: "sf-body" });
+    const customInput = h("input", { type: "text", value: name,
+        placeholder: "any.symbol.name",
+        oninput: e => { name = e.target.value.trim(); paintBody(); refreshFoot(); } });
+    const animSelect = h("select", {
+        onchange: e => { animation = e.target.value; }
+    }, ...SF_ANIMATIONS.map(([val, label]) =>
+        h("option", { value: val, selected: val === animation }, label)));
+
+    function refreshFoot() {
+        if (customInput.value.trim() !== name) customInput.value = name;
+    }
+
+    function pick(symbolName) {
+        name = symbolName;
+        refreshFoot();
+        paintBody();
+    }
+
+    function paintBody() {
+        body.innerHTML = "";
+        const q = query.trim().toLowerCase();
+        const groups = q
+            ? [{ label: "Matches",
+                 symbols: index.filter(s =>
+                     s.name.toLowerCase().includes(q) ||
+                     s.label.toLowerCase().includes(q) ||
+                     s.group.toLowerCase().includes(q)
+                 ).map(s => [s.name, s.label]) }]
+            : SF_SYMBOL_GROUPS;
+
+        let shown = 0;
+        for (const g of groups) {
+            if (!g.symbols.length) continue;
+            shown += g.symbols.length;
+            const grid = h("div", { class: "sf-grid" });
+            for (const [sym, label] of g.symbols) {
+                grid.appendChild(h("button", {
+                    class: "sf-item" + (sym === name ? " selected" : ""),
+                    onclick: () => pick(sym)
+                },
+                    h("span", { class: "sf-item-name" }, sym),
+                    h("span", { class: "sf-item-label" }, label)
+                ));
+            }
+            body.appendChild(h("div", null,
+                h("div", { class: "sf-group-title" }, g.label),
+                grid));
+        }
+        if (!shown) {
+            body.appendChild(h("div", { class: "sf-empty" },
+                "No match in the shortlist — type the exact symbol name below, it'll still work."));
+        }
+    }
+    paintBody();
+
+    const search = h("input", { type: "text", class: "sf-search",
+        placeholder: "Search — vpn, install, restart, wifi…",
+        oninput: e => { query = e.target.value; paintBody(); } });
+
+    const modal = h("div", { class: "sf-modal" },
+        h("div", { class: "modal-header" },
+            h("div", { class: "modal-title" }, "Choose an SF Symbol"),
+            h("button", { class: "btn", onclick: close }, "Cancel")),
+        h("div", { class: "sf-search-row" }, search),
+        body,
+        h("div", { class: "sf-foot" },
+            h("div", { class: "sf-foot-row" },
+                h("label", null, "Symbol"), customInput),
+            h("div", { class: "sf-foot-row" },
+                h("label", null, "Animation"), animSelect),
+            h("div", { class: "sf-foot-row" },
+                h("span", { class: "sf-foot-note" },
+                    "Names, not previews — SF Symbols is a system font, so a browser has nothing to draw. ",
+                    sfLink()),
+                h("div", { class: "sf-foot-actions" },
+                    btn("Remove icon", () => { onPick(""); close(); }, "danger"),
+                    btn("Use symbol", () => {
+                        if (!name) { onPick(""); close(); return; }
+                        onPick(buildSFValue(name, animation));
+                        close();
+                    }, "primary")))
+        )
+    );
+
+    const backdrop = h("div", { class: "sf-backdrop",
+        onclick: e => { if (e.target === backdrop) close(); } });
+    backdrop.appendChild(modal);
+    root.appendChild(backdrop);
+    document.body.appendChild(root);
+    setTimeout(() => search.focus(), 40);
 }
 
 // ============================================================================
@@ -4402,13 +4776,15 @@ function renderWelcomeScreenTile() {
             }),
             h("span", { style: "font-size:12px;color:var(--text)" }, "Hide icon")
         );
-        const iconInpEl = h("input", { type: "text", value: pp.Icon || "",
-            placeholder: "/path/img.png, https://…, or SF=symbol.name",
-            disabled: pp.HideIcon,
-            oninput: e => { pp.Icon = e.target.value; updatePreview(); }
-        });
+        // Shared icon control, so this field gets the SF picker like every
+        // other icon and logo in the builder. Suppressed when the icon area is
+        // hidden outright, since there'd be nothing for it to affect.
+        const iconNodes = pp.HideIcon
+            ? [h("input", { type: "text", value: "", disabled: true,
+                            placeholder: "Icon area hidden" })]
+            : renderIconInput(pp.Icon, v => { pp.Icon = v; updatePreview(); }, reopenSettings);
         ppSection.appendChild(row("Icon",
-            h("div", { style: "display:flex;flex-direction:column;gap:4px" }, iconInpEl, hideIconCb),
+            h("div", { style: "display:flex;flex-direction:column;gap:4px" }, ...iconNodes, hideIconCb),
             hint('Path, URL, or SF= token. Omit to use the default. Check "Hide icon" to suppress the icon area entirely.')));
         ppSection.appendChild(row("Size",
             h("div", { style: "display:flex;gap:8px;align-items:center" },
@@ -4995,14 +5371,15 @@ const STEP_RECIPES = [
 // is omitted is display-only (used for the closing summary).
 // ----------------------------------------------------------------------------
 
-/** The closing question every guide shares. The recipe has already put a
- *  sensible name in place, so this is a confirm-and-edit, never a blank. */
+/** The closing question every guide shares: the name, and the icon shown beside
+ *  it in the progress list. The recipe has already put a sensible value in both,
+ *  so this is a confirm-and-edit, never a blank. */
 function nameQuestion(hint) {
     return {
         id: "name",
         ask: "What should this step be called?",
-        hint: hint || "Shown in the progress window while the step runs. Change it to something your users would recognise.",
-        type: "text",
+        hint: hint || "Shown in the progress window while the step runs, next to the icon you pick here.",
+        type: "name-icon",
         placeholder: "Install Google Chrome",
         get: st => st.Name,
         set: (st, v) => { st.Name = v; }
@@ -5103,9 +5480,11 @@ const STEP_GUIDES = {
         nameQuestion()
     ],
     "wait-user": () => [
+        // Doubles as this guide's name screen — asking again at the end would
+        // be asking the same question twice — so it carries the icon too.
         { id: "task", ask: "What do you need the person to do?",
           hint: "Phrase it as an instruction — it becomes both the step name and the title of the window they'll see.",
-          type: "text", placeholder: "Sign in to the VPN",
+          type: "name-icon", placeholder: "Sign in to the VPN",
           get: st => st.Name,
           set: (st, v) => { st.Name = v; if (st.WaitWindow) st.WaitWindow.Title = v; } },
         { id: "message", ask: "What should the window tell them?",
@@ -5129,7 +5508,8 @@ const STEP_GUIDES = {
           hint: "One button, so whatever they click continues the run.",
           type: "text", placeholder: "Continue",
           get: st => (st.Action.Buttons || [])[0] || "",
-          set: (st, v) => { st.Action.Buttons = [v || "Continue"]; st.Action.ExpectedButton = v || "Continue"; } }
+          set: (st, v) => { st.Action.Buttons = [v || "Continue"]; st.Action.ExpectedButton = v || "Continue"; } },
+        nameQuestion("Taken from the headline. This is the progress-list entry, not the dialog itself — shorten it if the headline is long.")
     ],
     "dialog-eula": () => [
         { id: "title", ask: "What's the policy called?",
@@ -5149,7 +5529,8 @@ const STEP_GUIDES = {
               const yes = v || "Agree";
               st.Action.Buttons = [yes, (st.Action.Buttons || [])[1] || "Decline"];
               st.Action.ExpectedButton = yes;
-          } }
+          } },
+        nameQuestion("Taken from the policy name. This is the progress-list entry, not the dialog itself.")
     ],
     "dialog-slideshow": () => [
         { id: "title", ask: "What's the walkthrough called?",
@@ -5171,7 +5552,8 @@ const STEP_GUIDES = {
           type: "text", placeholder: "Got it",
           hint: "Shown once they've clicked through every slide.",
           get: st => (st.Action.Buttons || [])[0] || "",
-          set: (st, v) => { st.Action.Buttons = [v || "Got it"]; st.Action.ExpectedButton = v || "Got it"; } }
+          set: (st, v) => { st.Action.Buttons = [v || "Got it"]; st.Action.ExpectedButton = v || "Got it"; } },
+        nameQuestion("Taken from the walkthrough title. This is the progress-list entry, not the window itself.")
     ],
     "dialog-video": () => [
         { id: "title", ask: "What's the video called?",
@@ -5190,7 +5572,8 @@ const STEP_GUIDES = {
               { value: "no", label: "Wait for them to press play", desc: "Shows the poster frame and a play button." }
           ],
           get: st => st.Action.VideoAutoplay === true ? "yes" : "no",
-          set: (st, v) => { st.Action.VideoAutoplay = v === "yes" ? true : null; } }
+          set: (st, v) => { st.Action.VideoAutoplay = v === "yes" ? true : null; } },
+        nameQuestion("Taken from the video title. This is the progress-list entry, not the window itself.")
     ],
     pause: () => [
         { id: "seconds", ask: "How long should it pause?",
@@ -5469,6 +5852,30 @@ function runGuidedStep(pIdx, insertIdx, entry, st, questions) {
                 const n = parseInt(input.value, 10);
                 return Number.isFinite(n) ? n : null;
             };
+            setTimeout(() => { input.focus(); input.select(); }, 40);
+        } else if (q.type === "name-icon") {
+            // Name and icon together: they're the two things the progress
+            // window shows side by side, so it reads oddly to split them
+            // across screens — and it keeps the guide one question shorter.
+            const input = h("input", { type: "text",
+                placeholder: q.placeholder || "", value: q.get(st) || "" });
+            body.appendChild(input);
+
+            const iconWrap = h("div", { class: "guide-icon-field" });
+            // The icon control re-renders itself (the animation row appears
+            // only for SF= values), so it gets its own repaint rather than
+            // redrawing the whole question.
+            function paintIcon() {
+                iconWrap.innerHTML = "";
+                iconWrap.append(
+                    h("div", { class: "guide-icon-label" }, "Icon"),
+                    ...renderIconInput(st.Icon, v => { st.Icon = v; }, paintIcon)
+                );
+            }
+            paintIcon();
+            body.appendChild(iconWrap);
+
+            readValue = () => input.value.trim();
             setTimeout(() => { input.focus(); input.select(); }, 40);
         } else {
             const input = h("input", { type: "text",
@@ -7693,6 +8100,7 @@ const HELP_SECTIONS = [
         { h: "Guided mode", body: `
             <p>With an MDM set, picking a recipe asks for the handful of values it can't know — one question per screen, with everything else filled in behind you. <i>Run a Jamf policy</i> asks which custom event and what to call the step, and that's the whole interaction.</p>
             <table>
+              <tr><td>Name &amp; icon</td><td>The closing question pairs them, since they sit side by side in the progress window. The icon field has the same <b>SF</b> picker as everywhere else.</td></tr>
               <tr><td>Enter</td><td>Next question. In a message box use ⌘ Enter, since plain Enter is a newline there.</td></tr>
               <tr><td>Back</td><td>Revisit an answer. <b>Skip</b> appears on optional questions.</td></tr>
               <tr><td>Open the full editor</td><td>Hands the half-built step to the four-tab editor with your answers applied. On every screen.</td></tr>
@@ -7709,7 +8117,10 @@ const HELP_SECTIONS = [
               <tr><td>Icon</td><td>An SF Symbol token (<code>SF=checkmark.circle</code>), an absolute path, or an <code>https://</code> URL.</td></tr>
             </table>` },
         { h: "Icons and SF Symbols", body: `
-            <p>Type <code>SF=</code> followed by a symbol name to use Apple's SF Symbols. An animation dropdown appears alongside — pulse, bounce, variable colour, appear, disappear, rotate, plus breathe and wiggle on macOS 14+. Animations need macOS 13+.</p>
+            <p>Every icon and logo field in the builder — step <b>Icon</b>, branding <b>Logo</b> and <b>Banner</b>, the welcome screen's <b>Logo / icon</b>, the playbook picker's and add-on picker's <b>Icon</b> — has an <b>SF</b> button beside it.</p>
+            <p>It opens a searchable shortlist of around a hundred symbols relevant to setting up a Mac, labelled in the words you'd search for: <code>vpn</code> finds <code>lock.shield</code>, <code>restart</code> finds <code>powerplug</code>. The <b>Symbol</b> field below the list takes any SF Symbol name at all, so the shortlist is a shortcut rather than a limit.</p>
+            <p>An animation dropdown sits alongside — pulse, bounce, variable colour, appear, disappear, rotate, plus breathe and wiggle on macOS 14+. Animations need macOS 13+.</p>
+            <div class="help-tip">The picker lists names rather than drawing the symbols. SF Symbols is a system font with no web distribution, so a browser has nothing to render — use Apple's free SF Symbols app to see the artwork, then paste the name in.</div>
             <p>Remote images are fetched at run time with a short timeout; if the host is unreachable Enrollinator drops the image rather than hanging the window.</p>` },
         { h: "Reordering and duplicating", body: `
             <ul>

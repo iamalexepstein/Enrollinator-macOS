@@ -12,7 +12,7 @@ and everything runs locally in the page.
 - [Deployment target](#deployment-target) — [What it changes](#what-it-changes) · [Advanced mode](#advanced-mode) · [Nothing is removed](#nothing-is-removed)
 - [Global settings ⚙](#global-settings-) — [Token substitution](#token-substitution)
 - [Playbooks](#playbooks) — [Selectors (removed)](#selectors-removed) · [Addon playbooks](#addon-playbooks)
-- [Steps](#steps) — [The step catalogue](#the-step-catalogue) · [Guided mode](#guided-mode)
+- [Steps](#steps) — [The step catalogue](#the-step-catalogue) · [The SF Symbol picker](#the-sf-symbol-picker) · [Guided mode](#guided-mode)
   — [Info tab](#info-tab) · [Action tab](#action-tab) · [Conditions tab](#conditions-tab) · [Behavior tab](#behavior-tab)
 - [Wait window](#wait-window)
 - [Branching](#branching)
@@ -265,6 +265,30 @@ you'd rather build it up by hand. Step IDs are derived from the name and made
 unique within the playbook, so branch targets have something to point at
 immediately.
 
+### The SF Symbol picker
+
+Every icon and logo field in the builder — step **Icon**, branding **Logo** and
+**Banner**, the welcome screen's **Logo / icon**, the playbook picker's
+**Icon**, and the add-on picker's **Icon** — has an **SF** button beside it.
+
+It opens a searchable shortlist of about a hundred symbols relevant to setting
+up a Mac, grouped by what they're for (progress, install, security, network,
+hardware, people, files, media) and labelled in the words you'd search for:
+typing `vpn` finds `lock.shield`, `restart` finds `powerplug`. Pick one, choose
+an animation, and **Use symbol** writes the `SF=…` token back into the field.
+
+| Control | What it does |
+|---|---|
+| Search | Matches symbol names, plain-language labels, and group names. |
+| Symbol | Free-text — accepts **any** SF Symbol name, not just the shortlist. |
+| Animation | `pulse`, `bounce`, `variableColor`, `appear`, `disappear`, `rotate`, plus `breathe` and `wiggle` on macOS 14+. |
+| Remove icon | Clears the field. |
+
+The picker lists names rather than drawing the symbols: SF Symbols is a system
+font with no web distribution, so a browser has nothing to render. Use Apple's
+free [SF Symbols app](https://developer.apple.com/sf-symbols/) to see the
+artwork, then paste any name into the **Symbol** field.
+
 ### Guided mode
 
 With an MDM set, picking a recipe asks for the handful of values the recipe
@@ -272,6 +296,9 @@ can't know — one question per screen, with everything else filled in behind
 you. "Run a Jamf policy" asks which custom event and what to call the step, and
 that's the whole interaction; the command, timeout and icon are already right.
 
+- The closing question pairs the step **name** with its **icon**, since those
+  are the two things shown side by side in the progress window. The icon field
+  carries the same **SF** picker as everywhere else.
 - **Enter** moves to the next question. In a message box, `⌘`/`Ctrl` + `Enter`
   does, since plain Enter is a newline.
 - **Back** revisits an answer. **Skip** appears on optional questions.
@@ -294,7 +321,7 @@ Action for a policy step, Conditions for a wait, Behavior for a guided wait.
 | Name | Displayed in the step list during the run. |
 | Description | Shown in the step list subtitle. |
 | ID | Optional stable identifier for branching (`OnSuccess` / `OnFailure`). Auto-generated if left blank. |
-| Icon | SF Symbol token (`SF=checkmark.circle`), absolute path, or `https://` URL. The **SF** button opens a searchable symbol picker with animation options (pulse, bounce, rotate, …). |
+| Icon | SF Symbol token (`SF=checkmark.circle`), absolute path, or `https://` URL. The **SF** button opens the [symbol picker](#the-sf-symbol-picker). |
 
 ### Action tab
 
