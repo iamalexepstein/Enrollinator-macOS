@@ -1014,6 +1014,12 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     color: var(--text-ghost); margin-left: 6px;
 }
 .setup-hint { font-size: 12px; color: var(--text-3); line-height: 1.5; margin: -2px 0 0; }
+.setup-sublabel {
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-4); margin-top: 2px;
+}
+.setup-logo-field { display: flex; flex-direction: column; gap: 6px; }
+.setup-logo-field .hint { margin: 0; }
 .mdm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .mdm-card {
     display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
@@ -2366,6 +2372,7 @@ const fleet = {
     mdm: null,          // MDM_PRESETS id with kind "mdm", or null when unset
     tools: [],          // MDM_PRESETS ids with kind "tool"
     org: "",            // organisation name, used to seed profile identity
+    logo: "",           // organisation logo, used to seed Branding.Logo
     configured: false,  // true once setup has been completed or dismissed
     showAllSources: false
 };
@@ -2387,6 +2394,7 @@ function loadFleetPrefs() {
             });
         }
         if (typeof saved.org === "string") fleet.org = saved.org;
+        if (typeof saved.logo === "string") fleet.logo = saved.logo;
         fleet.configured = !!saved.configured;
         fleet.showAllSources = !!saved.showAllSources;
     } catch (e) { /* corrupt or unavailable storage — fall back to unset */ }
@@ -2394,7 +2402,7 @@ function loadFleetPrefs() {
 
 function saveFleetPrefs() {
     prefSet(FLEET_PREFS_KEY, JSON.stringify({
-        mdm: fleet.mdm, tools: fleet.tools, org: fleet.org,
+        mdm: fleet.mdm, tools: fleet.tools, org: fleet.org, logo: fleet.logo,
         configured: fleet.configured, showAllSources: fleet.showAllSources
     }));
 }
@@ -7630,6 +7638,20 @@ function seedIdentityFromOrg(org) {
     }
 }
 
+/** Push the organisation's logo into Branding.Logo — the image at the top of
+ *  the onboarding window, which the welcome screen and add-on picker both fall
+ *  back to, so setting it once covers all three.
+ *
+ *  @param {string} logo     the value just chosen in setup
+ *  @param {string} previous what setup last pushed, so a logo the user has
+ *                           since edited in Profile Settings is left alone
+ *                           while re-running setup can still change its own. */
+function seedLogoFromOrg(logo, previous) {
+    const current = state.Branding.Logo || "";
+    if (current && current !== (previous || "")) return;  // hand-edited — leave it
+    state.Branding.Logo = logo || "";
+}
+
 /** Keep the header chip in step with the fleet. */
 function refreshFleetChip() {
     const btn = document.getElementById("fleet-btn");
@@ -7671,7 +7693,10 @@ function showFleetSetup(opts) {
     if (existing) existing.remove();
 
     // Edit a copy: closing without confirming must leave the fleet untouched.
-    const draft = { mdm: fleet.mdm, tools: fleet.tools.slice(), org: fleet.org };
+    // Reopening setup should show the logo that's actually in use, not the one
+    // setup last pushed — they differ once someone edits it in Profile Settings.
+    const draft = { mdm: fleet.mdm, tools: fleet.tools.slice(), org: fleet.org,
+                    logo: state.Branding.Logo || fleet.logo };
 
     const root = h("div", { id: "fleet-setup-root" });
     const backdrop = h("div", { class: "gs-backdrop",
@@ -7765,16 +7790,32 @@ function showFleetSetup(opts) {
         toolList
     ));
 
-    // ---- Organisation
+    // ---- Organisation: name and logo, the two things every profile wants and
+    // nobody thinks to go looking for in Profile Settings.
     const orgInput = h("input", { type: "text", value: draft.org,
         placeholder: "Example, Inc.",
         oninput: e => { draft.org = e.target.value; } });
+
+    const logoWrap = h("div", { class: "setup-logo-field" });
+    // Same control as every other icon and logo in the builder, SF picker
+    // included — it re-renders itself because the animation row only exists
+    // for SF= values.
+    function paintLogo() {
+        logoWrap.innerHTML = "";
+        logoWrap.append(
+            ...renderIconInput(draft.logo, v => { draft.logo = v; }, paintLogo)
+        );
+    }
+    paintLogo();
+
     body.appendChild(h("div", { class: "setup-section" },
-        h("div", { class: "setup-label" }, "Organisation name",
+        h("div", { class: "setup-label" }, "Organisation",
             h("span", { class: "setup-optional" }, "optional")),
         orgInput,
+        h("div", { class: "setup-sublabel" }, "Logo"),
+        logoWrap,
         h("p", { class: "setup-hint" },
-            "Fills in the profile's organisation and payload identifier so you don't have to hunt them down in Profile Settings. Existing edits are left alone.")
+            "The name fills in the profile's organisation and payload identifier; the logo becomes the image at the top of the onboarding window, which the welcome screen and add-on picker both fall back to. Anything you've already edited in Profile Settings is left alone.")
     ));
 
     modal.appendChild(body);
@@ -7790,12 +7831,15 @@ function showFleetSetup(opts) {
             h("button", { class: "btn primary",
                 style: "height:34px;padding:0 22px;font-size:13px",
                 onclick: () => {
+                    const previousLogo = fleet.logo;
                     fleet.mdm = draft.mdm;
                     fleet.tools = draft.tools.slice();
                     fleet.org = draft.org.trim();
+                    fleet.logo = (draft.logo || "").trim();
                     fleet.configured = true;
                     saveFleetPrefs();
                     seedIdentityFromOrg(fleet.org);
+                    seedLogoFromOrg(fleet.logo, previousLogo);
                     refreshFleetChip();
                     root.remove();
                     renderCanvas(); updatePreview(); reopenSettings();
@@ -8043,6 +8087,7 @@ const HELP_SECTIONS = [
               <tr><td>Step catalogue</td><td>Your MDM's tasks lead the <i>Install software</i> group, followed by your tooling, then macOS built-ins. Other MDMs' tasks are not offered.</td></tr>
               <tr><td>MDM / source picker</td><td>Narrows to your MDM, macOS built-ins, any tooling you named, and Custom. Other MDMs' presets are hidden, not reordered.</td></tr>
               <tr><td>Profile identity</td><td>An organisation name fills in <code>PayloadOrganization</code> and <code>PayloadIdentifier</code>. Fields you have already edited are left alone.</td></tr>
+              <tr><td>Branding logo</td><td>The organisation logo becomes <code>Branding.Logo</code> — the image at the top of the onboarding window, which the welcome screen and add-on picker both fall back to.</td></tr>
             </table>` },
         { h: "Advanced mode", body: `
             <p>Picking <b>Advanced mode</b> instead of an MDM turns all of that off: every source in every picker, the whole catalogue, and recipes that go straight to the full step editor with no questions.</p>
@@ -8117,7 +8162,7 @@ const HELP_SECTIONS = [
               <tr><td>Icon</td><td>An SF Symbol token (<code>SF=checkmark.circle</code>), an absolute path, or an <code>https://</code> URL.</td></tr>
             </table>` },
         { h: "Icons and SF Symbols", body: `
-            <p>Every icon and logo field in the builder — step <b>Icon</b>, branding <b>Logo</b> and <b>Banner</b>, the welcome screen's <b>Logo / icon</b>, the playbook picker's and add-on picker's <b>Icon</b> — has an <b>SF</b> button beside it.</p>
+            <p>Every icon and logo field in the builder — the organisation <b>Logo</b> in deployment setup, step <b>Icon</b>, branding <b>Logo</b> and <b>Banner</b>, the welcome screen's <b>Logo / icon</b>, the playbook picker's and add-on picker's <b>Icon</b> — has an <b>SF</b> button beside it.</p>
             <p>It opens a searchable shortlist of around a hundred symbols relevant to setting up a Mac, labelled in the words you'd search for: <code>vpn</code> finds <code>lock.shield</code>, <code>restart</code> finds <code>powerplug</code>. The <b>Symbol</b> field below the list takes any SF Symbol name at all, so the shortlist is a shortcut rather than a limit.</p>
             <p>An animation dropdown sits alongside — pulse, bounce, variable colour, appear, disappear, rotate, plus breathe and wiggle on macOS 14+. Animations need macOS 13+.</p>
             <div class="help-tip">The picker lists names rather than drawing the symbols. SF Symbols is a system font with no web distribution, so a browser has nothing to render — use Apple's free SF Symbols app to see the artwork, then paste the name in.</div>

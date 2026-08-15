@@ -93,7 +93,7 @@ shows the current target and reopens the setup sheet.
 |---|---|
 | What manages these Macs? | Picks one MDM, which turns on [guided mode](#guided-mode). Or pick **Advanced mode** — see below. |
 | Also deployed on this fleet? | Tooling that pairs with any MDM — currently Installomator. Zero or more. |
-| Organisation name | Optional. Fills in `PayloadOrganization` and `PayloadIdentifier` so they aren't left as `com.example` placeholders. Fields you've already edited are left alone. |
+| Organisation | Optional name and logo. The name fills in `PayloadOrganization` and `PayloadIdentifier` so they aren't left as `com.example` placeholders; the logo becomes `Branding.Logo`, the image at the top of the onboarding window. Anything you've already edited in Profile Settings is left alone. |
 
 This is **builder context, not configuration**. It lives in the browser's local
 storage and never reaches the exported profile — two people building the same
@@ -107,6 +107,7 @@ config on different MDMs get byte-identical output.
 | [Step catalogue](#the-step-catalogue) | Your MDM's tasks lead the *Install software* group, then your tooling, then macOS built-ins. Other MDMs' tasks are not offered. |
 | **MDM / source** picker | Narrows to your MDM, macOS built-ins, your tooling, and Custom. Other MDMs' presets are hidden, not reordered. |
 | Profile identity | Seeded from the organisation name, as above. |
+| Branding logo | Seeded from the organisation logo. The welcome screen and add-on picker both fall back to it, so setting it here covers all three windows. |
 
 ### Advanced mode
 
@@ -267,7 +268,8 @@ immediately.
 
 ### The SF Symbol picker
 
-Every icon and logo field in the builder — step **Icon**, branding **Logo** and
+Every icon and logo field in the builder — the organisation **Logo** in
+[deployment setup](#deployment-target), step **Icon**, branding **Logo** and
 **Banner**, the welcome screen's **Logo / icon**, the playbook picker's
 **Icon**, and the add-on picker's **Icon** — has an **SF** button beside it.
 
