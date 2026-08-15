@@ -2,8 +2,8 @@
 # lib/ui.sh — swiftDialog driver for Enrollinator.
 #
 # swiftDialog is launched once in "list" mode for the main run window. Step
-# status updates are sent by writing commands to its command file
-# (/var/tmp/dialog.log by default). See
+# status updates are sent by writing commands to its command file — always an
+# explicit --commandfile of ours, never swiftDialog's shared default. See
 # https://github.com/swiftDialog/swiftDialog/wiki/Dynamic-Updates for the
 # command reference.
 #
@@ -14,34 +14,51 @@
 #
 # Because Enrollinator runs as root (from a LaunchDaemon) but the dialog needs
 # to appear in the console user's session, we invoke swiftDialog via
-# `launchctl asuser <uid>`. When ENROLLINATOR_CONSOLE_USER isn't set (dev runs,
-# --skip-root-check) we fall back to a direct launch.
+# `launchctl asuser <uid>` plus `sudo -u <user>`. When ENROLLINATOR_CONSOLE_USER
+# isn't set (dev runs, --skip-root-check) we fall back to a direct launch.
 #
 # If swiftDialog isn't installed, ui_require_dialog bails with a clear
 # message. Enterprises typically bundle swiftDialog.pkg alongside Enrollinator.
 
 DIALOG_BIN="${DIALOG_BIN:-/usr/local/bin/dialog}"
-# NOT /var/tmp/dialog.log: that's swiftDialog's shared DEFAULT, and any
-# dialog instance launched without --commandfile (by us, by a Jamf policy,
-# by any other tool mid-enrollment) binds it and TRUNCATES it at launch —
-# which permanently kills the main window's command watcher. A private
-# path means strays can't touch our window.
-DIALOG_COMMAND_FILE="${DIALOG_COMMAND_FILE:-/var/tmp/enrollinator.dialog.log}"
-DIALOG_PID_FILE="/var/tmp/enrollinator.dialog.pid"
+
+# All runtime scratch state lives in a ROOT-OWNED 0755 directory, never
+# directly in /var/tmp.
+#
+# /var/tmp is mode 1777. Enrollinator runs as root and, for each of the files
+# below, does `: > "$f"` and then chowns it to the console user (swiftDialog
+# opens its command file for writing, so it must own it). Both the truncate
+# and the chown follow symlinks — so with these paths sitting in a
+# world-writable directory, any local user could pre-plant a symlink at a
+# known name and have root blank an arbitrary file and hand them its
+# ownership. Inside a root-owned directory the link can't be planted at all,
+# while the files themselves stay user-writable as swiftDialog requires.
+#
+# enrollinator.sh:ensure_state_dir creates and validates this directory before
+# any UI runs.
+ENROLLINATOR_STATE_DIR="${ENROLLINATOR_STATE_DIR:-/var/tmp/enrollinator}"
+
+# NOT dialog.log in a shared directory: that's swiftDialog's shared DEFAULT,
+# and any dialog instance launched without --commandfile (by us, by a Jamf
+# policy, by any other tool mid-enrollment) binds it and TRUNCATES it at
+# launch — which permanently kills the main window's command watcher. A
+# private path means strays can't touch our window.
+DIALOG_COMMAND_FILE="${DIALOG_COMMAND_FILE:-${ENROLLINATOR_STATE_DIR}/dialog.log}"
+DIALOG_PID_FILE="${ENROLLINATOR_STATE_DIR}/dialog.pid"
 
 # Wait-window state (one at a time — steps are serial).
-WAIT_COMMAND_FILE="/var/tmp/enrollinator.wait.log"
-WAIT_PID_FILE="/var/tmp/enrollinator.wait.pid"
-WAIT_SLIDESHOW_PID_FILE="/var/tmp/enrollinator.wait-slideshow.pid"
+WAIT_COMMAND_FILE="${ENROLLINATOR_STATE_DIR}/wait.log"
+WAIT_PID_FILE="${ENROLLINATOR_STATE_DIR}/wait.pid"
+WAIT_SLIDESHOW_PID_FILE="${ENROLLINATOR_STATE_DIR}/wait-slideshow.pid"
 # Created while the watcher is showing interactive back-slides; removed when
 # the persistent window is re-launched.  The polling loop pauses the timeout
 # clock while this file exists so the timer doesn't fire mid-review.
-WAIT_NAVIGATING_FILE="/var/tmp/enrollinator.wait-navigating"
+WAIT_NAVIGATING_FILE="${ENROLLINATOR_STATE_DIR}/wait-navigating"
 # Blur-keeper for multi-slide wait windows: a background dialog that holds
 # --blurscreen open continuously so the blur never flickers during transitions
 # between the interactive instruction slides and the persistent wait window.
-WAIT_BLUR_KEEPER_CMD="/var/tmp/enrollinator.wait-blur-keeper.log"
-WAIT_BLUR_KEEPER_PID_FILE="/var/tmp/enrollinator.wait-blur-keeper.pid"
+WAIT_BLUR_KEEPER_CMD="${ENROLLINATOR_STATE_DIR}/wait-blur-keeper.log"
+WAIT_BLUR_KEEPER_PID_FILE="${ENROLLINATOR_STATE_DIR}/wait-blur-keeper.pid"
 # Session token written by ui_wait_open just before forking the back-navigation
 # watcher.  The watcher inherits the token at fork time and checks it on every
 # outer-loop iteration; if the file has changed or disappeared the watcher knows
@@ -49,7 +66,7 @@ WAIT_BLUR_KEEPER_PID_FILE="/var/tmp/enrollinator.wait-blur-keeper.pid"
 # stale watcher (one that survived because the SIGTERM in ui_wait_close failed
 # under a non-root run) from mistaking a fresh empty WAIT_COMMAND_FILE as a
 # "← Back" click and reopening the previous step's persistent window.
-WAIT_SESSION_FILE="/var/tmp/enrollinator.wait.session"
+WAIT_SESSION_FILE="${ENROLLINATOR_STATE_DIR}/wait.session"
 
 # Run-level blur keeper — same pattern and same args as WAIT_BLUR_KEEPER, but
 # scoped to the whole run so blur is continuous across step boundaries (one
@@ -61,8 +78,8 @@ WAIT_SESSION_FILE="/var/tmp/enrollinator.wait.session"
 # dialogs.  Whenever the run-level keeper is alive, foreground dialogs MUST
 # skip their own --blurscreen flag.  All seven existing --blurscreen sites in
 # this file are gated on _ui_run_blur_keeper_active for exactly this reason.
-RUN_BLUR_KEEPER_CMD="/var/tmp/enrollinator.run-blur-keeper.log"
-RUN_BLUR_KEEPER_PID_FILE="/var/tmp/enrollinator.run-blur-keeper.pid"
+RUN_BLUR_KEEPER_CMD="${ENROLLINATOR_STATE_DIR}/run-blur-keeper.log"
+RUN_BLUR_KEEPER_PID_FILE="${ENROLLINATOR_STATE_DIR}/run-blur-keeper.pid"
 
 # Abort with a helpful message if swiftDialog isn't present.
 ui_require_dialog() {
@@ -169,21 +186,25 @@ ui_run_blur_keeper_start() {
     local _pre
     _pre=",$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/tr '\n' ',')"
 
-    # swiftDialog's --position bottomleft preset reserves a margin from the
-    # screen edge.  Compute the actual screen height and place the 1x1 window
-    # at x=0, y=screen_height-1 so it sits flush in the very corner.  Falls
-    # back to 9999 if osascript is unavailable; swiftDialog clamps in that case.
-    local _screen_h
-    _screen_h="$(_ui_user_exec /usr/bin/osascript -e \
-        'tell application "Finder" to get bounds of window of desktop' \
-        2>/dev/null | /usr/bin/awk -F', ' '{print $4}')"
-    [[ "$_screen_h" =~ ^[0-9]+$ ]] || _screen_h=9999
-    local _y=$(( _screen_h - 1 ))
-
+    # Position with swiftDialog's own `bottomleft` preset rather than computing
+    # exact coordinates.
+    #
+    # This used to ask Finder for the desktop bounds over Apple Events. Two
+    # problems with that, both bad specifically at enrollment time: the first
+    # such event makes macOS raise a TCC Automation consent prompt ("osascript
+    # wants to control Finder") in the middle of onboarding, and the call had
+    # no alarm bound, so a wedged Finder would hang the keeper — and with it
+    # the step boundary — indefinitely. Every other external call in this
+    # codebase is timeout-guarded.
+    #
+    # The preset insets the window from the screen edge by a small margin,
+    # which is what the coordinate math was avoiding. For a 1x1 window whose
+    # only job is to hold --blurscreen open, a few points of inset is not a
+    # visible difference.
     local _args=(
         --title " " --message " "
         --messagefont "size=1"
-        --position "0,${_y}"
+        --position bottomleft
         --width 1 --height 1
         --blurscreen
         --button1disabled --button1text " "
@@ -296,7 +317,7 @@ _ui_user_osascript() {
 # (gradient banner / default icon). Cache is keyed by URL hash and reused
 # across windows in the run, so each URL is fetched at most once.
 # Echoes the normalized spec, or empty if the input is blank/unreachable.
-UI_IMAGE_CACHE_DIR="${UI_IMAGE_CACHE_DIR:-/var/tmp/enrollinator-images}"
+UI_IMAGE_CACHE_DIR="${UI_IMAGE_CACHE_DIR:-${ENROLLINATOR_STATE_DIR}/images}"
 _ui_normalize_icon() {
     local spec="$1"
     [ -z "$spec" ] && return 0
@@ -488,12 +509,22 @@ ui_start() {
     fi
 
     # --titlefont: combine accent colour and optional font size.
+    #
+    # Join in a SUBSHELL. `local IFS=,` here would be function-scoped, not
+    # block-scoped: it survives past this `if` and silently re-defines word
+    # splitting for the rest of ui_start — including the `for _p in $_all`
+    # loops below that split newline-separated pgrep output. With IFS=","
+    # those loops collapse the whole PID list into one word, so the readiness
+    # gate hands lsof an "illegal process ID" and burns its full 15s timeout
+    # on every run. The Profile Builder sets Branding.AccentColor by default,
+    # so that path was the norm, not an edge case.
     local tf_parts=()
     [ -n "$accent" ] && tf_parts+=("color=$accent")
     [ -n "${ENROLLINATOR_UI_TITLE_FONTSIZE:-}" ] && tf_parts+=("size=${ENROLLINATOR_UI_TITLE_FONTSIZE}")
     if [ "${#tf_parts[@]}" -gt 0 ]; then
-        local IFS=","
-        args+=( --titlefont "${tf_parts[*]}" )
+        local tf_joined
+        tf_joined="$(IFS=','; printf '%s' "${tf_parts[*]}")"
+        args+=( --titlefont "$tf_joined" )
     fi
     local mf_size="${ENROLLINATOR_UI_MSG_FONTSIZE:-14}"
     args+=( --messagefont "size=${mf_size}" )
@@ -576,6 +607,12 @@ ui_start() {
         done
         if [ -z "$_new_csv" ]; then
             type log >/dev/null 2>&1 && log warn "ui_start: dialog process gone while waiting for window readiness"
+            # The window died during startup, before a single step ran — the
+            # user cannot have seen any of this run. Record that so the caller
+            # doesn't consume the one-shot completion flag on a run that was
+            # invisible. See the flag write at the end of main().
+            ENROLLINATOR_UI_FAILED=1
+            export ENROLLINATOR_UI_FAILED
             return 0
         fi
         _sz="$(/usr/bin/stat -f %z "$DIALOG_COMMAND_FILE" 2>/dev/null)"
@@ -722,14 +759,14 @@ ui_addon_picker() {
     # Run-level keeper is managed by run_step at step boundaries; no sync here.
 
     # Use a dedicated command file so this dialog does NOT share state with the
-    # main run window.  Without --commandfile, swiftDialog falls back to its
-    # default (/var/tmp/dialog.log), which IS DIALOG_COMMAND_FILE — the same
-    # file the main run window reads from.  Sharing the command file lets
-    # signals leak between the two dialogs, and in practice causes the main
-    # window to tear down the moment the picker exits, defeating the
-    # AllowClose=true (Done button) hold at end-of-run.  ui_dialog_popup uses
-    # the same isolation pattern with its own popup_cmd file.
-    local picker_cmd="/var/tmp/enrollinator.addon-picker.log"
+    # main run window.  Sharing a command file lets signals leak between two
+    # dialogs, and in practice caused the main window to tear down the moment
+    # the picker exited, defeating the AllowClose=true (Done button) hold at
+    # end-of-run.  Passing --commandfile explicitly also keeps this dialog off
+    # swiftDialog's shared default path, which it would otherwise bind and
+    # truncate at launch.  ui_dialog_popup uses the same isolation pattern with
+    # its own popup_cmd file.
+    local picker_cmd="${ENROLLINATOR_STATE_DIR}/addon-picker.log"
     : > "$picker_cmd"
     _ui_own_cmdfile "$picker_cmd"
 
@@ -773,21 +810,71 @@ ui_addon_picker() {
 
     # Parse JSON: swiftDialog emits checkbox values as string "true"/"false".
     # Key is the checkbox label (first field), unaffected by subtitle.
+    #
+    # plutil, NOT python3: /usr/bin/python3 on a stock macOS install is a stub
+    # that, absent the Xcode Command Line Tools, pops the "command line
+    # developer tools" installer instead of running — and a freshly enrolled
+    # Mac is exactly the machine that doesn't have them. That would make the
+    # add-on picker select nothing on a real deployment while working perfectly
+    # on any developer's Mac. plutil reads JSON natively and ships with the OS.
+    #
+    # And NOT a PlistBuddy keypath for the lookup: PlistBuddy splits its keypath
+    # argument on whitespace, so `Print :Xcode Full` silently looks up ":Xcode"
+    # and reports it missing. Add-on names routinely contain spaces — the
+    # shipped sample alone has "Xcode Full" and "Data & Analytics". Read the
+    # key/value pairs out of the plist directly and compare them in the shell,
+    # which is exact for any label an admin can type.
     local json_tmp
     json_tmp="$(/usr/bin/mktemp -t enrollinator-picker-json)"
-    printf '%s' "$raw" > "$json_tmp"
-    local n
-    for n in "${names[@]}"; do
-        /usr/bin/python3 -c "
-import sys, json
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-val = data.get(sys.argv[2], '')
-sys.exit(0 if str(val).lower() == 'true' else 1)
-" "$json_tmp" "$n" 2>/dev/null && printf '%s\n' "$n"
-    done
+    if ! printf '%s' "$raw" | /usr/bin/plutil -convert xml1 -o "$json_tmp" - 2>/dev/null; then
+        type log >/dev/null 2>&1 && log warn "addon picker: could not parse swiftDialog JSON output"
+        /bin/rm -f "$json_tmp"
+        return 0
+    fi
+    local pairs
+    pairs="$(_ui_plist_pairs "$json_tmp")"
     /bin/rm -f "$json_tmp"
+
+    local n k v tab
+    tab="$(printf '\t')"
+    while IFS="$tab" read -r k v; do
+        [ -n "$k" ] || continue
+        case "$(printf '%s' "$v" | /usr/bin/tr '[:upper:]' '[:lower:]')" in
+            true) : ;;
+            *)    continue ;;
+        esac
+        # Only report labels we actually offered.
+        for n in "${names[@]}"; do
+            if [ "$k" = "$n" ]; then
+                printf '%s\n' "$n"
+                break
+            fi
+        done
+    done <<< "$pairs"
     return 0
+}
+
+# _ui_plist_pairs <xml1-plist>
+# Emit one "key<TAB>value" line per top-level entry. Used instead of a
+# PlistBuddy keypath lookup wherever the key is user-supplied text, since
+# PlistBuddy cannot address a key containing a space. XML entities in the key
+# are unescaped so it compares equal to what the admin actually typed.
+_ui_plist_pairs() {
+    /usr/bin/awk '
+        match($0, /<key>.*<\/key>/) {
+            k = substr($0, RSTART + 5, RLENGTH - 11)
+            gsub(/&lt;/, "<", k); gsub(/&gt;/, ">", k)
+            gsub(/&quot;/, "\"", k); gsub(/&#39;/, "'\''", k); gsub(/&apos;/, "'\''", k)
+            gsub(/&amp;/, "\\&", k)
+            next
+        }
+        match($0, /<string>.*<\/string>/) {
+            v = substr($0, RSTART + 8, RLENGTH - 17)
+            print k "\t" v; next
+        }
+        /<true\/>/  { print k "\t" "true";  next }
+        /<false\/>/ { print k "\t" "false"; next }
+    ' "$1"
 }
 
 # Close swiftDialog cleanly.
@@ -1341,7 +1428,7 @@ ui_dialog_popup() {
         _final_img="${dlg_frames[$dlg_last]}"
     fi
 
-    local popup_cmd="/var/tmp/enrollinator.popup.log"
+    local popup_cmd="${ENROLLINATOR_STATE_DIR}/popup.log"
     : > "$popup_cmd"
     _ui_own_cmdfile "$popup_cmd"
 
@@ -1399,7 +1486,7 @@ ui_dialog_popup() {
     # --blurscreen open so the blur doesn't flicker between slide transitions.
     local _bk_cmd="" _bk_pid=""
     if [ "$_use_keeper" = "1" ]; then
-        _bk_cmd="/var/tmp/enrollinator.blur-keeper.log"
+        _bk_cmd="${ENROLLINATOR_STATE_DIR}/blur-keeper.log"
         : > "$_bk_cmd"
         _ui_own_cmdfile "$_bk_cmd"
         local _bk_args=(
