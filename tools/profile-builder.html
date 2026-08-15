@@ -1031,6 +1031,8 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 .mdm-card-icon { font-size: 19px; line-height: 1.1; }
 .mdm-card-name { font-size: 12.5px; font-weight: 650; letter-spacing: -0.01em; }
 .mdm-card.selected .mdm-card-name { color: var(--accent-deep); }
+/* Advanced mode isn't an MDM — dashed edge sets it apart from the grid. */
+.mdm-card.advanced { border-style: dashed; }
 .tool-list { display: flex; flex-direction: column; gap: 7px; }
 .tool-opt {
     display: flex; align-items: flex-start; gap: 9px;
@@ -1052,6 +1054,27 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     outline: none; border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-line-faint);
 }
+
+/* ------------------------------------------------------- welcome launcher */
+.welcome-body { padding: 18px 20px; }
+.welcome-list { display: flex; flex-direction: column; gap: 8px; }
+.welcome-choice {
+    display: flex; align-items: center; gap: 13px;
+    padding: 15px 16px; text-align: left; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 11px; font: inherit; color: var(--text);
+    transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+.welcome-choice:hover {
+    border-color: var(--accent); background: var(--accent-tint);
+    transform: translateY(-1px);
+}
+.welcome-choice-icon { font-size: 22px; line-height: 1; flex-shrink: 0; }
+.welcome-choice-text { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.welcome-choice-title { font-size: 13.5px; font-weight: 650; letter-spacing: -0.01em; }
+.welcome-choice-desc { font-size: 12px; color: var(--text-3); line-height: 1.45; }
+.welcome-choice-caret { font-size: 18px; color: var(--text-ghost); flex-shrink: 0; }
+.welcome-choice:hover .welcome-choice-caret { color: var(--accent-text); }
 
 /* Header chip showing the current fleet. */
 .fleet-btn { display: flex; align-items: center; gap: 6px; }
@@ -1110,6 +1133,76 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 .cat-card-name { font-size: 12.5px; font-weight: 650; letter-spacing: -0.01em; }
 .cat-card-desc { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
 .cat-empty { padding: 34px 0; text-align: center; font-size: 13px; color: var(--text-4); }
+
+/* ------------------------------------------------------------ guided step */
+.guide-modal { max-width: 560px; }
+.guide-progress {
+    display: flex; align-items: center; gap: 6px;
+    padding: 12px 20px 0;
+}
+.guide-dot {
+    height: 4px; flex: 1; border-radius: 2px;
+    background: var(--hairline-fill);
+    transition: background 0.18s;
+}
+.guide-dot.done { background: var(--accent-line-strong); }
+.guide-dot.active { background: var(--accent); }
+.guide-body { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 10px; }
+.guide-count {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-4);
+}
+.guide-q {
+    font-size: 17px; font-weight: 650; letter-spacing: -0.02em;
+    color: var(--text); line-height: 1.35; margin: 0;
+}
+.guide-hint { font-size: 12.5px; color: var(--text-3); line-height: 1.5; margin: -2px 0 2px; }
+.guide-body input[type="text"],
+.guide-body input[type="number"],
+.guide-body textarea {
+    width: 100%; font-size: 13.5px;
+    background: var(--field-bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 9px;
+    padding: 9px 12px;
+}
+.guide-body input[type="text"], .guide-body input[type="number"] { height: 38px; padding: 0 12px; }
+.guide-body textarea { min-height: 108px; resize: vertical; line-height: 1.5; }
+.guide-body input:focus, .guide-body textarea:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-line-faint);
+}
+.guide-choices { display: flex; flex-direction: column; gap: 7px; }
+.guide-choice {
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 11px 13px; text-align: left; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; font: inherit; color: var(--text);
+}
+.guide-choice:hover { border-color: var(--border-hover); background: var(--btn-bg-hover); }
+.guide-choice.selected {
+    border-color: var(--accent); background: var(--accent-tint);
+    box-shadow: 0 0 0 2px var(--accent-line-faint);
+}
+.guide-choice-label { font-size: 13px; font-weight: 650; }
+.guide-choice.selected .guide-choice-label { color: var(--accent-deep); }
+.guide-choice-desc { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
+.guide-footer {
+    padding: 13px 20px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    border-top: 1px solid var(--hairline-line);
+    background: var(--surface-3);
+}
+.guide-escape {
+    background: none; border: none; padding: 0; cursor: pointer;
+    font: inherit; font-size: 12px; color: var(--link-text); text-decoration: underline;
+}
+.guide-nav { display: flex; gap: 8px; align-items: center; }
+.guide-summary {
+    background: var(--surface-inset); border: 1px solid var(--hairline);
+    border-radius: 9px; padding: 11px 13px;
+    font-size: 12.5px; color: var(--text-3); line-height: 1.55;
+}
+.guide-summary b { color: var(--text-2); }
 
 /* ---------------------------------------------------------------- sidebar */
 .playbook-sidebar {
@@ -1807,7 +1900,9 @@ const MDM_PRESETS = [
               catalogDesc: "Trigger a policy by its custom event name.",
               template: "/usr/local/bin/jamf policy -event {EVENT_NAME}",
               timeout: 600,
-              fields: [{ key: "EVENT_NAME", label: "Event name", placeholder: "e.g. install-chrome" }],
+              fields: [{ key: "EVENT_NAME", label: "Event name", placeholder: "e.g. install-chrome",
+                         ask: "Which custom event should this trigger?",
+                         guideHint: "The custom event trigger you set on the policy in Jamf Pro — not the policy's display name." }],
               note: "Triggers the policy assigned to this custom event trigger in Jamf Pro." },
             { id: "policy-id", label: "policy — by ID",
               template: "/usr/local/bin/jamf policy -id {POLICY_ID}",
@@ -1842,7 +1937,9 @@ const MDM_PRESETS = [
               catalogDesc: "Fetch and install an app straight from the vendor by label.",
               template: "/usr/local/Installomator/Installomator.sh {LABEL} NOTIFY=silent BLOCKING_PROCESS_ACTION=ignore",
               timeout: 900,
-              fields: [{ key: "LABEL", label: "Label", placeholder: "e.g. googlechromepkg, slack, zoomclient" }],
+              fields: [{ key: "LABEL", label: "Label", placeholder: "e.g. googlechromepkg, slack, zoomclient",
+                         ask: "Which app should Installomator install?",
+                         guideHint: "Use the app's Installomator label — googlechromepkg, slack, zoomclient. The full list is in the Installomator repo." }],
               note: "Install Installomator as a dependency first. Full label list: https://github.com/Installomator/Installomator" }
         ]
     },
@@ -1885,7 +1982,9 @@ const MDM_PRESETS = [
               catalogDesc: "Run one named library item, such as an app install.",
               template: "/usr/local/bin/kandji run --item \"{ITEM_NAME}\"",
               timeout: 900,
-              fields: [{ key: "ITEM_NAME", label: "Item name", placeholder: "e.g. Google Chrome" }],
+              fields: [{ key: "ITEM_NAME", label: "Item name", placeholder: "e.g. Google Chrome",
+                         ask: "Which library item should run?",
+                         guideHint: "Use the item's exact display name as it appears in the Kandji library." }],
               note: "Use the exact display name shown in the Kandji library." }
         ]
     },
@@ -1911,7 +2010,9 @@ const MDM_PRESETS = [
               catalogDesc: "Trigger a named policy through the go-agent.",
               template: "/Library/Addigy/go-agent -run-policy {POLICY_NAME}",
               timeout: 900,
-              fields: [{ key: "POLICY_NAME", label: "Policy name", placeholder: "e.g. my-addigy-policy" }],
+              fields: [{ key: "POLICY_NAME", label: "Policy name", placeholder: "e.g. my-addigy-policy",
+                         ask: "Which policy should run?",
+                         guideHint: "The policy name as configured in Addigy." }],
               note: "Requires the Addigy agent to be installed." }
         ]
     },
@@ -4840,6 +4941,258 @@ const STEP_RECIPES = [
     }
 ];
 
+// ----------------------------------------------------------------------------
+// Guides — the follow-up questions a recipe asks in guided mode.
+//
+// A recipe already knows almost everything about the step it builds. What it
+// can't know is the handful of values that are specific to your fleet: which
+// policy, which bundle ID, what the dialog should say. Rather than open the
+// four-tab editor and leave you to find those fields among everything else,
+// guided mode asks for them one at a time and fills the rest in behind you.
+//
+// This is a front door, not a fence. Every question screen carries "Open the
+// full editor", which hands the half-built step straight to the editor with
+// the answers so far applied. Advanced mode skips guides entirely.
+//
+// A question is:
+//   { id, ask, hint, type, placeholder, choices, optional, get(st), set(st,v) }
+// type is "text" | "textarea" | "number" | "choice". A question whose `set`
+// is omitted is display-only (used for the closing summary).
+// ----------------------------------------------------------------------------
+
+/** The closing question every guide shares. The recipe has already put a
+ *  sensible name in place, so this is a confirm-and-edit, never a blank. */
+function nameQuestion(hint) {
+    return {
+        id: "name",
+        ask: "What should this step be called?",
+        hint: hint || "Shown in the progress window while the step runs. Change it to something your users would recognise.",
+        type: "text",
+        placeholder: "Install Google Chrome",
+        get: st => st.Name,
+        set: (st, v) => { st.Name = v; }
+    };
+}
+
+/** Conditions all answer "how do we know this finished?", but each type stores
+ *  its answer in a different key. This pairs the type picker with the one
+ *  follow-up field that type needs. */
+const CONDITION_ASKS = [
+    { value: "app_installed", label: "An app is installed",
+      desc: "Checks for an app by bundle ID.",
+      ask: "Which app's bundle ID?", placeholder: "com.google.Chrome", key: "BundleId" },
+    { value: "process_running", label: "A process is running",
+      desc: "Checks the process list by name.",
+      ask: "Which process name?", placeholder: "ZscalerTunnel", key: "Name" },
+    { value: "file_exists", label: "A file exists",
+      desc: "Checks for a file or folder on disk.",
+      ask: "Which path should exist?", placeholder: "/Library/Preferences/com.example.plist", key: "Path" },
+    { value: "profile_installed", label: "A profile is installed",
+      desc: "Checks the installed configuration profiles.",
+      ask: "Which profile identifier?", placeholder: "com.example.mdm.enrollment", key: "Identifier" },
+    { value: "shell", label: "A command exits cleanly",
+      desc: "Runs a command; exit code 0 means done.",
+      ask: "Which command should exit 0?", placeholder: "/usr/bin/pgrep -q Dock", key: "Command" }
+];
+
+/** Read/write the first condition on a step, swapping its type in place. */
+function firstConditionQuestions(askText) {
+    return [
+        {
+            id: "cond-type",
+            ask: askText || "How will Enrollinator know this finished?",
+            hint: "The step keeps checking until this is true. You can add more checks later in the Conditions tab.",
+            type: "choice",
+            choices: CONDITION_ASKS,
+            get: st => (st.Conditions[0] || {}).Type || "",
+            set: (st, v) => {
+                if (!st.Conditions[0] || st.Conditions[0].Type !== v) {
+                    st.Conditions[0] = blankCondition(v);
+                }
+            }
+        },
+        {
+            id: "cond-value",
+            // Both the question and the field it writes depend on the type
+            // chosen a screen earlier, so they're resolved at render time.
+            dynamic: st => {
+                const c = st.Conditions[0] || {};
+                const spec = CONDITION_ASKS.find(a => a.value === c.Type) || CONDITION_ASKS[0];
+                return {
+                    ask: spec.ask,
+                    placeholder: spec.placeholder,
+                    type: spec.value === "shell" ? "textarea" : "text",
+                    get: s => (s.Conditions[0] || {})[spec.key] || "",
+                    set: (s, v) => { if (s.Conditions[0]) s.Conditions[0][spec.key] = v; }
+                };
+            }
+        }
+    ];
+}
+
+const STEP_GUIDES = {
+    pkg: () => [
+        { id: "path", ask: "Where is the package on the Mac?",
+          hint: "An absolute path. The package has to be on disk already — ship it with your MDM, or install it in an earlier step.",
+          type: "text", placeholder: "/Library/Enrollinator/packages/Chrome.pkg",
+          get: st => st.Action.Path, set: (st, v) => { st.Action.Path = v; } },
+        { id: "bundle", ask: "Which app should exist afterwards?",
+          hint: "Optional. Gives the step a way to confirm the install actually worked, rather than trusting the installer's exit code.",
+          type: "text", placeholder: "com.google.Chrome", optional: true,
+          get: st => (st.Conditions[0] || {}).BundleId || "",
+          set: (st, v) => {
+              if (!v) { st.Conditions.length = 0; return; }
+              if (!st.Conditions[0]) st.Conditions.push(blankCondition("app_installed"));
+              st.Conditions[0].BundleId = v;
+          } },
+        nameQuestion()
+    ],
+    "wait-enrollment": () => [
+        { id: "identifier", ask: "Which profile means enrolment is done?",
+          hint: "The identifier of your MDM's enrolment profile. Find it in System Settings → General → Device Management, or in your MDM console.",
+          type: "text", placeholder: "com.example.mdm.enrollment",
+          get: st => (st.Conditions[0] || {}).Identifier || "",
+          set: (st, v) => { if (st.Conditions[0]) st.Conditions[0].Identifier = v; } },
+        nameQuestion()
+    ],
+    "wait-app": () => [
+        { id: "bundle", ask: "Which app are you waiting for?",
+          hint: "Its bundle ID. The step polls until the app is installed, so this is the one to get right.",
+          type: "text", placeholder: "com.google.Chrome",
+          get: st => (st.Conditions[0] || {}).BundleId || "",
+          set: (st, v) => { if (st.Conditions[0]) st.Conditions[0].BundleId = v; } },
+        { id: "timeout", ask: "How long should it wait before giving up?",
+          hint: "Seconds. 0 waits forever — reasonable for something that must happen, risky for something that might not.",
+          type: "number", placeholder: "1800",
+          get: st => st.TimeoutSeconds, set: (st, v) => { st.TimeoutSeconds = v; } },
+        nameQuestion()
+    ],
+    "wait-user": () => [
+        { id: "task", ask: "What do you need the person to do?",
+          hint: "Phrase it as an instruction — it becomes both the step name and the title of the window they'll see.",
+          type: "text", placeholder: "Sign in to the VPN",
+          get: st => st.Name,
+          set: (st, v) => { st.Name = v; if (st.WaitWindow) st.WaitWindow.Title = v; } },
+        { id: "message", ask: "What should the window tell them?",
+          hint: "Markdown works — a numbered list is usually clearest. This sits beside the main window while the step waits.",
+          type: "textarea",
+          get: st => st.WaitWindow ? st.WaitWindow.Message : "",
+          set: (st, v) => { if (st.WaitWindow) st.WaitWindow.Message = v; } },
+        ...firstConditionQuestions("How will Enrollinator know they've finished?")
+    ],
+    "dialog-message": () => [
+        { id: "title", ask: "What's the headline?",
+          hint: "Shown as the dialog's title, and used as the step name.",
+          type: "text", placeholder: "You're all set",
+          get: st => st.Action.Title,
+          set: (st, v) => { st.Action.Title = v; st.Name = v; } },
+        { id: "message", ask: "What should it say?",
+          hint: "Markdown works — headings, lists, bold, links.",
+          type: "textarea",
+          get: st => st.Action.Message, set: (st, v) => { st.Action.Message = v; } },
+        { id: "button", ask: "What should the button say?",
+          hint: "One button, so whatever they click continues the run.",
+          type: "text", placeholder: "Continue",
+          get: st => (st.Action.Buttons || [])[0] || "",
+          set: (st, v) => { st.Action.Buttons = [v || "Continue"]; st.Action.ExpectedButton = v || "Continue"; } }
+    ],
+    "dialog-eula": () => [
+        { id: "title", ask: "What's the policy called?",
+          type: "text", placeholder: "Acceptable use policy",
+          hint: "Shown as the dialog's title, and used as the step name.",
+          get: st => st.Action.Title,
+          set: (st, v) => { st.Action.Title = v; st.Name = v ? `Accept the ${v.toLowerCase()}` : "Accept the policy"; } },
+        { id: "message", ask: "What are they agreeing to?",
+          hint: "Markdown works. Paste the policy, or summarise it and link out to the full text.",
+          type: "textarea",
+          get: st => st.Action.Message, set: (st, v) => { st.Action.Message = v; } },
+        { id: "accept", ask: "What should the accept button say?",
+          hint: "The step passes only on this button. The other button declines and fails the step.",
+          type: "text", placeholder: "Agree",
+          get: st => (st.Action.Buttons || [])[0] || "",
+          set: (st, v) => {
+              const yes = v || "Agree";
+              st.Action.Buttons = [yes, (st.Action.Buttons || [])[1] || "Decline"];
+              st.Action.ExpectedButton = yes;
+          } }
+    ],
+    "dialog-slideshow": () => [
+        { id: "title", ask: "What's the walkthrough called?",
+          type: "text", placeholder: "Welcome aboard",
+          hint: "Shown as the title, and used as the step name.",
+          get: st => st.Action.Title,
+          set: (st, v) => { st.Action.Title = v; st.Name = v; } },
+        { id: "slides", ask: "How many slides?",
+          hint: "Blank frames are created for you — add the images and captions in the full editor afterwards, where you can see them all at once.",
+          type: "number", placeholder: "3",
+          get: st => (st.Action.Slideshow || []).length,
+          set: (st, v) => {
+              const n = Math.max(1, Math.min(12, v || 3));
+              st.Action.Slideshow = Array.from({ length: n }, (_, i) => ({
+                  Image: "", Title: `Slide ${i + 1}`, Message: ""
+              }));
+          } },
+        { id: "button", ask: "What should the final button say?",
+          type: "text", placeholder: "Got it",
+          hint: "Shown once they've clicked through every slide.",
+          get: st => (st.Action.Buttons || [])[0] || "",
+          set: (st, v) => { st.Action.Buttons = [v || "Got it"]; st.Action.ExpectedButton = v || "Got it"; } }
+    ],
+    "dialog-video": () => [
+        { id: "title", ask: "What's the video called?",
+          type: "text", placeholder: "Welcome to the team",
+          hint: "Shown as the title, and used as the step name.",
+          get: st => st.Action.Title,
+          set: (st, v) => { st.Action.Title = v; st.Name = v; } },
+        { id: "video", ask: "Where's the video?",
+          hint: "A path on the Mac, an https:// URL, or a YouTube link. Local files play even when the network is down — worth it during enrolment.",
+          type: "text", placeholder: "https://youtu.be/… or /Library/Enrollinator/welcome.mp4",
+          get: st => st.Action.Video, set: (st, v) => { st.Action.Video = v; } },
+        { id: "autoplay", ask: "Should it play automatically?",
+          type: "choice",
+          choices: [
+              { value: "yes", label: "Play it automatically", desc: "Starts as soon as the window appears." },
+              { value: "no", label: "Wait for them to press play", desc: "Shows the poster frame and a play button." }
+          ],
+          get: st => st.Action.VideoAutoplay === true ? "yes" : "no",
+          set: (st, v) => { st.Action.VideoAutoplay = v === "yes" ? true : null; } }
+    ],
+    pause: () => [
+        { id: "seconds", ask: "How long should it pause?",
+          hint: "Seconds. Long enough for whatever you're waiting on to settle — a daemon starting, a package finishing its postinstall.",
+          type: "number", placeholder: "10",
+          get: st => st.Action.DurationSeconds, set: (st, v) => { st.Action.DurationSeconds = v; } },
+        nameQuestion("Shown in the progress window while it waits.")
+    ],
+    checkpoint: () => [
+        nameQuestion("Checkpoints show up as branch targets by this name, so make it easy to recognise in the If/else dropdowns.")
+    ],
+    "custom-shell": () => [
+        { id: "command", ask: "What command should run?",
+          hint: "Passed to /bin/sh -c. Use absolute paths — the run environment is minimal, and $PATH is not what your shell gives you.",
+          type: "textarea", placeholder: "/usr/bin/defaults write com.example.app SomeKey -bool true",
+          get: st => st.Action.Command, set: (st, v) => { st.Action.Command = v; } },
+        { id: "runas", ask: "Who should run it?",
+          type: "choice",
+          choices: [
+              { value: "root", label: "root", desc: "The default. Right for anything touching /Library or system settings." },
+              { value: "user", label: "The signed-in user", desc: "Right for anything writing to their home folder or their preferences domain." }
+          ],
+          get: st => st.Action.RunAsUser ? "user" : "root",
+          set: (st, v) => { st.Action.RunAsUser = v === "user" ? "$CONSOLE_USER" : ""; } },
+        nameQuestion()
+    ]
+};
+
+/** The questions for a catalogue entry, or [] when it has none (Blank step,
+ *  and anything at all in advanced mode). */
+function guideFor(entry) {
+    if (!guidedMode()) return [];
+    if (entry.guide) return entry.guide();
+    const make = STEP_GUIDES[entry.id];
+    return make ? make() : [];
+}
+
 /** Turn an MDM_PRESETS verb into a catalogue recipe. Only verbs carrying a
  *  stepName qualify — the rest stay available through the Action tab picker. */
 function recipeFromVerb(source, verb) {
@@ -4863,7 +5216,26 @@ function recipeFromVerb(source, verb) {
             st.Action._verbId = verb.id;
             st.Action._fields = {};
             return st;
-        }
+        },
+        // One question per placeholder the command template leaves open, then
+        // the name. A verb with no placeholders (recon, Rosetta) asks only for
+        // the name — there is genuinely nothing else to decide.
+        guide: () => [
+            ...verb.fields.map(f => ({
+                id: f.key,
+                ask: f.ask || `What should “${f.label}” be?`,
+                hint: f.guideHint || verb.note || "",
+                type: "text",
+                placeholder: (f.placeholder || "").replace(/^e\.g\.\s*/, ""),
+                get: st => (st.Action._fields || {})[f.key] || "",
+                set: (st, v) => {
+                    if (!st.Action._fields) st.Action._fields = {};
+                    st.Action._fields[f.key] = v;
+                    st.Action.Command = assembleMdmCommand(verb, st.Action._fields);
+                }
+            })),
+            nameQuestion()
+        ]
     };
 }
 
@@ -4892,23 +5264,18 @@ function openStepCatalog(pIdx, insertIdx) {
     const bodyEl = h("div", { class: "cat-body" });
 
     function commit(entry) {
-        const profile = state.Playbooks[pIdx];
         const st = entry.build();
-        // Give it a unique, readable ID derived from the name so branch targets
-        // and add-on dedup have something to hold onto straight away.
-        const used = new Set(profile.Steps.map(s => s.Id).filter(Boolean));
-        const base = (st.Name || "step").toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "step";
-        let id = base, n = 2;
-        while (used.has(id)) id = `${base}-${n++}`;
-        st.Id = id;
-
-        profile.Steps.splice(insertIdx, 0, st);
-        ui.pendingStep = { pIdx, sIdx: insertIdx };
-        // Open on whichever tab still holds the field worth filling in — the
-        // whole point of a recipe is that the rest is already done. Recipes
-        // name it explicitly; otherwise Action if there is one, else Info.
-        openStepEditor(pIdx, insertIdx, entry.tab || (st.Action ? "action" : "info"));
+        const questions = guideFor(entry);
+        if (questions.length) {
+            runGuidedStep(pIdx, insertIdx, entry, st, questions);
+        } else {
+            // Advanced mode, or a recipe with nothing left to ask (Blank step).
+            insertBuiltStep(pIdx, insertIdx, st);
+            ui.pendingStep = { pIdx, sIdx: insertIdx };
+            // Open on whichever tab still holds the field worth filling in.
+            // Recipes name it explicitly; otherwise Action if there is one.
+            openStepEditor(pIdx, insertIdx, entry.tab || (st.Action ? "action" : "info"));
+        }
     }
 
     function paint() {
@@ -4966,6 +5333,173 @@ function openStepCatalog(pIdx, insertIdx) {
     backdrop.appendChild(modal);
     root.appendChild(backdrop);
     setTimeout(() => search.focus(), 40);
+}
+
+/** Splice a built step into a playbook, giving it a unique readable ID derived
+ *  from its name so branch targets and add-on dedup have something to hold
+ *  onto immediately. */
+function insertBuiltStep(pIdx, insertIdx, st) {
+    const profile = state.Playbooks[pIdx];
+    const used = new Set(profile.Steps.map(s => s.Id).filter(Boolean));
+    const base = (st.Name || "step").toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "step";
+    let id = base, n = 2;
+    while (used.has(id)) id = `${base}-${n++}`;
+    st.Id = id;
+    profile.Steps.splice(insertIdx, 0, st);
+    return st;
+}
+
+// ============================================================================
+// Guided step runner — one question per screen.
+//
+// The step is built up in memory and only spliced into the playbook at the
+// end, so abandoning the flow leaves nothing behind. "Open the full editor"
+// inserts it early and hands over mid-flight with every answer so far applied,
+// which is what keeps guided mode a shortcut rather than a walled garden.
+// ============================================================================
+
+function runGuidedStep(pIdx, insertIdx, entry, st, questions) {
+    const root = document.getElementById("modal-root");
+    let i = 0;
+
+    /** Questions may compute their ask/get/set from answers given earlier. */
+    function resolve(q) {
+        return q.dynamic ? Object.assign({}, q, q.dynamic(st)) : q;
+    }
+
+    function finish() {
+        insertBuiltStep(pIdx, insertIdx, st);
+        ui.pendingStep = null;
+        closeModal();
+        renderCanvas();
+        updatePreview();
+    }
+
+    function handOff() {
+        insertBuiltStep(pIdx, insertIdx, st);
+        ui.pendingStep = { pIdx, sIdx: insertIdx };
+        openStepEditor(pIdx, insertIdx, entry.tab || (st.Action ? "action" : "info"));
+    }
+
+    function paint() {
+        const q = resolve(questions[i]);
+        const isLast = i === questions.length - 1;
+        root.innerHTML = "";
+
+        // Progress bar: one segment per question.
+        const progress = h("div", { class: "guide-progress" },
+            ...questions.map((_, n) => h("div", {
+                class: "guide-dot" + (n < i ? " done" : n === i ? " active" : "")
+            }))
+        );
+
+        let readValue;
+        const body = h("div", { class: "guide-body" },
+            h("div", { class: "guide-count" }, `Question ${i + 1} of ${questions.length}`),
+            h("h2", { class: "guide-q" }, q.ask),
+            q.hint ? h("p", { class: "guide-hint" }, q.hint) : null
+        );
+
+        if (q.type === "choice") {
+            let picked = q.get(st) || (q.choices[0] && q.choices[0].value);
+            const wrap = h("div", { class: "guide-choices" });
+            const paintChoices = () => {
+                wrap.innerHTML = "";
+                for (const c of q.choices) {
+                    wrap.appendChild(h("button", {
+                        class: "guide-choice" + (picked === c.value ? " selected" : ""),
+                        onclick: () => { picked = c.value; paintChoices(); }
+                    },
+                        h("span", { class: "guide-choice-label" }, c.label),
+                        c.desc ? h("span", { class: "guide-choice-desc" }, c.desc) : null
+                    ));
+                }
+            };
+            paintChoices();
+            body.appendChild(wrap);
+            readValue = () => picked;
+        } else if (q.type === "textarea") {
+            const ta = h("textarea", { placeholder: q.placeholder || "" }, q.get(st) || "");
+            body.appendChild(ta);
+            readValue = () => ta.value;
+            setTimeout(() => ta.focus(), 40);
+        } else if (q.type === "number") {
+            const raw = q.get(st);
+            const input = h("input", { type: "number", min: "0",
+                placeholder: q.placeholder || "",
+                value: raw == null ? "" : String(raw) });
+            body.appendChild(input);
+            readValue = () => {
+                const n = parseInt(input.value, 10);
+                return Number.isFinite(n) ? n : null;
+            };
+            setTimeout(() => { input.focus(); input.select(); }, 40);
+        } else {
+            const input = h("input", { type: "text",
+                placeholder: q.placeholder || "", value: q.get(st) || "" });
+            body.appendChild(input);
+            readValue = () => input.value.trim();
+            setTimeout(() => { input.focus(); input.select(); }, 40);
+        }
+
+        function advance() {
+            const v = readValue();
+            if (q.set) q.set(st, v);
+            if (isLast) finish();
+            else { i++; paint(); }
+        }
+
+        // Enter advances from single-line fields; a textarea keeps Enter for
+        // newlines, since these messages are Markdown and want them.
+        body.addEventListener("keydown", e => {
+            if (e.key !== "Enter") return;
+            if (e.target.tagName === "TEXTAREA" && !(e.metaKey || e.ctrlKey)) return;
+            e.preventDefault();
+            advance();
+        });
+
+        const nextBtn = h("button", { class: "btn primary",
+            style: "height:34px;padding:0 18px;font-size:13px",
+            onclick: advance
+        }, isLast ? "Add step" : "Next");
+
+        const footer = h("div", { class: "guide-footer" },
+            h("button", { class: "guide-escape", onclick: handOff },
+                "Open the full editor"),
+            h("div", { class: "guide-nav" },
+                q.optional ? h("button", {
+                    class: "btn", style: "height:34px;padding:0 14px;font-size:13px",
+                    onclick: () => {
+                        // Skip still writes, so an emptied optional field can
+                        // clear what a previous pass set.
+                        if (q.set) q.set(st, q.type === "number" ? null : "");
+                        if (isLast) finish(); else { i++; paint(); }
+                    }
+                }, "Skip") : null,
+                i > 0 ? h("button", {
+                    class: "btn", style: "height:34px;padding:0 14px;font-size:13px",
+                    onclick: () => { i--; paint(); }
+                }, "Back") : null,
+                nextBtn
+            )
+        );
+
+        const backdrop = h("div", { class: "modal-backdrop",
+            onclick: e => { if (e.target === backdrop) closeModal(); } });
+        const modal = h("div", { class: "modal guide-modal" },
+            h("div", { class: "modal-header" },
+                h("div", { class: "modal-title" },
+                    "Add a step",
+                    h("span", { class: "pill" }, entry.name)),
+                h("button", { class: "btn", onclick: closeModal }, "Cancel")),
+            progress, body, footer
+        );
+        backdrop.appendChild(modal);
+        root.appendChild(backdrop);
+    }
+
+    paint();
 }
 
 // ============================================================================
@@ -6668,6 +7202,13 @@ function refreshFleetChip() {
         if (extras) btn.appendChild(h("span", { class: "pill" }, `+${extras}`));
         btn.setAttribute("data-tooltip",
             "Targeting " + mdm.label + ". Click to change the MDM or tooling.");
+    } else if (fleet.configured) {
+        // Configured with no MDM is a deliberate choice, not a blank — say so.
+        btn.classList.remove("unset");
+        btn.appendChild(h("span", { class: "fleet-btn-icon" }, "🛠"));
+        btn.appendChild(h("span", null, "Advanced mode"));
+        btn.setAttribute("data-tooltip",
+            "Every source and the full step editor. Click to pick an MDM and turn on guided mode.");
     } else {
         btn.classList.add("unset");
         btn.appendChild(h("span", null, "Set MDM"));
@@ -6675,8 +7216,13 @@ function refreshFleetChip() {
     }
 }
 
-/** @param {{firstRun?: boolean}} [opts] — on first run, finishing setup hands
- *  off to the tour rather than dropping the user on a bare canvas. */
+/** Guided mode is on whenever the user named an MDM. Advanced mode (no MDM)
+ *  keeps the original behaviour: every source, straight into the full editor. */
+function guidedMode() { return !!fleet.mdm; }
+
+/** @param {{firstRun?: boolean}} [opts] — first run reached this from the
+ *  welcome launcher, so the copy addresses someone starting from nothing and
+ *  Cancel reads as Skip. */
 function showFleetSetup(opts) {
     const firstRun = !!(opts && opts.firstRun);
     const existing = document.getElementById("fleet-setup-root");
@@ -6691,12 +7237,13 @@ function showFleetSetup(opts) {
     const modal = h("div", { class: "gs-modal" });
 
     function dismiss() {
-        // Dismissing still counts as configured — otherwise the sheet reappears
-        // on every reload for someone who deliberately skipped it.
+        // Skipping still counts as configured — otherwise the sheet reappears
+        // on every reload for someone who deliberately skipped it. No MDM is
+        // advanced mode, which is a reasonable place to leave a skipper.
         fleet.configured = true;
         saveFleetPrefs();
+        refreshFleetChip();
         root.remove();
-        if (firstRun && !prefGet("enrollinator-gs-seen")) showGettingStarted();
     }
 
     modal.appendChild(h("div", { class: "gs-header" },
@@ -6725,15 +7272,16 @@ function showFleetSetup(opts) {
                 h("span", { class: "mdm-card-name" }, m.label)
             ));
         }
-        // An explicit "none" is a real answer — plenty of fleets drive
-        // Enrollinator from a package with no MDM binary in the picture.
+        // No MDM is advanced mode: every source, every field, no follow-up
+        // questions. It is also the honest answer for a fleet whose MDM isn't
+        // listed, or one driven from a package with no MDM binary at all.
         mdmGrid.appendChild(h("button", {
-            class: "mdm-card" + (draft.mdm === null ? " selected" : ""),
-            "data-tooltip": "Show every source. Pick this if your MDM isn't listed.",
+            class: "mdm-card advanced" + (draft.mdm === null ? " selected" : ""),
+            "data-tooltip": "Every source and the full step editor, with no guided questions.",
             onclick: () => { draft.mdm = null; paintMdmGrid(); }
         },
-            h("span", { class: "mdm-card-icon" }, "🧩"),
-            h("span", { class: "mdm-card-name" }, "Other / none")
+            h("span", { class: "mdm-card-icon" }, "🛠"),
+            h("span", { class: "mdm-card-name" }, "Advanced mode")
         ));
     }
     paintMdmGrid();
@@ -6741,7 +7289,7 @@ function showFleetSetup(opts) {
         h("div", { class: "setup-label" }, "What manages these Macs?"),
         mdmGrid,
         h("p", { class: "setup-hint" },
-            "Its commands move to the top of every source picker. Nothing is removed — the other sources stay one click away.")
+            "Picking an MDM turns on guided mode: new steps are built by answering a few questions, and command pickers list that MDM, macOS built-ins and your tooling. Other MDMs' presets are hidden until you click Show all sources, and the full step editor is one click away from every question.")
     ));
 
     // ---- Extra tooling
@@ -6809,9 +7357,8 @@ function showFleetSetup(opts) {
                     refreshFleetChip();
                     root.remove();
                     renderCanvas(); updatePreview(); reopenSettings();
-                    if (firstRun && !prefGet("enrollinator-gs-seen")) showGettingStarted();
                 }
-            }, firstRun ? "Continue" : "Save")
+            }, firstRun ? "Start building" : "Save")
         )
     ));
 
@@ -6819,6 +7366,90 @@ function showFleetSetup(opts) {
     root.appendChild(backdrop);
     document.body.appendChild(root);
     setTimeout(() => orgInput.focus(), 60);
+}
+
+// ============================================================================
+// Welcome launcher — the first thing on load.
+//
+// There are only really three ways to start, and which one you're doing
+// changes what should happen next: a new config wants the deployment
+// questions, an existing one already answers them, and the sample answers
+// them too. Asking that first means nobody is walked through setup for a
+// config they were about to replace wholesale two clicks later.
+// ============================================================================
+
+const WELCOME_KEY = "enrollinator-welcome-seen";
+
+function showWelcome() {
+    const existing = document.getElementById("welcome-root");
+    if (existing) existing.remove();
+
+    const root = h("div", { id: "welcome-root" });
+    const backdrop = h("div", { class: "gs-backdrop",
+        onclick: e => { if (e.target === backdrop) close(); } });
+    const modal = h("div", { class: "gs-modal" });
+
+    const skipCheck = h("input", { type: "checkbox" });
+
+    function close() {
+        if (skipCheck.checked) prefSet(WELCOME_KEY, "1");
+        root.remove();
+    }
+
+    modal.appendChild(h("div", { class: "gs-header" },
+        h("h2", null, "👋 Welcome to Profile Builder"),
+        h("p", null, "Build Enrollinator .mobileconfig profiles visually — no XML required. Where would you like to start?")
+    ));
+
+    const choices = [
+        {
+            icon: "✨", title: "Start a new config",
+            desc: "A couple of questions about your fleet, then straight into building.",
+            go() {
+                close();
+                showFleetSetup({ firstRun: true });
+            }
+        },
+        {
+            icon: "📂", title: "Open an existing config",
+            desc: "Import a .mobileconfig or bare .plist and carry on editing it.",
+            go() {
+                close();
+                // The import handler reads the fleet back out of the config, so
+                // this path needs no setup questions at all.
+                document.getElementById("import-file").click();
+            }
+        },
+        {
+            icon: "🧪", title: "Explore the sample",
+            desc: "A complete worked example — playbooks, branching, wait windows, media.",
+            go() { close(); loadSample(); }
+        }
+    ];
+
+    const list = h("div", { class: "welcome-list" });
+    for (const c of choices) {
+        list.appendChild(h("button", { class: "welcome-choice", onclick: c.go },
+            h("span", { class: "welcome-choice-icon" }, c.icon),
+            h("span", { class: "welcome-choice-text" },
+                h("span", { class: "welcome-choice-title" }, c.title),
+                h("span", { class: "welcome-choice-desc" }, c.desc)),
+            h("span", { class: "welcome-choice-caret" }, "›")
+        ));
+    }
+    modal.appendChild(h("div", { class: "welcome-body" }, list));
+
+    modal.appendChild(h("div", { class: "gs-footer" },
+        h("label", null, skipCheck, " Don't show again"),
+        h("button", { class: "btn",
+            style: "height:34px;padding:0 16px;font-size:13px",
+            onclick: () => { close(); showGettingStarted(); }
+        }, "Take the tour")
+    ));
+
+    backdrop.appendChild(modal);
+    root.appendChild(backdrop);
+    document.body.appendChild(root);
 }
 
 // ============================================================================
@@ -7418,10 +8049,10 @@ loadFleetPrefs();
 refreshFleetChip();
 document.getElementById("fleet-btn").addEventListener("click", () => showFleetSetup());
 
-// First visit: ask which MDM before the tour, so the tour describes a builder
-// already narrowed to the user's fleet. Setup hands off to the tour itself.
-if (!fleet.configured) showFleetSetup({ firstRun: true });
-else if (!prefGet("enrollinator-gs-seen")) showGettingStarted();
+// The launcher comes first and routes from there: new configs get the
+// deployment questions, imported ones and the sample answer them on their own.
+if (!prefGet(WELCOME_KEY)) showWelcome();
+else if (!fleet.configured) showFleetSetup({ firstRun: true });
 
 // Per-button proximity reveal for the between-step "+ insert" affordances.
 // Toggles .proximity-active on each .step-insert-btn whose centre is within
