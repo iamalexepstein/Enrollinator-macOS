@@ -296,6 +296,14 @@
                             <true/>
                             <key>PollIntervalSeconds</key>
                             <integer>4</integer>
+                            <!-- Always bound a Blocking step. With no
+                                 TimeoutSeconds the default is "wait forever",
+                                 so anything the user can't or won't do strands
+                                 the whole run with no way out. -->
+                            <key>TimeoutSeconds</key>
+                            <integer>600</integer>
+                            <key>ContinueOnFailure</key>
+                            <true/>
                             <key>UserPrompt</key>
                             <string>Open System Settings → Desktop &amp; Dock → Default web browser, and pick Google Chrome.</string>
                             <key>Conditions</key>

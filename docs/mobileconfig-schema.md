@@ -275,7 +275,7 @@ each other.
 | Key                | Type          | Notes |
 |--------------------|---------------|-------|
 | `Command`          | string (req)  | Passed to `/bin/sh -c`. |
-| `RunAsUser`        | string        | `$CONSOLE_USER` or a literal username. |
+| `RunAsUser`        | string        | `$CONSOLE_USER` or a literal username. Runs via `launchctl asuser` + `sudo -H -u`, so `HOME` and the preference domain are the target user's. |
 | `TimeoutSeconds`   | int           | Default `300`. |
 
 ### `package`
@@ -322,7 +322,14 @@ Succeeds immediately. Useful for steps that are pure condition checks.
 | Key                | Type          | Notes |
 |--------------------|---------------|-------|
 | `Command`          | string (req)  | Exit 0 = pass. |
+| `RunAsUser`        | string        | `$CONSOLE_USER` or a literal username. |
 | `TimeoutSeconds`   | int           | Default `15`. |
+
+Without `RunAsUser` the command runs as **root**. Any check that reads a
+per-user preference domain or home directory (`defaults read MobileMeAccounts`,
+anything under `~`) will inspect `/var/root` instead and can never pass — which
+on a `Blocking` step means the run waits forever. Set
+`RunAsUser` = `$CONSOLE_USER` for those.
 
 ### `app_installed`
 

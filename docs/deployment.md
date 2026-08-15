@@ -34,7 +34,7 @@ Config resolution order (first match wins):
 | Artifact | Required | Notes |
 |---|---|---|
 | `Enrollinator-<version>.pkg` | Method 1 | Built by `./pkg/build.sh`. Installs scripts + LaunchDaemon. |
-| `enrollinator-standalone.sh` | Method 2 | Built by `./pkg/bundle.sh`. Single self-contained script for Jamf script policies — no pkg needed. |
+| `enrollinator.sh` | Method 2 | Built by `./pkg/bundle.sh`. Single self-contained script for Jamf script policies — no pkg needed. |
 | swiftDialog `.pkg` | Yes | From [swiftDialog releases](https://github.com/swiftDialog/swiftDialog/releases). Installs `dialog` to `/usr/local/bin/dialog`. |
 | `.mobileconfig` | Option A only | Custom configuration profile, scoped to target devices in your MDM. |
 | App packages (Chrome, Slack, …) | As needed | Any `.pkg` referenced by an `Action: Type=package` step. |
@@ -75,8 +75,8 @@ outside of MDM (e.g. direct download). Pass it as the second argument:
 /var/log/enrollinator.log                  # structured run log
 /var/log/enrollinator.stdout.log           # daemon stdout
 /var/log/enrollinator.stderr.log           # daemon stderr
-/var/tmp/enrollinator/                     # runtime scratch space
-/var/tmp/dialog.log                        # swiftDialog command file (world-writable by design)
+/var/tmp/enrollinator/                     # runtime scratch: root-owned 0755
+/var/tmp/enrollinator/dialog.log           # swiftDialog command file (chowned to the console user)
 /var/lib/enrollinator/completed            # present after a successful run; gates re-runs
 ```
 
@@ -176,9 +176,15 @@ Create three policies, all scoped to the same Smart Group (e.g.
 For **Option B** (bundled XML), the config is baked into the pkg — only the
 first two policies are needed.
 
-The LaunchDaemon fires automatically after the pkg lands. Exact policy
-execution order is not critical as long as all artifacts arrive before the
-user's first login session.
+The pkg's postinstall bootstraps the LaunchDaemon (`launchctl bootstrap
+system`), so Enrollinator starts as soon as the package installs — no reboot
+required. That matters at Enrollment Complete, which does not reboot: without
+that bootstrap, launchd would not pick up the newly written plist until the
+machine's next boot. `enrollinator.sh` then waits for a console user on its
+own, so it is safe for the daemon to start while enrollment is still running.
+
+Exact policy execution order is not critical as long as all artifacts arrive
+before the user's first login session.
 
 #### Re-running via Jamf
 
@@ -209,10 +215,10 @@ library code inlined. No pkg install required.
 
 ```bash
 ./pkg/bundle.sh
-# → build/enrollinator-standalone.sh
+# → build/enrollinator.sh
 ```
 
-Upload `enrollinator-standalone.sh` to **Jamf Pro → Settings → Computer
+Upload `enrollinator.sh` to **Jamf Pro → Settings → Computer
 Management → Scripts**.
 
 #### Policies
@@ -220,21 +226,23 @@ Management → Scripts**.
 | Policy | Script / Package | Execution order |
 |--------|-----------------|-----------------|
 | Install swiftDialog | swiftDialog `.pkg` | 1 |
-| Run Enrollinator | `enrollinator-standalone.sh` wrapper (below) | 2 |
+| Run Enrollinator | `enrollinator.sh` wrapper (below) | 2 |
 | Push Enrollinator config *(Option A only)* | Your `.mobileconfig` | 3 |
 
-Because Jamf injects `$1`–`$3` into every script, the policy script must be a
-small wrapper rather than calling Enrollinator directly:
+Jamf injects `$1`–`$3` (mount point, computer name, username) into every
+script. Enrollinator ignores bare positional arguments, so it can be invoked
+directly — but a wrapper is still the better shape here, because it lets you
+wait for swiftDialog to land and pin the script to a stable path:
 
 **Option A — config delivered via MDM profile:**
 
 ```bash
 #!/bin/bash
 until [ -f /usr/local/bin/dialog ]; do sleep 2; done
-/usr/local/bin/enrollinator-standalone.sh
+/usr/local/bin/enrollinator.sh
 ```
 
-Upload `enrollinator-standalone.sh` to `/usr/local/bin/` (or any stable path)
+Upload `enrollinator.sh` to `/usr/local/bin/` (or any stable path)
 via a **Files and Processes** payload in the same policy, then call it from the
 wrapper above. Jamf waits for the wrapper to exit before marking the policy
 complete, so the full run log appears in the Jamf policy log. Set **Execution
@@ -249,7 +257,7 @@ point the standalone script at it:
 ```bash
 #!/bin/bash
 until [ -f /usr/local/bin/dialog ]; do sleep 2; done
-/usr/local/bin/enrollinator-standalone.sh --xml /usr/local/enrollinator/enrollinator.xml
+/usr/local/bin/enrollinator.sh --xml /usr/local/enrollinator/enrollinator.xml
 ```
 
 #### Tradeoffs vs. Method 1
