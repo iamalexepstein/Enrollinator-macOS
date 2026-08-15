@@ -19,14 +19,19 @@ any browser (tested in Chrome). No server, no install, no build step.
 The Profile Builder is the primary way to create and maintain Enrollinator
 configs. It gives you a full visual editor for every key in the schema:
 
-- **Set your MDM once** — the builder asks which MDM manages your Macs on
-  first load, then narrows the step catalogue and every command picker to that
-  MDM, macOS built-ins, and whatever tooling you named. Every other preset
-  stays one click away under **Show all sources**, and imported configs are
-  detected rather than re-asked about.
-- **Step catalogue** — adding a step opens a searchable list of tasks ("Run a
-  Jamf policy", "Wait for the user, with a guide") that arrive with their
-  action, conditions, timeout and icon pre-filled, instead of a blank editor.
+- **Starts by asking how you're starting** — new config, open an existing one,
+  or explore the sample. A new config gets a couple of questions about your
+  fleet; the other two are read straight out of the config you loaded.
+- **Set your MDM once** — the builder narrows the step catalogue and every
+  command picker to that MDM, macOS built-ins, and whatever tooling you named.
+  Every other preset stays one click away under **Show all sources**.
+- **Guided steps** — adding a step opens a searchable catalogue of tasks ("Run
+  a Jamf policy", "Wait for the user, with a guide"), then asks only for the
+  values it can't infer, one question at a time. Everything else — action,
+  conditions, timeout, icon, blocking behaviour — is filled in for you.
+- **…or don't be guided** — **Open the full editor** sits on every question
+  screen and hands the half-built step straight over, and **Advanced mode**
+  turns the questions off entirely and shows every source.
 - **Playbook editor** — create multiple playbooks (Standard, Engineering,
   Design, …) and drag-and-drop steps within and across playbooks.
 - **Step editor** — four tabs per step: Info, Action, Conditions, Behavior.

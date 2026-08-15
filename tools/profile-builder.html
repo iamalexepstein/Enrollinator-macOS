@@ -7465,7 +7465,7 @@ const GS_CARDS = [
     {
         icon: "⚡",
         title: "Steps",
-        body: "<strong>+ Add step</strong> opens a catalogue of tasks — install an app, wait for enrolment, show a dialog — that arrive pre-filled. Click any step row to edit it; drag the ⋮⋮ handle to reorder."
+        body: "<strong>+ Add step</strong> opens a catalogue of tasks — install an app, wait for enrolment, show a dialog. Pick one and guided mode asks a couple of follow-up questions; the full editor is one click away from any of them."
     },
     {
         icon: "⚙",
@@ -7568,10 +7568,11 @@ const HELP_SECTIONS = [
     lede: "The builder is a single HTML file. Everything runs locally in the page — nothing is uploaded, and there is no server or install step.",
     blocks: [
         { h: "Three ways to begin", body: `
+            <p>The launcher on load asks which of these you're doing, and routes accordingly. All three stay available from the header afterwards.</p>
             <table>
-              <tr><td>Load sample</td><td>Fills the builder with a complete worked example — several playbooks, branching, wait windows, media. The fastest way to see what a real config looks like.</td></tr>
-              <tr><td>Import…</td><td>Reads an existing <code>.mobileconfig</code> or bare <code>.plist</code> back into the editor. Round-trips without data loss, so you can keep editing a config you deployed months ago.</td></tr>
-              <tr><td>From scratch</td><td>Add a playbook in the sidebar, then add steps to it.</td></tr>
+              <tr><td>Start a new config</td><td>Goes on to the deployment questions — which MDM, which tooling, your organisation — then drops you on an empty playbook.</td></tr>
+              <tr><td>Open an existing config</td><td>Reads a <code>.mobileconfig</code> or bare <code>.plist</code> back into the editor. Round-trips without data loss, and the config's MDM is detected from its own commands rather than asked about.</td></tr>
+              <tr><td>Explore the sample</td><td>Fills the builder with a complete worked example — several playbooks, branching, wait windows, media. The fastest way to see what a real config looks like.</td></tr>
             </table>` },
         { h: "The shape of a config", body: `
             <p>One config holds <b>global settings</b> (branding, help contacts, runtime flags) and one or more <b>playbooks</b>. A playbook is an ordered list of <b>steps</b>. At run time Enrollinator picks exactly one playbook, then walks its steps top to bottom.</p>
@@ -7592,12 +7593,16 @@ const HELP_SECTIONS = [
         { h: "What it changes", body: `
             <table>
               <tr><th>Surface</th><th>Effect</th></tr>
+              <tr><td>Adding a step</td><td>Guided mode asks a few follow-up questions instead of opening the four-tab editor.</td></tr>
               <tr><td>Step catalogue</td><td>Your MDM's tasks lead the <i>Install software</i> group, followed by your tooling, then macOS built-ins. Other MDMs' tasks are not offered.</td></tr>
-              <tr><td>MDM / source picker</td><td>Narrows to your MDM, macOS built-ins, any tooling you named, and Custom.</td></tr>
+              <tr><td>MDM / source picker</td><td>Narrows to your MDM, macOS built-ins, any tooling you named, and Custom. Other MDMs' presets are hidden, not reordered.</td></tr>
               <tr><td>Profile identity</td><td>An organisation name fills in <code>PayloadOrganization</code> and <code>PayloadIdentifier</code>. Fields you have already edited are left alone.</td></tr>
             </table>` },
+        { h: "Advanced mode", body: `
+            <p>Picking <b>Advanced mode</b> instead of an MDM turns all of that off: every source in every picker, the whole catalogue, and recipes that go straight to the full step editor with no questions.</p>
+            <p>It's also the right answer when your MDM isn't listed, or when Enrollinator runs from a package with no MDM binary involved. Switch back to an MDM from the header chip whenever you like — it's a setting, not a one-way door.</p>` },
         { h: "Nothing is removed", body: `
-            <div class="help-tip">Narrowing is a default, never a wall. <b>Show all sources</b> under any narrowed picker restores the full list, and a step that already uses a source from outside your fleet always keeps it in the dropdown — so importing a Kandji config while set to Jamf never hides the commands that config is built on.</div>` },
+            <div class="help-tip">Narrowing is a default, never a wall. <b>Show all sources</b> under any narrowed picker restores the full list; a step that already uses a source from outside your fleet always keeps it in the dropdown — so importing a Kandji config while set to Jamf never hides the commands that config is built on; and every guided question screen carries <b>Open the full editor</b>.</div>` },
         { h: "Imported configs answer for themselves", body: `
             <p>Import and Load sample read the MDM back out of the commands a config already contains, and adopt it. Tooling is additive: importing a config that uses Installomator adds Installomator to your fleet rather than replacing what was there.</p>` }
     ]
@@ -7645,8 +7650,17 @@ const HELP_SECTIONS = [
               <tr><td>Talk to the user</td><td>A message, a policy to accept, a slideshow walkthrough, or a video.</td></tr>
               <tr><td>Flow &amp; custom</td><td>Pause, branch checkpoint, custom shell command, blank step.</td></tr>
             </table>
-            <p>The editor opens on whichever tab still holds the field worth filling in — Action for a policy step, Conditions for a wait, Behavior for a guided wait.</p>
             <div class="help-tip">A recipe is a starting point, not a track. Every one produces an ordinary step with nothing locked or hidden, and <b>Blank step</b> gives you the empty editor if you would rather build it up by hand.</div>` },
+        { h: "Guided mode", body: `
+            <p>With an MDM set, picking a recipe asks for the handful of values it can't know — one question per screen, with everything else filled in behind you. <i>Run a Jamf policy</i> asks which custom event and what to call the step, and that's the whole interaction.</p>
+            <table>
+              <tr><td>Enter</td><td>Next question. In a message box use ⌘ Enter, since plain Enter is a newline there.</td></tr>
+              <tr><td>Back</td><td>Revisit an answer. <b>Skip</b> appears on optional questions.</td></tr>
+              <tr><td>Open the full editor</td><td>Hands the half-built step to the four-tab editor with your answers applied. On every screen.</td></tr>
+              <tr><td>Cancel</td><td>Discards the step entirely — it isn't added to the playbook until the last question.</td></tr>
+            </table>
+            <p>Questions can depend on earlier answers: <i>Wait for the user</i> asks how the step should know it's finished, then follows up with the right field for the check you chose.</p>
+            <p>In <b>Advanced mode</b> there are no questions — recipes open the full editor directly, on whichever tab holds the field worth filling in.</p>` },
         { h: "Info tab", body: `
             <table>
               <tr><th>Field</th><th>Notes</th></tr>
