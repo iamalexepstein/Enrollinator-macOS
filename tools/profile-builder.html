@@ -1000,6 +1000,117 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 }
 .gs-footer input[type="checkbox"] { accent-color: #0a84ff; cursor: pointer; }
 
+/* ------------------------------------------------------------ fleet setup */
+/* Reuses the .gs-* shell (backdrop, modal, header, footer) so the first-run
+   setup sheet and the tour that follows it read as one flow. */
+.setup-body { padding: 22px 26px 20px; display: flex; flex-direction: column; gap: 20px; }
+.setup-section { display: flex; flex-direction: column; gap: 9px; }
+.setup-label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-4);
+}
+.setup-label .setup-optional {
+    text-transform: none; letter-spacing: 0; font-weight: 500;
+    color: var(--text-ghost); margin-left: 6px;
+}
+.setup-hint { font-size: 12px; color: var(--text-3); line-height: 1.5; margin: -2px 0 0; }
+.mdm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mdm-card {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+    padding: 11px 12px; text-align: left;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; cursor: pointer;
+    font: inherit; color: var(--text);
+    transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+.mdm-card:hover { border-color: var(--border-hover); background: var(--btn-bg-hover); }
+.mdm-card.selected {
+    border-color: var(--accent); background: var(--accent-tint);
+    box-shadow: 0 0 0 2px var(--accent-line-faint);
+}
+.mdm-card-icon { font-size: 19px; line-height: 1.1; }
+.mdm-card-name { font-size: 12.5px; font-weight: 650; letter-spacing: -0.01em; }
+.mdm-card.selected .mdm-card-name { color: var(--accent-deep); }
+.tool-list { display: flex; flex-direction: column; gap: 7px; }
+.tool-opt {
+    display: flex; align-items: flex-start; gap: 9px;
+    padding: 10px 12px; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+}
+.tool-opt:hover { border-color: var(--border-hover); }
+.tool-opt.selected { border-color: var(--accent); background: var(--accent-tint); }
+.tool-opt input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; margin-top: 1px; }
+.tool-opt-text { display: flex; flex-direction: column; gap: 2px; }
+.tool-opt-name { font-size: 12.5px; font-weight: 650; color: var(--text); }
+.tool-opt-desc { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
+.setup-body input[type="text"] {
+    height: 34px; padding: 0 11px; font-size: 13px;
+    background: var(--field-bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+}
+.setup-body input[type="text"]:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-line-faint);
+}
+
+/* Header chip showing the current fleet. */
+.fleet-btn { display: flex; align-items: center; gap: 6px; }
+.fleet-btn .fleet-btn-icon { font-size: 13px; line-height: 1; }
+.fleet-btn.unset { color: var(--accent-text); border-color: var(--accent-line); }
+
+/* Inline notice under a filtered source picker. */
+.source-filter-note {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    font-size: 11.5px; color: var(--text-4); margin-top: 5px;
+}
+.source-filter-note button {
+    background: none; border: none; padding: 0; cursor: pointer;
+    font: inherit; color: var(--link-text); text-decoration: underline;
+}
+
+/* --------------------------------------------------------- step catalogue */
+/* Height comes from --app-vh, not vh: the body is zoomed, so raw viewport
+   units overshoot at any scale but 100%. See the note atop the stylesheet. */
+.cat-modal { max-height: calc(var(--app-vh) * 0.82); }
+.cat-search-row { padding: 14px 20px; border-bottom: 1px solid var(--hairline-line); }
+.cat-search {
+    width: 100%; height: 36px; padding: 0 12px; font-size: 13px;
+    background: var(--field-bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 9px;
+}
+.cat-search:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-line-faint);
+}
+.cat-body { overflow-y: auto; padding: 6px 20px 18px; flex: 1; }
+.cat-group { margin-top: 16px; }
+.cat-group-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--text-4); margin-bottom: 8px;
+}
+.cat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cat-card {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 11px 13px; text-align: left; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--card-border);
+    border-radius: 10px; font: inherit; color: var(--text);
+    transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+.cat-card:hover {
+    border-color: var(--accent-line); background: var(--accent-tint);
+    transform: translateY(-1px);
+}
+.cat-card-icon {
+    flex-shrink: 0; width: 28px; height: 28px; border-radius: 7px;
+    background: var(--icon-bg); color: var(--tint-blue-fg);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700;
+}
+.cat-card-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cat-card-name { font-size: 12.5px; font-weight: 650; letter-spacing: -0.01em; }
+.cat-card-desc { font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
+.cat-empty { padding: 34px 0; text-align: center; font-size: 13px; color: var(--text-4); }
+
 /* ---------------------------------------------------------------- sidebar */
 .playbook-sidebar {
     width: 210px;
@@ -1562,6 +1673,7 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
         </div>
     </h1>
     <div class="actions">
+        <button id="fleet-btn" class="fleet-btn unset" data-tooltip="Which MDM this profile targets">Set MDM</button>
         <button id="import-btn" data-tooltip="Load an existing .mobileconfig">Import…</button>
         <input type="file" id="import-file" hidden accept=".mobileconfig,.plist,.xml">
         <button id="sample-btn" data-tooltip="Fill with example playbooks">Load sample</button>
@@ -1674,11 +1786,25 @@ const FILE_KINDS = ["any", "file", "directory"];
 // MDM-specific shell action presets. Each MDM has a list of verbs; each verb
 // has a template (with {PLACEHOLDER} tokens) and optional fields the user fills
 // in. The assembled command is stored in action.Command for the plist.
+//
+// `kind` drives the fleet filter (see visibleSources()):
+//   mdm     — a fleet's management system. You pick exactly one at setup.
+//   tool    — deployment tooling that pairs with any MDM. Zero or more.
+//   system  — built into macOS. Always available.
+//   custom  — the free-text escape hatch. Always available.
+//
+// `stepName` and `icon` let the same verb appear in the step catalog as a
+// task ("Install an app with Installomator") rather than as a bare verb, so
+// the two surfaces never drift apart. A verb without a stepName is reachable
+// through the Action tab's picker but is not offered as its own catalog card.
 const MDM_PRESETS = [
     {
-        id: "jamf", label: "Jamf Pro",
+        id: "jamf", label: "Jamf Pro", kind: "mdm", icon: "🔧",
+        blurb: "Policies, recon and the management framework via the jamf binary.",
         verbs: [
             { id: "policy-event", label: "policy — custom event",
+              stepName: "Run a Jamf policy", icon: "SF=bolt.badge.automatic",
+              catalogDesc: "Trigger a policy by its custom event name.",
               template: "/usr/local/bin/jamf policy -event {EVENT_NAME}",
               timeout: 600,
               fields: [{ key: "EVENT_NAME", label: "Event name", placeholder: "e.g. install-chrome" }],
@@ -1694,6 +1820,8 @@ const MDM_PRESETS = [
               fields: [],
               note: "Runs every policy scoped to this Mac at its normal check-in." },
             { id: "recon", label: "recon",
+              stepName: "Submit a Jamf inventory record", icon: "SF=list.clipboard",
+              catalogDesc: "Run recon so Jamf Pro sees the Mac's current state.",
               template: "/usr/local/bin/jamf recon",
               timeout: 300,
               fields: [],
@@ -1706,9 +1834,12 @@ const MDM_PRESETS = [
         ]
     },
     {
-        id: "installomator", label: "Installomator",
+        id: "installomator", label: "Installomator", kind: "tool", icon: "📥",
+        blurb: "Installs apps from vendor sources by label. Pairs with any MDM.",
         verbs: [
             { id: "install", label: "install — by label",
+              stepName: "Install an app with Installomator", icon: "SF=arrow.down.app",
+              catalogDesc: "Fetch and install an app straight from the vendor by label.",
               template: "/usr/local/Installomator/Installomator.sh {LABEL} NOTIFY=silent BLOCKING_PROCESS_ACTION=ignore",
               timeout: 900,
               fields: [{ key: "LABEL", label: "Label", placeholder: "e.g. googlechromepkg, slack, zoomclient" }],
@@ -1716,9 +1847,12 @@ const MDM_PRESETS = [
         ]
     },
     {
-        id: "munki", label: "Munki / Workspace ONE",
+        id: "munki", label: "Munki / Workspace ONE", kind: "mdm", icon: "📦",
+        blurb: "managedsoftwareupdate against your Munki repo or WS1 catalogue.",
         verbs: [
             { id: "auto", label: "managedsoftwareupdate — check & install",
+              stepName: "Install pending Munki software", icon: "SF=shippingbox",
+              catalogDesc: "Check the repo and install everything currently pending.",
               template: "/usr/local/munki/managedsoftwareupdate --auto",
               timeout: 1800,
               fields: [],
@@ -1736,14 +1870,19 @@ const MDM_PRESETS = [
         ]
     },
     {
-        id: "kandji", label: "Kandji",
+        id: "kandji", label: "Kandji", kind: "mdm", icon: "🟣",
+        blurb: "Runs library items from the Mac's assigned blueprint.",
         verbs: [
             { id: "run-all", label: "run — all library items",
+              stepName: "Run all Kandji library items", icon: "SF=square.stack.3d.up",
+              catalogDesc: "Re-evaluate every library item in the assigned blueprint.",
               template: "/usr/local/bin/kandji run --force",
               timeout: 1800,
               fields: [],
               note: "Re-evaluate every library item in the current blueprint." },
             { id: "run-item", label: "run — specific library item",
+              stepName: "Run a Kandji library item", icon: "SF=square.stack.3d.up.badge.a",
+              catalogDesc: "Run one named library item, such as an app install.",
               template: "/usr/local/bin/kandji run --item \"{ITEM_NAME}\"",
               timeout: 900,
               fields: [{ key: "ITEM_NAME", label: "Item name", placeholder: "e.g. Google Chrome" }],
@@ -1751,9 +1890,12 @@ const MDM_PRESETS = [
         ]
     },
     {
-        id: "mosyle", label: "Mosyle",
+        id: "mosyle", label: "Mosyle", kind: "mdm", icon: "🔵",
+        blurb: "No direct trigger CLI — an enrolment renew is the usual poke.",
         verbs: [
             { id: "checkin", label: "force agent check-in",
+              stepName: "Force a Mosyle check-in", icon: "SF=arrow.triangle.2.circlepath",
+              catalogDesc: "Nudge the agent to pull down its assigned actions now.",
               template: "/usr/bin/sudo /usr/local/bin/profiles renew -type=enrollment",
               timeout: 300,
               fields: [],
@@ -1761,9 +1903,12 @@ const MDM_PRESETS = [
         ]
     },
     {
-        id: "addigy", label: "Addigy",
+        id: "addigy", label: "Addigy", kind: "mdm", icon: "🟠",
+        blurb: "Runs policies through the Addigy go-agent.",
         verbs: [
             { id: "policy", label: "run a policy",
+              stepName: "Run an Addigy policy", icon: "SF=bolt.badge.automatic",
+              catalogDesc: "Trigger a named policy through the go-agent.",
               template: "/Library/Addigy/go-agent -run-policy {POLICY_NAME}",
               timeout: 900,
               fields: [{ key: "POLICY_NAME", label: "Policy name", placeholder: "e.g. my-addigy-policy" }],
@@ -1771,19 +1916,26 @@ const MDM_PRESETS = [
         ]
     },
     {
-        id: "macos", label: "macOS built-ins",
+        id: "macos", label: "macOS built-ins", kind: "system", icon: "",
+        blurb: "Tools shipped with macOS. Available on every Mac, whatever manages it.",
         verbs: [
             { id: "rosetta", label: "Install Rosetta 2",
+              stepName: "Install Rosetta 2", icon: "SF=cpu",
+              catalogDesc: "Lets Apple-silicon Macs run Intel binaries.",
               template: "/usr/sbin/softwareupdate --install-rosetta --agree-to-license",
               timeout: 900,
               fields: [],
               note: "" },
             { id: "clt", label: "Install Xcode Command Line Tools",
+              stepName: "Install Xcode Command Line Tools", icon: "SF=hammer",
+              catalogDesc: "Compilers and git, without the full Xcode download.",
               template: "/usr/bin/xcode-select --install || true",
               timeout: 1200,
               fields: [],
               note: "|| true keeps the step green if CLT is already installed." },
             { id: "swupdate-all", label: "softwareupdate — install all",
+              stepName: "Install all macOS software updates", icon: "SF=arrow.down.circle",
+              catalogDesc: "Apply every pending Apple update. Can take a long time.",
               template: "/usr/sbin/softwareupdate --install --all --agree-to-license",
               timeout: 3600,
               fields: [],
@@ -1796,7 +1948,8 @@ const MDM_PRESETS = [
         ]
     },
     {
-        id: "custom", label: "Custom / manual",
+        id: "custom", label: "Custom / manual", kind: "custom", icon: "⌨️",
+        blurb: "Write the command yourself.",
         verbs: []
     }
 ];
@@ -1830,6 +1983,117 @@ function inferMdmSelection(command) {
         }
     }
     return null;
+}
+
+// ============================================================================
+// Fleet — which MDM and tooling this config is being written for.
+//
+// This is builder context, not config: it never reaches the plist. A fleet has
+// exactly one MDM, so asking per step (as the Action tab used to, eight
+// options deep, on every step) was asking the same question forever. Ask once,
+// then narrow every source list to what that fleet actually runs.
+//
+// Narrowing is a default, never a wall. visibleSources() always readmits the
+// source an action is already using, and "Show all sources" restores the full
+// list, so an imported config is never editing against a hidden picker and no
+// preset is ever unreachable.
+// ============================================================================
+
+const FLEET_PREFS_KEY = "enrollinator-fleet";
+
+const fleet = {
+    mdm: null,          // MDM_PRESETS id with kind "mdm", or null when unset
+    tools: [],          // MDM_PRESETS ids with kind "tool"
+    org: "",            // organisation name, used to seed profile identity
+    configured: false,  // true once setup has been completed or dismissed
+    showAllSources: false
+};
+
+function sourceById(id) { return MDM_PRESETS.find(m => m.id === id) || null; }
+function sourcesOfKind(kind) { return MDM_PRESETS.filter(m => m.kind === kind); }
+
+function loadFleetPrefs() {
+    try {
+        const raw = prefGet(FLEET_PREFS_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        const mdm = sourceById(saved.mdm);
+        if (mdm && mdm.kind === "mdm") fleet.mdm = mdm.id;
+        if (Array.isArray(saved.tools)) {
+            fleet.tools = saved.tools.filter(id => {
+                const s = sourceById(id);
+                return s && s.kind === "tool";
+            });
+        }
+        if (typeof saved.org === "string") fleet.org = saved.org;
+        fleet.configured = !!saved.configured;
+        fleet.showAllSources = !!saved.showAllSources;
+    } catch (e) { /* corrupt or unavailable storage — fall back to unset */ }
+}
+
+function saveFleetPrefs() {
+    prefSet(FLEET_PREFS_KEY, JSON.stringify({
+        mdm: fleet.mdm, tools: fleet.tools, org: fleet.org,
+        configured: fleet.configured, showAllSources: fleet.showAllSources
+    }));
+}
+
+/** The sources offered in a step's MDM/source picker.
+ *  `current` is the source that step is already using — always included, even
+ *  when it falls outside the fleet, so editing an imported config never hides
+ *  the preset it was built with. */
+function visibleSources(current) {
+    if (fleet.showAllSources || !fleet.mdm) return MDM_PRESETS.slice();
+    return MDM_PRESETS.filter(m =>
+        m.id === fleet.mdm ||
+        fleet.tools.includes(m.id) ||
+        m.kind === "system" ||
+        m.kind === "custom" ||
+        m.id === current);
+}
+
+/** True when the fleet filter is actually hiding something right now. */
+function sourcesAreFiltered(current) {
+    return visibleSources(current).length < MDM_PRESETS.length;
+}
+
+/** Read the MDM and tooling back out of a config by looking at what its shell
+ *  commands actually invoke. Lets Import and Load sample set the fleet without
+ *  putting the question to the user a second time. */
+function inferFleetFromState(s) {
+    const seen = {};
+    for (const p of (s.Playbooks || [])) {
+        for (const st of (p.Steps || [])) {
+            if (!st.Action || st.Action.Type !== "shell") continue;
+            const match = inferMdmSelection(st.Action.Command);
+            if (!match) continue;
+            seen[match.mdmId] = (seen[match.mdmId] || 0) + 1;
+        }
+    }
+    const tools = sourcesOfKind("tool").filter(t => seen[t.id]).map(t => t.id);
+    // Most-used MDM wins. A config that touches none leaves the choice alone.
+    const mdm = sourcesOfKind("mdm")
+        .filter(m => seen[m.id])
+        .sort((a, b) => seen[b.id] - seen[a.id])[0];
+    return { mdm: mdm ? mdm.id : null, tools };
+}
+
+/** Adopt whatever a freshly loaded config reveals about its fleet. Additive
+ *  for tools — a Jamf shop that imports a config using Installomator keeps
+ *  both — and only replaces the MDM when the config clearly names one. */
+function adoptFleetFromState(s) {
+    const found = inferFleetFromState(s);
+    let changed = false;
+    if (found.mdm && found.mdm !== fleet.mdm) { fleet.mdm = found.mdm; changed = true; }
+    for (const t of found.tools) {
+        if (!fleet.tools.includes(t)) { fleet.tools.push(t); changed = true; }
+    }
+    if (changed) {
+        fleet.configured = true;
+        saveFleetPrefs();
+        refreshFleetChip();
+    }
+    return changed;
 }
 
 function blankStep() {
@@ -3406,20 +3670,14 @@ function renderPlaybookContent(pIdx) {
     ));
 
     function addStep() {
-        const st = blankStep();
-        st.Id = `step-${profile.Steps.length + 1}`;
-        st.Name = "New step";
-        profile.Steps.push(st);
-        const newIdx = profile.Steps.length - 1;
-        ui.pendingStep = { pIdx, sIdx: newIdx };
-        openStepEditor(pIdx, newIdx);
+        openStepCatalog(pIdx, profile.Steps.length);
     }
 
     if (profile.Steps.length === 0) {
         content.appendChild(h("div", { class: "step-list-empty-cta", onclick: addStep },
             h("div", { class: "cta-icon" }, "＋"),
             h("div", { class: "cta-title" }, "Add your first step"),
-            h("div", { class: "cta-sub" }, "Click here to add a step and get started")
+            h("div", { class: "cta-sub" }, "Pick from the catalogue — installs, waits, dialogs — or start blank")
         ));
     } else {
         content.appendChild(renderStepList(profile, pIdx));
@@ -3434,21 +3692,12 @@ function renderPlaybookContent(pIdx) {
     return content;
 }
 
-function insertStepAt(profile, pIdx, insertIdx) {
-    const st = blankStep();
-    st.Id   = `step-${profile.Steps.length + 1}`;
-    st.Name = "New step";
-    profile.Steps.splice(insertIdx, 0, st);
-    ui.pendingStep = { pIdx, sIdx: insertIdx };
-    openStepEditor(pIdx, insertIdx);
-}
-
-function renderStepInsertBtn(profile, pIdx, insertIdx) {
+function renderStepInsertBtn(pIdx, insertIdx) {
     return h("div", { class: "step-insert" },
         h("button", {
             class: "step-insert-btn",
             "data-tooltip": "Insert step here",
-            onclick: e => { e.stopPropagation(); insertStepAt(profile, pIdx, insertIdx); }
+            onclick: e => { e.stopPropagation(); openStepCatalog(pIdx, insertIdx); }
         }, "+")
     );
 }
@@ -3465,7 +3714,7 @@ function renderStepList(profile, pIdx) {
         }
         // Insert button between this step and the next.
         if (sIdx < profile.Steps.length - 1) {
-            list.appendChild(renderStepInsertBtn(profile, pIdx, sIdx + 1));
+            list.appendChild(renderStepInsertBtn(pIdx, sIdx + 1));
         }
     });
 
@@ -4375,6 +4624,351 @@ function renderProfileForm(p) {
 }
 
 // ============================================================================
+// Step catalogue
+//
+// Adding a step used to mean naming a blank one, then translating what you
+// wanted ("install Chrome") into how the schema spells it (Action tab → shell
+// → Installomator → install by label). The catalogue inverts that: pick the
+// task, get a step with its action, conditions, timeout, icon and blocking
+// behaviour already filled in, and edit from there.
+//
+// Recipes are a starting point, not a track. Every one produces an ordinary
+// step with nothing locked, and "Blank step" still lands you where the old
+// button did. Recipes deliberately cover the features that were buried three
+// levels down — wait windows, slideshows, video, branch checkpoints — because
+// a feature nobody can find is a feature nobody uses.
+// ============================================================================
+
+const CATALOG_GROUPS = [
+    { id: "install", label: "Install software" },
+    { id: "wait",    label: "Wait for something" },
+    { id: "user",    label: "Talk to the user" },
+    { id: "flow",    label: "Flow & custom" }
+];
+
+/** Recipes that hold for every fleet. MDM-specific ones are generated from
+ *  MDM_PRESETS — see catalogEntries(). */
+const STEP_RECIPES = [
+    {
+        id: "pkg", group: "install", glyph: "📦",
+        name: "Install a .pkg", desc: "Run a package that's already on disk, then confirm the app landed.",
+        build() {
+            const st = blankStep();
+            st.Name = "Install an app";
+            st.Icon = "SF=shippingbox";
+            st.Action = blankAction("package");
+            st.Action.Path = "/Library/Enrollinator/packages/YOUR.pkg";
+            st.Action.Target = "/";
+            st.Action.TimeoutSeconds = 600;
+            st.Conditions.push(blankCondition("app_installed"));
+            return st;
+        }
+    },
+    {
+        id: "wait-enrollment", group: "wait", glyph: "🛡", tab: "conditions",
+        name: "Wait for MDM enrolment", desc: "Hold until the management profile is confirmed installed.",
+        build() {
+            const st = blankStep();
+            st.Name = "Verify MDM enrolment";
+            st.Description = "Waits until the management profile is confirmed installed.";
+            st.Icon = "SF=network.badge.shield.half.filled,animation=variableColor";
+            st.Action = blankAction("wait");
+            st.Action.DurationSeconds = 10;
+            st.Blocking = true;
+            st.PollIntervalSeconds = 10;
+            st.TimeoutSeconds = 1800;
+            st.UserPrompt = "Waiting for this Mac to finish enrolling…";
+            st.Conditions.push(blankCondition("profile_installed"));
+            return st;
+        }
+    },
+    {
+        id: "wait-app", group: "wait", glyph: "⏳", tab: "conditions",
+        name: "Wait for an app to appear", desc: "Poll until an app installs — useful after firing an MDM policy.",
+        build() {
+            const st = blankStep();
+            st.Name = "Wait for an app to install";
+            st.Icon = "SF=hourglass,animation=rotate";
+            st.Blocking = true;
+            st.PollIntervalSeconds = 15;
+            st.TimeoutSeconds = 1800;
+            st.UserPrompt = "Installing — this can take a few minutes.";
+            st.Conditions.push(blankCondition("app_installed"));
+            return st;
+        }
+    },
+    {
+        id: "wait-user", group: "wait", glyph: "🧑‍💻", tab: "behavior",
+        name: "Wait for the user, with a guide", desc: "Blocking step with a side window walking them through it, step by step.",
+        build() {
+            const st = blankStep();
+            st.Name = "Sign in to the VPN";
+            st.Description = "Waits until the user completes this themselves.";
+            st.Icon = "SF=lock.shield,animation=pulse";
+            st.Blocking = true;
+            st.PollIntervalSeconds = 5;
+            st.TimeoutSeconds = 1800;
+            st.UserPrompt = "Follow the steps in the window to the side.";
+            st.WaitWindow = blankWaitWindow("Sign in to the VPN");
+            st.WaitWindow.Message = "### Almost there\n\n1. Click the app in your menu bar.\n2. Sign in with your work address.\n3. Approve the prompt on your phone.";
+            st.WaitWindow.Width = 560;
+            st.WaitWindow.Height = 480;
+            st.WaitWindow.Slideshow = [
+                { Image: "", Title: "Step 1", Message: "Describe the first thing they should do." },
+                { Image: "", Title: "Step 2", Message: "Describe the second thing they should do." }
+            ];
+            st.Conditions.push(blankCondition("process_running"));
+            return st;
+        }
+    },
+    {
+        id: "dialog-message", group: "user", glyph: "💬",
+        name: "Show a message", desc: "A dialog with one button. The run continues when they dismiss it.",
+        build() {
+            const st = blankStep();
+            st.Name = "Show a message";
+            st.Icon = "SF=bubble.left";
+            st.Action = blankAction("dialog");
+            st.Action.Title = "You're all set";
+            st.Action.Message = "Your Mac is ready to go. Here's what to do next…";
+            st.Action.Buttons = ["Continue"];
+            st.Action.ExpectedButton = "Continue";
+            return st;
+        }
+    },
+    {
+        id: "dialog-eula", group: "user", glyph: "📜",
+        name: "Ask them to accept a policy", desc: "Two buttons, and the step only passes on the one you nominate.",
+        build() {
+            const st = blankStep();
+            st.Name = "Accept the acceptable use policy";
+            st.Icon = "SF=doc.badge.checkmark";
+            st.Action = blankAction("dialog");
+            st.Action.Title = "Acceptable use policy";
+            st.Action.Message = "Please read and accept the policy to continue.\n\n*Paste or summarise the policy here — Markdown works.*";
+            st.Action.Buttons = ["Agree", "Decline"];
+            st.Action.ExpectedButton = "Agree";
+            return st;
+        }
+    },
+    {
+        id: "dialog-slideshow", group: "user", glyph: "🖼",
+        name: "Walk them through a slideshow", desc: "Images they click through before the dialog's buttons appear.",
+        build() {
+            const st = blankStep();
+            st.Name = "Welcome walkthrough";
+            st.Icon = "SF=photo.on.rectangle";
+            st.Action = blankAction("dialog");
+            st.Action.Title = "Welcome aboard";
+            st.Action.Message = "A quick tour before you get started.";
+            st.Action.Buttons = ["Got it"];
+            st.Action.ExpectedButton = "Got it";
+            st.Action.Slideshow = [
+                { Image: "", Title: "First slide", Message: "Point them at something useful." },
+                { Image: "", Title: "Second slide", Message: "And something else." },
+                { Image: "", Title: "Third slide", Message: "Then hand them the button." }
+            ];
+            return st;
+        }
+    },
+    {
+        id: "dialog-video", group: "user", glyph: "🎬",
+        name: "Play a video", desc: "A local file or a YouTube link, shown inside the dialog.",
+        build() {
+            const st = blankStep();
+            st.Name = "Watch the welcome video";
+            st.Icon = "SF=play.rectangle";
+            st.Action = blankAction("dialog");
+            st.Action.Title = "Welcome to the team";
+            st.Action.Message = "Give this a watch before you carry on.";
+            st.Action.Buttons = ["Done"];
+            st.Action.ExpectedButton = "Done";
+            st.Action.Video = "";
+            st.Action.VideoAutoplay = true;
+            st.Action.Width = 700;
+            st.Action.Height = 480;
+            return st;
+        }
+    },
+    {
+        id: "pause", group: "flow", glyph: "⏸",
+        name: "Pause", desc: "Sleep for a fixed time, then carry on. Lets a daemon settle.",
+        build() {
+            const st = blankStep();
+            st.Name = "Let things settle";
+            st.Icon = "SF=hourglass";
+            st.Action = blankAction("wait");
+            st.Action.DurationSeconds = 10;
+            return st;
+        }
+    },
+    {
+        id: "checkpoint", group: "flow", glyph: "⎇", tab: "info",
+        name: "Checkpoint", desc: "A step that always passes — a target to branch to, or a condition-only gate.",
+        build() {
+            const st = blankStep();
+            st.Name = "Checkpoint";
+            st.Description = "Always succeeds. Use as a branch target or a pure condition check.";
+            st.Icon = "SF=flag";
+            st.Action = blankAction("noop");
+            return st;
+        }
+    },
+    {
+        id: "custom-shell", group: "flow", glyph: "⌨️",
+        name: "Custom shell command", desc: "Write the command yourself, as root or as the console user.",
+        build() {
+            const st = blankStep();
+            st.Name = "Run a command";
+            st.Icon = "SF=terminal";
+            st.Action = blankAction("shell");
+            st.Action._mdmId = "custom";
+            st.Action._verbId = null;
+            st.Action._fields = {};
+            st.Action.TimeoutSeconds = 300;
+            return st;
+        }
+    },
+    {
+        id: "blank", group: "flow", glyph: "▫️",
+        name: "Blank step", desc: "Start from nothing and build it up by hand.",
+        build() {
+            const st = blankStep();
+            st.Name = "New step";
+            return st;
+        }
+    }
+];
+
+/** Turn an MDM_PRESETS verb into a catalogue recipe. Only verbs carrying a
+ *  stepName qualify — the rest stay available through the Action tab picker. */
+function recipeFromVerb(source, verb) {
+    return {
+        id: `${source.id}:${verb.id}`,
+        group: "install",
+        glyph: source.icon || "⚙️",
+        name: verb.stepName,
+        desc: verb.catalogDesc || verb.note || "",
+        build() {
+            const st = blankStep();
+            st.Name = verb.stepName;
+            st.Icon = verb.icon || "";
+            st.Action = blankAction("shell");
+            st.Action.Command = assembleMdmCommand(verb, {});
+            st.Action.TimeoutSeconds = verb.timeout || null;
+            // Pre-seed the picker's transient keys so the Action tab opens on
+            // the right source and verb instead of re-inferring from the
+            // placeholder-laden command.
+            st.Action._mdmId = source.id;
+            st.Action._verbId = verb.id;
+            st.Action._fields = {};
+            return st;
+        }
+    };
+}
+
+/** Every recipe on offer, ordered so the fleet's own tooling comes first. */
+function catalogEntries() {
+    const fromVerbs = [];
+    for (const source of visibleSources(null)) {
+        if (source.kind === "custom") continue;
+        for (const verb of source.verbs) {
+            if (verb.stepName) fromVerbs.push(recipeFromVerb(source, verb));
+        }
+    }
+    // The fleet's MDM leads, then its extra tooling, then macOS built-ins.
+    const rank = s => s === fleet.mdm ? 0 : (fleet.tools.includes(s) ? 1 : 2);
+    fromVerbs.sort((a, b) => rank(a.id.split(":")[0]) - rank(b.id.split(":")[0]));
+    return [...fromVerbs, ...STEP_RECIPES];
+}
+
+function openStepCatalog(pIdx, insertIdx) {
+    const root = document.getElementById("modal-root");
+    root.innerHTML = "";
+
+    const entries = catalogEntries();
+    let query = "";
+
+    const bodyEl = h("div", { class: "cat-body" });
+
+    function commit(entry) {
+        const profile = state.Playbooks[pIdx];
+        const st = entry.build();
+        // Give it a unique, readable ID derived from the name so branch targets
+        // and add-on dedup have something to hold onto straight away.
+        const used = new Set(profile.Steps.map(s => s.Id).filter(Boolean));
+        const base = (st.Name || "step").toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "step";
+        let id = base, n = 2;
+        while (used.has(id)) id = `${base}-${n++}`;
+        st.Id = id;
+
+        profile.Steps.splice(insertIdx, 0, st);
+        ui.pendingStep = { pIdx, sIdx: insertIdx };
+        // Open on whichever tab still holds the field worth filling in — the
+        // whole point of a recipe is that the rest is already done. Recipes
+        // name it explicitly; otherwise Action if there is one, else Info.
+        openStepEditor(pIdx, insertIdx, entry.tab || (st.Action ? "action" : "info"));
+    }
+
+    function paint() {
+        bodyEl.innerHTML = "";
+        const q = query.trim().toLowerCase();
+        const matches = entries.filter(e => !q ||
+            e.name.toLowerCase().includes(q) ||
+            e.desc.toLowerCase().includes(q));
+
+        if (!matches.length) {
+            bodyEl.appendChild(h("div", { class: "cat-empty" },
+                "Nothing matches — try \"Blank step\" and build it by hand."));
+            return;
+        }
+
+        for (const group of CATALOG_GROUPS) {
+            const inGroup = matches.filter(e => e.group === group.id);
+            if (!inGroup.length) continue;
+            const grid = h("div", { class: "cat-grid" });
+            for (const entry of inGroup) {
+                grid.appendChild(h("button", {
+                    class: "cat-card",
+                    onclick: () => commit(entry)
+                },
+                    h("span", { class: "cat-card-icon" }, entry.glyph),
+                    h("span", { class: "cat-card-text" },
+                        h("span", { class: "cat-card-name" }, entry.name),
+                        entry.desc ? h("span", { class: "cat-card-desc" }, entry.desc) : null
+                    )
+                ));
+            }
+            bodyEl.appendChild(h("div", { class: "cat-group" },
+                h("div", { class: "cat-group-title" }, group.label),
+                grid
+            ));
+        }
+    }
+    paint();
+
+    const search = h("input", {
+        type: "text", class: "cat-search",
+        placeholder: "Search — install, wait, dialog, video…",
+        oninput: e => { query = e.target.value; paint(); }
+    });
+
+    const backdrop = h("div", { class: "modal-backdrop",
+        onclick: e => { if (e.target === backdrop) closeModal(); } });
+    const modal = h("div", { class: "modal cat-modal" },
+        h("div", { class: "modal-header" },
+            h("div", { class: "modal-title" }, "Add a step"),
+            h("button", { class: "btn", onclick: closeModal }, "Close")),
+        h("div", { class: "cat-search-row" }, search),
+        bodyEl
+    );
+    backdrop.appendChild(modal);
+    root.appendChild(backdrop);
+    setTimeout(() => search.focus(), 40);
+}
+
+// ============================================================================
 // Modal: step editor — tabbed (Info / Action / Conditions / Behavior)
 // ============================================================================
 
@@ -4385,12 +4979,14 @@ const STEP_TABS = [
     { id: "behavior",   label: "Behavior" },
 ];
 
-function openStepEditor(pIdx, sIdx) {
+/** @param {string} [tab] — which tab to land on. Defaults to Info; the
+ *  catalogue passes "action" so a recipe opens on the part still to fill in. */
+function openStepEditor(pIdx, sIdx, tab) {
     const p = state.Playbooks[pIdx];
     const st = p.Steps[sIdx];
     if (!st) return;
     ui.openStep = { pIdx, sIdx };
-    ui.stepTab = "info";
+    ui.stepTab = STEP_TABS.some(t => t.id === tab) ? tab : "info";
     // Clone into draft on a fresh open. reopenStep() may call back here when
     // the modal DOM was torn down; preserve any edits already in the draft.
     if (!ui.draftStep) ui.draftStep = deepClone(st);
@@ -4502,7 +5098,9 @@ function reopenStep() {
         return;
     }
     const { pIdx, sIdx } = ui.openStep;
-    openStepEditor(pIdx, sIdx);
+    // Preserve the open tab — rebuilding the modal must not bounce the user
+    // back to Info mid-edit.
+    openStepEditor(pIdx, sIdx, ui.stepTab);
 }
 
 // ---- Info tab ---------------------------------------------------------------
@@ -4948,7 +5546,11 @@ function actionFields(a) {
         }
 
         const rows = [];
-        const mdmOptions = [["", "— Select MDM / source —"], ...MDM_PRESETS.map(m => [m.id, m.label])];
+        // Narrowed to the fleet's own tooling — but always including whatever
+        // this action already uses, so an imported config never edits against
+        // a picker that has hidden its own source.
+        const sources = visibleSources(a._mdmId);
+        const mdmOptions = [["", "— Select MDM / source —"], ...sources.map(m => [m.id, m.label])];
         rows.push(row("MDM / source",
             selectInput(a._mdmId || "", mdmOptions, v => {
                 a._mdmId = v || null;
@@ -4966,7 +5568,33 @@ function actionFields(a) {
                     }
                 }
                 reopenStep(); updatePreview();
-            })
+            }),
+            ...(sourcesAreFiltered(a._mdmId) ? [
+                h("div", { class: "source-filter-note" },
+                    // "Narrowed to" rather than an exhaustive list: a step
+                    // carrying a source from outside the fleet keeps it in the
+                    // dropdown, so naming only the rule stays accurate.
+                    h("span", null,
+                        `Narrowed to ${sourceById(fleet.mdm).label}, macOS built-ins and your tooling.`),
+                    h("button", {
+                        onclick: () => {
+                            fleet.showAllSources = true;
+                            saveFleetPrefs();
+                            reopenStep();
+                        }
+                    }, "Show all sources"))
+            ] : []),
+            ...(fleet.showAllSources && fleet.mdm ? [
+                h("div", { class: "source-filter-note" },
+                    h("span", null, "Showing every source."),
+                    h("button", {
+                        onclick: () => {
+                            fleet.showAllSources = false;
+                            saveFleetPrefs();
+                            reopenStep();
+                        }
+                    }, `Narrow to ${sourceById(fleet.mdm).label}`))
+            ] : [])
         ));
 
         const activeMdm = MDM_PRESETS.find(m => m.id === a._mdmId);
@@ -5894,6 +6522,9 @@ function loadSample() {
     s.DefaultPlaybook = "Standard";
 
     state = s;
+    // The sample is written against Jamf; adopt that so its steps don't look
+    // foreign in a picker narrowed to some other MDM.
+    adoptFleetFromState(state);
     resetUiForNewState();
     renderCanvas(); updatePreview();
 }
@@ -5977,6 +6608,9 @@ document.getElementById("import-file").addEventListener("change", async e => {
     try {
         const xml = await f.text();
         state = importFromMobileconfig(xml);
+        // An imported config already says which MDM it was written for — read
+        // it out of the commands rather than asking a question we can answer.
+        adoptFleetFromState(state);
         resetUiForNewState();
         renderCanvas(); updatePreview(); reopenSettings();
     } catch (err) {
@@ -5990,6 +6624,202 @@ window.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); 
 
 initTooltips();
 initDisplay();
+
+// ============================================================================
+// Fleet setup sheet — the first thing a new user sees, and the one question
+// worth asking up front: what manages these Macs? Everything downstream (the
+// source picker, the step catalogue) narrows itself from the answer.
+// ============================================================================
+
+function slugifyOrg(name) {
+    const slug = (name || "").toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    return slug || "example";
+}
+
+/** Seed profile identity from the organisation name, but only over fields the
+ *  user has not touched — this runs after setup, and setup can be reopened at
+ *  any time, so it must never stomp a hand-edited identifier. */
+function seedIdentityFromOrg(org) {
+    if (!org) return;
+    const defaults = defaultState();
+    if (state.outer.PayloadOrganization === defaults.outer.PayloadOrganization ||
+        !state.outer.PayloadOrganization) {
+        state.outer.PayloadOrganization = org;
+    }
+    if (state.outer.PayloadIdentifier === defaults.outer.PayloadIdentifier ||
+        !state.outer.PayloadIdentifier) {
+        state.outer.PayloadIdentifier = `com.${slugifyOrg(org)}.enrollinator`;
+    }
+}
+
+/** Keep the header chip in step with the fleet. */
+function refreshFleetChip() {
+    const btn = document.getElementById("fleet-btn");
+    if (!btn) return;
+    const mdm = sourceById(fleet.mdm);
+    btn.innerHTML = "";
+    if (mdm) {
+        btn.classList.remove("unset");
+        if (mdm.icon) btn.appendChild(h("span", { class: "fleet-btn-icon" }, mdm.icon));
+        btn.appendChild(h("span", null, mdm.label));
+        const extras = fleet.tools.length;
+        if (extras) btn.appendChild(h("span", { class: "pill" }, `+${extras}`));
+        btn.setAttribute("data-tooltip",
+            "Targeting " + mdm.label + ". Click to change the MDM or tooling.");
+    } else {
+        btn.classList.add("unset");
+        btn.appendChild(h("span", null, "Set MDM"));
+        btn.setAttribute("data-tooltip", "Which MDM this profile targets");
+    }
+}
+
+/** @param {{firstRun?: boolean}} [opts] — on first run, finishing setup hands
+ *  off to the tour rather than dropping the user on a bare canvas. */
+function showFleetSetup(opts) {
+    const firstRun = !!(opts && opts.firstRun);
+    const existing = document.getElementById("fleet-setup-root");
+    if (existing) existing.remove();
+
+    // Edit a copy: closing without confirming must leave the fleet untouched.
+    const draft = { mdm: fleet.mdm, tools: fleet.tools.slice(), org: fleet.org };
+
+    const root = h("div", { id: "fleet-setup-root" });
+    const backdrop = h("div", { class: "gs-backdrop",
+        onclick: e => { if (e.target === backdrop) dismiss(); } });
+    const modal = h("div", { class: "gs-modal" });
+
+    function dismiss() {
+        // Dismissing still counts as configured — otherwise the sheet reappears
+        // on every reload for someone who deliberately skipped it.
+        fleet.configured = true;
+        saveFleetPrefs();
+        root.remove();
+        if (firstRun && !prefGet("enrollinator-gs-seen")) showGettingStarted();
+    }
+
+    modal.appendChild(h("div", { class: "gs-header" },
+        h("h2", null, firstRun ? "👋 Let's set up your deployment" : "🏢 Deployment target"),
+        h("p", null, firstRun
+            ? "Two quick questions so the builder can show you the tools your fleet actually runs. You can change this at any time."
+            : "Which MDM and tooling this profile targets. This shapes the step catalogue and the source picker — it is builder context only and never appears in the exported profile.")
+    ));
+
+    const body = h("div", { class: "setup-body" });
+
+    // ---- MDM choice
+    const mdmGrid = h("div", { class: "mdm-grid" });
+    function paintMdmGrid() {
+        mdmGrid.innerHTML = "";
+        for (const m of sourcesOfKind("mdm")) {
+            mdmGrid.appendChild(h("button", {
+                class: "mdm-card" + (draft.mdm === m.id ? " selected" : ""),
+                "data-tooltip": m.blurb,
+                onclick: () => {
+                    draft.mdm = draft.mdm === m.id ? null : m.id;
+                    paintMdmGrid();
+                }
+            },
+                h("span", { class: "mdm-card-icon" }, m.icon || "▫️"),
+                h("span", { class: "mdm-card-name" }, m.label)
+            ));
+        }
+        // An explicit "none" is a real answer — plenty of fleets drive
+        // Enrollinator from a package with no MDM binary in the picture.
+        mdmGrid.appendChild(h("button", {
+            class: "mdm-card" + (draft.mdm === null ? " selected" : ""),
+            "data-tooltip": "Show every source. Pick this if your MDM isn't listed.",
+            onclick: () => { draft.mdm = null; paintMdmGrid(); }
+        },
+            h("span", { class: "mdm-card-icon" }, "🧩"),
+            h("span", { class: "mdm-card-name" }, "Other / none")
+        ));
+    }
+    paintMdmGrid();
+    body.appendChild(h("div", { class: "setup-section" },
+        h("div", { class: "setup-label" }, "What manages these Macs?"),
+        mdmGrid,
+        h("p", { class: "setup-hint" },
+            "Its commands move to the top of every source picker. Nothing is removed — the other sources stay one click away.")
+    ));
+
+    // ---- Extra tooling
+    const toolList = h("div", { class: "tool-list" });
+    function paintToolList() {
+        toolList.innerHTML = "";
+        for (const t of sourcesOfKind("tool")) {
+            const on = draft.tools.includes(t.id);
+            toolList.appendChild(h("label", {
+                class: "tool-opt" + (on ? " selected" : ""),
+            },
+                h("input", { type: "checkbox", checked: on, onchange: e => {
+                    if (e.target.checked) {
+                        if (!draft.tools.includes(t.id)) draft.tools.push(t.id);
+                    } else {
+                        draft.tools = draft.tools.filter(x => x !== t.id);
+                    }
+                    paintToolList();
+                }}),
+                h("div", { class: "tool-opt-text" },
+                    h("span", { class: "tool-opt-name" }, `${t.icon} ${t.label}`),
+                    h("span", { class: "tool-opt-desc" }, t.blurb)
+                )
+            ));
+        }
+    }
+    paintToolList();
+    body.appendChild(h("div", { class: "setup-section" },
+        h("div", { class: "setup-label" }, "Also deployed on this fleet?",
+            h("span", { class: "setup-optional" }, "optional")),
+        toolList
+    ));
+
+    // ---- Organisation
+    const orgInput = h("input", { type: "text", value: draft.org,
+        placeholder: "Example, Inc.",
+        oninput: e => { draft.org = e.target.value; } });
+    body.appendChild(h("div", { class: "setup-section" },
+        h("div", { class: "setup-label" }, "Organisation name",
+            h("span", { class: "setup-optional" }, "optional")),
+        orgInput,
+        h("p", { class: "setup-hint" },
+            "Fills in the profile's organisation and payload identifier so you don't have to hunt them down in Profile Settings. Existing edits are left alone.")
+    ));
+
+    modal.appendChild(body);
+
+    modal.appendChild(h("div", { class: "gs-footer" },
+        h("span", { style: "font-size:12px;color:var(--text-4)" },
+            "Stored in this browser only."),
+        h("div", { style: "display:flex;gap:8px" },
+            h("button", { class: "btn",
+                style: "height:34px;padding:0 16px;font-size:13px",
+                onclick: dismiss
+            }, firstRun ? "Skip" : "Cancel"),
+            h("button", { class: "btn primary",
+                style: "height:34px;padding:0 22px;font-size:13px",
+                onclick: () => {
+                    fleet.mdm = draft.mdm;
+                    fleet.tools = draft.tools.slice();
+                    fleet.org = draft.org.trim();
+                    fleet.configured = true;
+                    saveFleetPrefs();
+                    seedIdentityFromOrg(fleet.org);
+                    refreshFleetChip();
+                    root.remove();
+                    renderCanvas(); updatePreview(); reopenSettings();
+                    if (firstRun && !prefGet("enrollinator-gs-seen")) showGettingStarted();
+                }
+            }, firstRun ? "Continue" : "Save")
+        )
+    ));
+
+    backdrop.appendChild(modal);
+    root.appendChild(backdrop);
+    document.body.appendChild(root);
+    setTimeout(() => orgInput.focus(), 60);
+}
 
 // ============================================================================
 // Getting Started
@@ -6550,8 +7380,16 @@ function showHelpCenter(sectionId) {
 
 document.getElementById("help-btn").addEventListener("click", () => showHelpCenter());
 
-// Show the quick tour on first visit.
-if (!prefGet("enrollinator-gs-seen")) showGettingStarted();
+// Fleet context: restore it, paint the header chip, and make the chip a way
+// back into setup.
+loadFleetPrefs();
+refreshFleetChip();
+document.getElementById("fleet-btn").addEventListener("click", () => showFleetSetup());
+
+// First visit: ask which MDM before the tour, so the tour describes a builder
+// already narrowed to the user's fleet. Setup hands off to the tour itself.
+if (!fleet.configured) showFleetSetup({ firstRun: true });
+else if (!prefGet("enrollinator-gs-seen")) showGettingStarted();
 
 // Per-button proximity reveal for the between-step "+ insert" affordances.
 // Toggles .proximity-active on each .step-insert-btn whose centre is within
