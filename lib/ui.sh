@@ -265,6 +265,25 @@ _ui_user_exec() {
     if [ "$(/usr/bin/id -u)" -eq 0 ] && [ -n "${ENROLLINATOR_CONSOLE_USER:-}" ]; then
         uid="$(/usr/bin/id -u "$ENROLLINATOR_CONSOLE_USER" 2>/dev/null)"
     fi
+    # Interactive runs only: snapshot the terminal's line discipline so we can
+    # put it back afterwards.
+    #
+    # Launching swiftDialog through `sudo` on a controlling terminal leaves that
+    # terminal with ONLCR cleared, so every subsequent log line prints its
+    # newline without a carriage return and the output walks diagonally down the
+    # screen. It is purely cosmetic and cannot happen under launchd or a Jamf
+    # policy, where there is no tty at all — but a `sudo enrollinator.sh …`
+    # rehearsal is the documented way to test a config, and an unreadable
+    # transcript makes that job harder. Restoring is cheaper than proving which
+    # link in launchctl/sudo/swiftDialog did it.
+    #
+    # Guarded on [ -t 2 ], so in the contexts this actually ships in the whole
+    # block is a no-op. stty reads the terminal through fd 2 because stdout is
+    # frequently a pipe here (callers capture the clicked button).
+    local _tty_state=""
+    [ -t 2 ] && _tty_state="$(/bin/stty -g <&2 2>/dev/null)"
+
+    local _rc=0
     if [ -n "$uid" ]; then
         # Switch the Mach bootstrap AND drop to the console user. launchctl
         # asuser alone leaves the process running as root inside the user's
@@ -274,9 +293,14 @@ _ui_user_exec() {
         # run. As the user, it inherits the session's caches and starts
         # instantly. This is the standard pattern for GUI from a daemon.
         /bin/launchctl asuser "$uid" /usr/bin/sudo -u "$ENROLLINATOR_CONSOLE_USER" -- "$@"
+        _rc=$?
     else
         "$@"
+        _rc=$?
     fi
+
+    [ -n "$_tty_state" ] && /bin/stty "$_tty_state" <&2 2>/dev/null
+    return $_rc
 }
 
 # Own a command file correctly for the swiftDialog process. Since the
