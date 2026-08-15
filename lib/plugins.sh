@@ -94,17 +94,8 @@ action_shell() {
     # Optional: run as the console user. We build an argv rather than
     # re-quoting into a new shell string.
     local -a argv
-    if [ -n "$user" ]; then
-        local uid
-        uid="$(resolve_uid "$user")"
-        if [ -n "$uid" ]; then
-            argv=(/bin/launchctl asuser "$uid" /bin/sh -c "$cmd")
-        else
-            argv=(/bin/sh -c "$cmd")
-        fi
-    else
-        argv=(/bin/sh -c "$cmd")
-    fi
+    _user_exec_prefix "$user"
+    argv=( "${USER_EXEC_ARGV[@]}" /bin/sh -c "$cmd" )
 
     # `timeout(1)` isn't on macOS; use perl's alarm, passing argv through
     # @ARGV (no string interpolation = no quoting pitfalls).
@@ -269,15 +260,32 @@ condition_run() {
 }
 
 # Shell command as a condition. 0 exit = pass.
-# Keys: Command, TimeoutSeconds (default 15)
+# Keys: Command, RunAsUser (optional), TimeoutSeconds (default 15)
+#
+# RunAsUser matters more here than it does for actions: the common user-state
+# checks (`defaults read MobileMeAccounts`, anything under ~) read a per-user
+# preference domain, and as root they inspect /var/root and can never become
+# true. A blocking step built on one of those would poll forever.
 cond_shell() {
     local file="$1" key="$2"
-    local cmd timeout
+    local cmd timeout user
     cmd="$(plist_get "$file" "${key}:Command")"
     timeout="$(plist_get "$file" "${key}:TimeoutSeconds")"
     timeout="${timeout:-15}"
+    user="$(plist_get "$file" "${key}:RunAsUser")"
+
+    # An empty Command would reach `sh -c ""`, exit 0, and pass vacuously —
+    # a typo'd key would read as a satisfied condition. Fail it as config.
+    if [ -z "$cmd" ]; then
+        echo "shell condition: missing Command"
+        return 2
+    fi
+
+    local -a argv
+    _user_exec_prefix "$user"
+    argv=( "${USER_EXEC_ARGV[@]}" /bin/sh -c "$cmd" )
     /usr/bin/perl -e 'alarm shift; exec @ARGV or die $!' "$timeout" \
-        /bin/sh -c "$cmd" >/dev/null 2>&1
+        "${argv[@]}" >/dev/null 2>&1
     local rc=$?
     if [ $rc -eq 0 ]; then
         echo "Passed"
@@ -354,12 +362,18 @@ cond_default_browser() {
     fi
     expected="$(printf '%s' "$expected" | /usr/bin/tr '[:upper:]' '[:lower:]')"
 
-    local uid
-    uid="$(resolve_uid '$CONSOLE_USER')"
-    [ -z "$uid" ] && { echo "No console user"; return 1; }
+    # This reads a PER-USER preference domain, so it must run as the console
+    # user, not merely inside their session — see _user_exec_prefix.
+    local user
+    user="$(resolve_user_name '$CONSOLE_USER')"
+    if [ -z "$user" ] && [ "$(/usr/bin/id -u)" -eq 0 ]; then
+        echo "No console user"
+        return 1
+    fi
+    _user_exec_prefix '$CONSOLE_USER'
 
     local handler
-    handler="$(/bin/launchctl asuser "$uid" /usr/bin/defaults read com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers 2>/dev/null \
+    handler="$("${USER_EXEC_ARGV[@]}" /usr/bin/defaults read com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers 2>/dev/null \
         | /usr/bin/tr -d '\n' \
         | /usr/bin/sed -E 's/.*LSHandlerRoleAll = "?([^";]+)"?;[[:space:]]*LSHandlerURLScheme = "?(http|https)"?.*/\1/' \
         | /usr/bin/tr '[:upper:]' '[:lower:]')"
@@ -424,10 +438,11 @@ cond_process_running() {
 # Shared helpers
 # ----------------------------------------------------------------------------
 
-# Resolve `$CONSOLE_USER` or a literal username to a numeric uid. Prefers the
-# ENROLLINATOR_CONSOLE_USER export from main() (captured once on startup) before
-# falling back to a live /dev/console lookup.
-resolve_uid() {
+# Resolve `$CONSOLE_USER` or a literal username to a concrete username.
+# Prefers the ENROLLINATOR_CONSOLE_USER export from main() (captured once on
+# startup) before falling back to a live /dev/console lookup. Echoes nothing
+# for root or an unresolvable user — callers read that as "no switch needed".
+resolve_user_name() {
     local name="$1"
     if [ "$name" = "\$CONSOLE_USER" ] || [ "$name" = '$CONSOLE_USER' ]; then
         name="${ENROLLINATOR_CONSOLE_USER:-}"
@@ -435,6 +450,48 @@ resolve_uid() {
             name="$(/usr/bin/stat -f '%Su' /dev/console 2>/dev/null)"
         fi
     fi
-    [ -z "$name" ] || [ "$name" = "root" ] && return
+    if [ -z "$name" ] || [ "$name" = "root" ]; then
+        return 0
+    fi
+    printf '%s' "$name"
+}
+
+# Resolve `$CONSOLE_USER` or a literal username to a numeric uid.
+resolve_uid() {
+    local name
+    name="$(resolve_user_name "$1")"
+    [ -z "$name" ] && return 0
     /usr/bin/id -u "$name" 2>/dev/null
+}
+
+# _user_exec_prefix <user>
+# Populates the global array USER_EXEC_ARGV with the argv prefix that runs a
+# command AS <user> inside that user's GUI session. Empty prefix means "run
+# it right here" (no console user, target is root, or we aren't root and so
+# can't switch anyway).
+#
+# `launchctl asuser <uid>` alone is NOT a privilege drop. It moves the process
+# into the target user's Mach bootstrap but leaves it running as ROOT, against
+# root's home and root's preference domain. That silently broke every
+# RunAsUser consumer: the bundled Homebrew recipe (brew hard-refuses to run as
+# root), `git config --global` (wrote /var/root/.gitconfig), and the
+# default_browser condition (read root's LaunchServices plist, so it could
+# never observe the user's choice). `sudo -u` is what actually changes the
+# persona; -H points HOME at the target user so per-user tooling lands in the
+# right place. lib/ui.sh:_ui_user_exec pairs the same two commands.
+USER_EXEC_ARGV=()
+_user_exec_prefix() {
+    local user="$1"
+    USER_EXEC_ARGV=()
+    local name uid
+    name="$(resolve_user_name "$user")"
+    [ -z "$name" ] && return 0
+    # Only root can switch users; a dev run just executes as whoever it is.
+    [ "$(/usr/bin/id -u)" -ne 0 ] && return 0
+    uid="$(/usr/bin/id -u "$name" 2>/dev/null)"
+    if [ -z "$uid" ]; then
+        log warn "RunAsUser '$name' does not resolve to a uid — running as root instead"
+        return 0
+    fi
+    USER_EXEC_ARGV=(/bin/launchctl asuser "$uid" /usr/bin/sudo -H -u "$name" --)
 }
