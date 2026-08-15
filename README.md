@@ -36,7 +36,9 @@ configs. It gives you a full visual editor for every key in the schema:
   bare `.plist` for use with `--xml`.
 - **Live preview panel** — see the swiftDialog window layout update as you
   type.
-- **Scales to your display** — the **Display ▾** menu sets interface scale
+- **Light and dark** — the **Display ▾** menu follows the Mac's appearance by
+  default, or pins Light / Dark.
+- **Scales to your display** — the same menu sets interface scale
   (auto, or 90–175%) and content width, so the builder is as usable on a 5K
   monitor as on a laptop.
 - **Built-in help centre** — the **?** button opens a searchable reference for

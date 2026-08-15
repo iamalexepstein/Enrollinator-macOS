@@ -57,17 +57,18 @@ available offline, since the builder is a single self-contained file.
 
 ---
 
-## Display & scaling
+## Appearance, display & scaling
 
 The **Display ▾** menu in the header adapts the builder to the screen it's on.
-Both settings persist in the browser.
+All three settings persist in the browser.
 
 | Setting | Options |
 |---|---|
+| Appearance | `System` (default) follows the Mac's Light/Dark setting and switches live when macOS flips it, or pin `Light` / `Dark`. |
 | Interface scale | `Auto`, or pin anywhere from 90% to 175%. Auto sizes from screen width: 110% past 1900px, 125% past 2400px, 150% past 3000px. |
 | Content width | `Comfortable` (the classic narrow column), `Wide`, or `Full width`. |
 
-The two are independent on purpose: scale magnifies everything, content width
+Scale and content width are independent on purpose: scale magnifies everything, content width
 reclaims horizontal space. On a large display, Auto scale plus Wide content is
 usually the best combination — scale alone just makes a narrow column bigger.
 
