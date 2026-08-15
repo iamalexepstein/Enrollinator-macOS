@@ -5811,29 +5811,30 @@ const HELP_SECTIONS = [
     ]
 },
 {
-    id: "playbooks", icon: "🗂", title: "Playbooks & selectors",
-    lede: "One playbook per device type, department, or role. Enrollinator chooses one at launch.",
+    id: "playbooks", icon: "🗂", title: "Playbooks",
+    lede: "One playbook per device type, department, or role. Enrollinator runs exactly one of them.",
     blocks: [
         { h: "Working with playbooks", body: `
             <ul>
               <li>The left sidebar lists every playbook. Click one to open it.</li>
-              <li>Drag to reorder. <b>Order matters</b> — the first playbook whose selector matches the machine wins.</li>
+              <li>Drag to reorder. Order is cosmetic — it does not affect which playbook runs.</li>
               <li>Drag a step row onto a playbook name to move that step across playbooks.</li>
-              <li>Click the playbook title in the content header to rename it or edit its description and selector.</li>
+              <li>Click the playbook title in the content header to rename it or edit its description.</li>
               <li>Collapse the sidebar with the <code>‹</code> button when you want more room for steps.</li>
             </ul>` },
-        { h: "Selectors — deciding which Mac gets which playbook", body: `
-            <p>A selector is an optional rule. A playbook with no selector is always eligible; when nothing matches, the <code>DefaultPlaybook</code> named in global settings is used.</p>
-            <table>
-              <tr><th>Selector</th><th>Matches when…</th></tr>
-              <tr><td>Hostname regex</td><td>The hostname matches the pattern, e.g. <code>^eng-</code></td></tr>
-              <tr><td>Model identifier</td><td>Hardware model equals the value, e.g. <code>MacBookPro18,3</code></td></tr>
-              <tr><td>Serial number</td><td>Serial equals the value</td></tr>
-              <tr><td>Flag file</td><td>A file exists at the given path — handy for MDM-dropped markers</td></tr>
-              <tr><td>macOS version</td><td>OS version is <code>&gt;=</code>, <code>&lt;=</code>, or <code>=</code> the given version</td></tr>
-              <tr><td>Console user</td><td>The logged-in user equals the value</td></tr>
-            </table>
-            <p>You can also scope the whole <code>.mobileconfig</code> to a smart group in your MDM and skip selectors entirely.</p>` },
+        { h: "How the playbook is chosen", body: `
+            <p>Enrollinator resolves exactly one playbook at launch, in this order:</p>
+            <ol>
+              <li><code>--profile NAME</code> on the command line, if given. Always wins — this is the testing path.</li>
+              <li><b>DefaultPlaybook</b> from global settings, matched against playbook names <b>exactly and case-sensitively</b>.</li>
+              <li>With no DefaultPlaybook: the only playbook, if you've defined just one.</li>
+              <li>Otherwise, if the welcome screen's playbook picker is enabled, the first playbook — the user picks from there.</li>
+            </ol>
+            <p>If none of those apply, Enrollinator stops with an error rather than guessing.</p>
+            <div class="help-tip"><b>Varying the playbook across a fleet</b> is done outside the config: scope a different <code>.mobileconfig</code> to each MDM smart group, or ship one config and let the welcome screen's playbook picker put the choice to the user.</div>` },
+        { h: "Selectors have been removed", body: `
+            <p>Older builds picked a playbook per machine by matching a <b>Selector</b> rule — hostname regex, model identifier, serial number, flag file, macOS version, or console user. Selectors are gone from both the runtime and this builder, so there are no selector fields to fill in.</p>
+            <p>Importing a config written for an older build still works: its <code>Selector</code> dicts are simply dropped. Re-exporting is the easiest way to clean up a legacy config.</p>` },
         { h: "Addon playbooks", body: `
             <p>Toggle <b>Addon</b> on a playbook to keep it out of automatic selection. Addon playbooks are offered to the user in a checkbox picker <i>after</i> the main run finishes — optional software, department extras, and so on.</p>
             <p>Steps that already ran during the main run are skipped automatically, so there are no double installs. The picker's title, message, button labels, icon, and size live under <b>Settings → Addon picker</b>.</p>` }
