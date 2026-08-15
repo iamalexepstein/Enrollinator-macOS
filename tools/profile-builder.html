@@ -5349,8 +5349,31 @@ function downloadBareXml() {
 // you're standing up a new deployment: profile, script, package and daemon
 // all come from the one menu.
 const ENROLLINATOR_REPO = "iamalexepstein/Enrollinator-macOS";
-const ENROLLINATOR_RAW  = `https://raw.githubusercontent.com/${ENROLLINATOR_REPO}/main/`;
 const ENROLLINATOR_RELEASES = `https://github.com/${ENROLLINATOR_REPO}/releases/latest`;
+
+/** Path inside the repo, read at a specific ref. Always a release tag here —
+ *  never `main`, which runs ahead of the newest tag between releases. */
+function enrollinatorRawUrl(ref, path) {
+    return `https://raw.githubusercontent.com/${ENROLLINATOR_REPO}/${ref}/${path}`;
+}
+
+/** The newest release, fetched once per session and shared by every item in
+ *  the menu, so the script, package and daemon are guaranteed to come from
+ *  the same tag rather than a mix of tag and branch head. A failure is not
+ *  cached: the usual cause is GitHub's unauthenticated rate limit (60/hr per
+ *  IP), and one rate-limited click shouldn't poison the menu afterwards. */
+let latestReleasePromise = null;
+function fetchLatestRelease() {
+    if (!latestReleasePromise) {
+        latestReleasePromise = fetch(`https://api.github.com/repos/${ENROLLINATOR_REPO}/releases/latest`)
+            .then(res => {
+                if (!res.ok) throw new Error("HTTP " + res.status);
+                return res.json();
+            })
+            .catch(err => { latestReleasePromise = null; throw err; });
+    }
+    return latestReleasePromise;
+}
 
 /** Fetch a remote file and save it under `filename`.
  *  Falls back to opening the URL when fetch is blocked (offline, CORS, a
@@ -5374,20 +5397,45 @@ async function downloadRemote(url, filename) {
 }
 
 /** Download an asset from the newest release, matched by pattern — release
- *  filenames carry a version, so they can't be hard-coded. `fallback` covers
- *  the case where the release doesn't carry that asset (or GitHub's API is
- *  unreachable / rate-limited); without one, the releases page is opened. */
-async function downloadLatestReleaseAsset(pattern, fallback) {
+ *  filenames carry a version, so they can't be hard-coded. `repoPath` is the
+ *  same file's path inside the repo, used when a release doesn't publish it
+ *  as an asset; it is still read at that release's tag.
+ *
+ *  When the API itself is unreachable we open the releases page instead of
+ *  quietly substituting a file from `main`. Those are not the same artifact —
+ *  main can be many commits ahead of the newest tag — and a download labelled
+ *  "from the newest release" handing over unreleased code is the kind of
+ *  difference nobody notices until it misbehaves on a machine being enrolled. */
+async function downloadLatestReleaseAsset(pattern, repoPath) {
+    let release;
     try {
-        const res = await fetch(`https://api.github.com/repos/${ENROLLINATOR_REPO}/releases/latest`);
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const release = await res.json();
-        const asset = (release.assets || []).find(a => pattern.test(a.name));
-        if (!asset) throw new Error("no matching asset");
-        await downloadRemote(asset.browser_download_url, asset.name);
+        release = await fetchLatestRelease();
     } catch (e) {
-        if (fallback) downloadRemote(fallback.url, fallback.name);
-        else window.open(ENROLLINATOR_RELEASES, "_blank", "noopener");
+        window.open(ENROLLINATOR_RELEASES, "_blank", "noopener");
+        return;
+    }
+    const asset = (release.assets || []).find(a => pattern.test(a.name));
+    if (asset) {
+        await downloadRemote(asset.browser_download_url, asset.name);
+    } else if (repoPath && release.tag_name) {
+        await downloadRemote(enrollinatorRawUrl(release.tag_name, repoPath),
+                             repoPath.split("/").pop());
+    } else {
+        window.open(ENROLLINATOR_RELEASES, "_blank", "noopener");
+    }
+}
+
+/** Download a file that ships in the repo rather than as a release asset,
+ *  pinned to the newest release's tag so it matches the script and package
+ *  downloaded alongside it. */
+async function downloadReleaseFile(repoPath) {
+    try {
+        const release = await fetchLatestRelease();
+        if (!release.tag_name) throw new Error("release has no tag");
+        await downloadRemote(enrollinatorRawUrl(release.tag_name, repoPath),
+                             repoPath.split("/").pop());
+    } catch (e) {
+        window.open(ENROLLINATOR_RELEASES, "_blank", "noopener");
     }
 }
 
@@ -5413,13 +5461,11 @@ function toggleDownloadMenu(btn) {
             title: "Enrollinator",
             items: [
                 { label: "Latest script", hint: "enrollinator.sh from the newest release",
-                  action: () => downloadLatestReleaseAsset(/^enrollinator\.sh$/i,
-                      { url: ENROLLINATOR_RAW + "enrollinator.sh", name: "enrollinator.sh" }) },
+                  action: () => downloadLatestReleaseAsset(/^enrollinator\.sh$/i, "enrollinator.sh") },
                 { label: "Latest package", hint: "Installer .pkg from the newest release",
                   action: () => downloadLatestReleaseAsset(/\.pkg$/i) },
-                { label: "Latest daemon", hint: "com.enrollinator.app.plist — LaunchDaemon",
-                  action: () => downloadRemote(ENROLLINATOR_RAW + "launchd/com.enrollinator.app.plist",
-                                               "com.enrollinator.app.plist") }
+                { label: "Latest daemon", hint: "LaunchDaemon plist from the same release",
+                  action: () => downloadReleaseFile("launchd/com.enrollinator.app.plist") }
             ]
         }
     ];
@@ -6305,7 +6351,8 @@ const HELP_SECTIONS = [
               <tr><td>Latest package</td><td>The installer <code>.pkg</code>. This is what you upload to your MDM; it lays down the script, libraries, and LaunchDaemon.</td></tr>
               <tr><td>Latest daemon</td><td><code>com.enrollinator.app.plist</code> — the LaunchDaemon that starts Enrollinator as root at boot. The package installs this for you; download it on its own only if you're assembling a deployment by hand.</td></tr>
             </table>
-            <p>These need network access. If GitHub can't be reached the click falls back to opening the releases page so you can grab the file manually.</p>` },
+            <p>All three come from the same release tag, so the script, package and daemon you download together are the same build.</p>
+            <p>These need network access. If GitHub can't be reached — including its unauthenticated API rate limit of 60 requests an hour per address — the click opens the releases page instead, so you grab the file yourself rather than being handed something that isn't the release.</p>` },
         { h: "Deploying", body: `
             <ol>
               <li>Build and upload the Enrollinator package to your MDM.</li>

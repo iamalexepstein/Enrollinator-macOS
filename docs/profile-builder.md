@@ -45,8 +45,13 @@ assemble a deployment without leaving the builder:
   starts Enrollinator at boot. The package installs this already; download it
   separately only when building a deployment by hand.
 
-These three require network access; if GitHub is unreachable the click opens
-the releases page instead.
+All three resolve through the GitHub releases API and come from the same tag,
+so the script, package and daemon you download together are one build — none
+of them is pinned to a version in the builder, and none comes from `main`,
+which runs ahead of the newest tag between releases. They require network
+access; if GitHub is unreachable, or its unauthenticated API rate limit
+(60 requests an hour per address) is hit, the click opens the releases page
+rather than substituting a file that isn't part of the release.
 
 Changes are not persisted across page reloads — download before closing.
 
