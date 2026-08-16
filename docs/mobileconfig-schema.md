@@ -203,9 +203,16 @@ the main playbook's steps finish, if any playbooks in the `Playbooks` array
 carry `Addon: true`, Enrollinator presents a swiftDialog checkbox picker so
 the user can choose which extras to install.
 
+- **The playbook that already ran is never offered.** Name resolution ignores
+  `Addon`, so a playbook marked `Addon: true` can still be selected to run as
+  the main playbook by `DefaultPlaybook`, `--profile`, or the welcome-screen
+  picker. When that happens it is left out of the add-on picker — every step it
+  owns has already run, so offering it again would be an option that does
+  nothing.
 - **Deduplication.** Any step `Id` that was already executed during the main
   playbook run is skipped when an addon playbook runs it, so there is no
   risk of double-installing packages or re-running side-effecting actions.
+  This still applies across two *different* playbooks that share step IDs.
 - **Picker text overrides.** Set the `ENROLLINATOR_ADDON_TITLE` and
   `ENROLLINATOR_ADDON_MESSAGE` environment variables (e.g. via a
   `launchd` override plist) to customise the picker window title and body
@@ -227,7 +234,10 @@ exist is a fatal config error (exit `2`), not a fall-through to the next rule.
 5. Otherwise Enrollinator exits `2` with *"No playbook matched and no
    DefaultPlaybook set"*.
 
-Names are matched **exactly and case-sensitively** in both rule 1 and rule 2.
+Names are matched **exactly and case-sensitively** in both rule 1 and rule 2,
+against every playbook — `Addon` is not consulted when resolving a name. A
+playbook can therefore be both the default and an add-on; it runs as the main
+playbook and is then left out of the [add-on picker](#addon-playbooks).
 
 There is no automatic per-machine selection: nothing inspects hostname, model,
 serial, or OS version to choose a playbook. To vary the playbook across a

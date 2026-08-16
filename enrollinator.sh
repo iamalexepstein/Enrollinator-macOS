@@ -1465,12 +1465,13 @@ ensure_swiftdialog() {
 # Addon profiles — shown to the user after the main profile finishes.
 # ----------------------------------------------------------------------------
 
-# run_addon_profiles cfg ran_ids_file list_item_base
+# run_addon_profiles cfg ran_ids_file list_item_base ran_idx
 #   cfg            — path to the plist config
 #   ran_ids_file   — file of step IDs already executed (one per line)
 #   list_item_base — number of list items already in the swiftDialog window
+#   ran_idx        — index of the playbook that just ran, never re-offered
 run_addon_profiles() {
-    local cfg="$1" ran_ids_file="$2" list_item_base="$3"
+    local cfg="$1" ran_ids_file="$2" list_item_base="$3" ran_idx="${4:-}"
 
     # Collect addon profiles.
     local prof_count i pname
@@ -1478,6 +1479,18 @@ run_addon_profiles() {
     local addon_names=() addon_idxs=()
     local addon_descs=()
     for (( i=0; i<prof_count; i++ )); do
+        # Never offer the playbook that just ran. Selection matches on name
+        # alone — neither DefaultPlaybook, --profile, nor the welcome-screen
+        # picker consults Addon — so a playbook marked as an add-on can also be
+        # the one chosen to run. Offering it again is an option that does
+        # nothing: every step it owns is already in ran_ids_file and would be
+        # deduplicated away one by one.
+        if [ -n "$ran_idx" ] && [ "$i" -eq "$ran_idx" ]; then
+            if [ "$(plist_bool "$cfg" ":Playbooks:$i:Addon" false)" = "true" ]; then
+                log info "Add-on picker: '$(plist_get "$cfg" ":Playbooks:$i:Name")' already ran as the main playbook — not offering it again."
+            fi
+            continue
+        fi
         if [ "$(plist_bool "$cfg" ":Playbooks:$i:Addon" false)" = "true" ]; then
             pname="$(plist_get "$cfg" ":Playbooks:$i:Name")"
             addon_names+=("$pname")
@@ -1908,7 +1921,7 @@ main() {
 
     # Offer addon profiles if any are defined. A failed add-on step counts
     # toward the run result, same as a main-playbook step.
-    run_addon_profiles "$cfg" "$ran_ids_file" "$total" || any_fail=1
+    run_addon_profiles "$cfg" "$ran_ids_file" "$total" "$pidx" || any_fail=1
 
     # Finish. If AllowClose, leave a Done button; otherwise auto-quit.
     local allow_close

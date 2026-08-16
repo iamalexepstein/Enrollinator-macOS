@@ -74,8 +74,8 @@ you can keep in the repo, share with teammates, or drop into a wiki.
 
 - **MDM-agnostic.** No Jamf-specific parameters or policies. Ships as a
   LaunchDaemon + bash script; the only input is a `com.enrollinator.app`
-  configuration profile. Jamf, Kandji, Mosyle, Workspace ONE, and even
-  hand-installed profiles work identically.
+  configuration profile. Jamf, Iru (formerly Kandji), Mosyle, Workspace ONE,
+  and even hand-installed profiles work identically.
 - **Single source of truth.** Branding, playbook selection, and every step
   live in one `.mobileconfig`. Swap configs without rebuilding the pkg.
 - **Multiple playbooks per config.** One config defines Engineering, Design,

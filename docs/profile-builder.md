@@ -91,7 +91,7 @@ shows the current target and reopens the setup sheet.
 
 | Question | Why |
 |---|---|
-| What manages these Macs? | Picks one MDM, which turns on [guided mode](#guided-mode). Or pick **Advanced mode** — see below. |
+| What manages these Macs? | Pick one MDM from the dropdown, which turns on [guided mode](#guided-mode). Or click **Advanced mode** beside it — see below. |
 | Also deployed on this fleet? | Tooling that pairs with any MDM — currently Installomator. Zero or more. |
 | Organisation | Optional name and logo. The name fills in `PayloadOrganization` and `PayloadIdentifier` so they aren't left as `com.example` placeholders; the logo becomes `Branding.Logo`, the image at the top of the onboarding window. Anything you've already edited in Profile Settings is left alone. |
 
@@ -126,7 +126,7 @@ Narrowing is a default, never a wall:
 - **Show all sources**, under any narrowed picker, restores the full list. The
   link flips to **Narrow to …** so you can go back.
 - A step already using a source from outside your fleet always keeps that
-  source in its dropdown. Importing a Kandji config while set to Jamf never
+  source in its dropdown. Importing an Iru config while set to Jamf never
   hides the commands that config is built on.
 - Every preset in [MDM presets](#action-tab) remains reachable, whichever MDM
   you picked.
@@ -218,6 +218,15 @@ set by `DefaultPlaybook` in global settings.
 
 Click a playbook name to open it. Click the playbook title in the canvas header
 to rename or edit its description.
+
+**Renaming carries its references.** Playbooks are referenced by name, not by
+position: `DefaultPlaybook` and the welcome screen's playbook picker both hold
+name strings, matched exactly and case-sensitively at run time. Renaming a
+playbook in the builder updates both, so renaming *Standard* to *Pizza* leaves
+it the default rather than pointing `DefaultPlaybook` at a playbook that no
+longer exists — which the runtime treats as a fatal config error. The Name
+field says which references will move. Imported or hand-edited configs can
+still arrive with a stale name; those are reported as validation issues.
 
 ### Selectors (removed)
 
@@ -339,7 +348,7 @@ Use the **MDM / source** picker to get pre-filled commands for common tasks:
 | Jamf Pro | `policy` (event / ID / all scoped), `recon`, `manage` |
 | Installomator | Install by label |
 | Munki / Workspace ONE | `managedsoftwareupdate` (auto / install-only / check-only) |
-| Kandji | Run all library items, run specific item |
+| Iru (formerly Kandji) | Run all library items, run specific item |
 | Mosyle | Force agent check-in |
 | Addigy | Run a policy |
 | macOS built-ins | Rosetta 2, Xcode CLT, Software Update, `installer` |
@@ -349,6 +358,16 @@ The picker itself is narrowed to your [deployment target](#deployment-target)
 — your MDM, macOS built-ins, your tooling, and Custom. **Show all sources**
 beneath it brings back the whole table, and a step already using another MDM's
 command keeps that source listed regardless.
+
+**Superseded commands.** When a vendor renames a binary or a verb, the builder
+still recognises the old command so an existing config keeps editing against
+its own preset instead of falling back to Custom. Import never rewrites the
+command; the step shows what the preset writes today and an **Update it** link
+that applies it, leaving your timeout alone. This currently covers the Kandji →
+Iru agent rebrand: `kandji run` and `kandji library` map onto the `iru library`
+commands. Enrollinator invokes these from a script, so the presets use
+`iru library` rather than `iru run` — since the rebrand, `run` means an
+immediate check-in and is documented as local-Terminal-only.
 
 Set **Timeout** to cap how long the command can run (seconds). Useful for
 package installs or MDM policy calls that might hang.

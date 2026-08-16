@@ -1382,25 +1382,26 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
 }
 .setup-logo-field { display: flex; flex-direction: column; gap: 6px; }
 .setup-logo-field .hint { margin: 0; }
-.mdm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.mdm-card {
-    display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
-    padding: 11px 12px; text-align: left;
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px; cursor: pointer;
-    font: inherit; color: var(--text);
+/* The MDM question is one dropdown plus Advanced mode beside it. Advanced mode
+   stays a button rather than a row in the list: picking it is switching guided
+   mode off, not naming a vendor, and the dashed edge says so. It lights up
+   exactly when the dropdown is empty — the two are one question. */
+.mdm-choice { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
+.mdm-choice select { flex: 1 1 220px; width: auto; min-width: 0; }
+.mdm-advanced {
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+    padding: 6px 13px;
+    background: var(--surface); border: 1px dashed var(--border);
+    border-radius: 7px; cursor: pointer;
+    font: inherit; font-size: 12.5px; font-weight: 650; letter-spacing: -0.01em;
+    color: var(--text);
     transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
-.mdm-card:hover { border-color: var(--border-hover); background: var(--btn-bg-hover); }
-.mdm-card.selected {
+.mdm-advanced:hover { border-color: var(--border-hover); background: var(--btn-bg-hover); }
+.mdm-advanced.selected {
     border-color: var(--accent); background: var(--accent-tint);
-    box-shadow: 0 0 0 2px var(--accent-line-faint);
+    color: var(--accent-deep); box-shadow: 0 0 0 2px var(--accent-line-faint);
 }
-.mdm-card-icon { font-size: 19px; line-height: 1.1; }
-.mdm-card-name { font-size: 12.5px; font-weight: 650; letter-spacing: -0.01em; }
-.mdm-card.selected .mdm-card-name { color: var(--accent-deep); }
-/* Advanced mode isn't an MDM — dashed edge sets it apart from the grid. */
-.mdm-card.advanced { border-style: dashed; }
 .tool-list { display: flex; flex-direction: column; gap: 7px; }
 .tool-opt {
     display: flex; align-items: flex-start; gap: 9px;
@@ -2614,25 +2615,34 @@ const MDM_PRESETS = [
         ]
     },
     {
-        id: "kandji", label: "Kandji", kind: "mdm", icon: "🟣",
-        blurb: "Runs library items from the Mac's assigned blueprint.",
+        id: "iru", label: "Iru (formerly Kandji)", kind: "mdm", icon: "🟣",
+        blurb: "Runs library items from the Mac's assignment map.",
         verbs: [
-            { id: "run-all", label: "run — all library items",
-              stepName: "Run all Kandji library items", icon: "SF=square.stack.3d.up",
-              catalogDesc: "Re-evaluate every library item in the assigned blueprint.",
-              template: "/usr/local/bin/kandji run --force",
+            // `library`, not `run`. Since the April 2026 rebrand the agent's
+            // `run` verb is an immediate check-in and is documented as local-
+            // Terminal-only; `library` is the one supported from a script,
+            // which is the only way Enrollinator ever invokes it.
+            { id: "run-all", label: "library — all assigned items",
+              stepName: "Run all Iru library items", icon: "SF=square.stack.3d.up",
+              catalogDesc: "Re-evaluate every library item assigned to the Mac.",
+              template: "/usr/local/bin/iru library",
+              legacyTemplates: ["/usr/local/bin/kandji run --force",
+                                "/usr/local/bin/kandji run",
+                                "/usr/local/bin/kandji library"],
               timeout: 1800,
               fields: [],
-              note: "Re-evaluate every library item in the current blueprint." },
-            { id: "run-item", label: "run — specific library item",
-              stepName: "Run a Kandji library item", icon: "SF=square.stack.3d.up.badge.a",
+              note: "Re-evaluate every library item in the Mac's assignment map." },
+            { id: "run-item", label: "library — specific item",
+              stepName: "Run an Iru library item", icon: "SF=square.stack.3d.up.badge.a",
               catalogDesc: "Run one named library item, such as an app install.",
-              template: "/usr/local/bin/kandji run --item \"{ITEM_NAME}\"",
+              template: "/usr/local/bin/iru library --item \"{ITEM_NAME}\" -F",
+              legacyTemplates: ["/usr/local/bin/kandji run --item \"{ITEM_NAME}\"",
+                                "/usr/local/bin/kandji library --item \"{ITEM_NAME}\""],
               timeout: 900,
               fields: [{ key: "ITEM_NAME", label: "Item name", placeholder: "e.g. Google Chrome",
                          ask: "Which library item should run?",
-                         guideHint: "Use the item's exact display name as it appears in the Kandji library." }],
-              note: "Use the exact display name shown in the Kandji library." }
+                         guideHint: "Use the item's exact display name as it appears in the Iru library, or its library item ID." }],
+              note: "Name or library item ID. -F forces the run even if the item already reported as installed." }
         ]
     },
     {
@@ -2709,23 +2719,45 @@ function assembleMdmCommand(verb, fields) {
     );
 }
 
+/** Match one template against a command, returning the extracted fields (an
+ *  empty object for a field-less verb) or null when it doesn't match. */
+function matchMdmTemplate(verb, template, command) {
+    if (!verb.fields.length) {
+        return template === command ? {} : null;
+    }
+    const parts = template.split(/\{[^}]+\}/);
+    const first = parts[0], last = parts[parts.length - 1];
+    if (!command.startsWith(first)) return null;
+    if (last !== "" && !command.endsWith(last)) return null;
+    const inner = command.slice(first.length, last ? command.length - last.length : undefined);
+    const fields = {};
+    if (verb.fields.length === 1) {
+        fields[verb.fields[0].key] = inner.replace(/^"|"$/g, "");
+    }
+    return fields;
+}
+
+/** Which preset and verb a command came from, or null for a hand-written one.
+ *
+ *  Verbs may carry `legacyTemplates` — commands a vendor has since renamed out
+ *  from under us (the kandji → iru agent rebrand). Matching them keeps an
+ *  existing config editable against its own preset instead of collapsing to
+ *  Custom on import. They are matched in a second pass so that a superseded
+ *  command can never shadow a preset that still ships the same string.
+ *
+ *  Nothing here rewrites the command: import stays faithful to the file, and
+ *  the step editor spots the drift by re-assembling the current template (see
+ *  actionFields) and offers to bring it forward. */
 function inferMdmSelection(command) {
     if (!command) return null;
-    for (const mdm of MDM_PRESETS) {
-        if (mdm.id === "custom") continue;
-        for (const verb of mdm.verbs) {
-            if (!verb.fields.length) {
-                if (verb.template === command) return { mdmId: mdm.id, verbId: verb.id, fields: {} };
-            } else {
-                const parts = verb.template.split(/\{[^}]+\}/);
-                const first = parts[0], last = parts[parts.length - 1];
-                if (command.startsWith(first) && (last === "" || command.endsWith(last))) {
-                    const inner = command.slice(first.length, last ? command.length - last.length : undefined);
-                    const fields = {};
-                    if (verb.fields.length === 1) {
-                        fields[verb.fields[0].key] = inner.replace(/^"|"$/g, "");
-                    }
-                    return { mdmId: mdm.id, verbId: verb.id, fields };
+    for (const legacy of [false, true]) {
+        for (const mdm of MDM_PRESETS) {
+            if (mdm.id === "custom") continue;
+            for (const verb of mdm.verbs) {
+                const templates = legacy ? (verb.legacyTemplates || []) : [verb.template];
+                for (const template of templates) {
+                    const fields = matchMdmTemplate(verb, template, command);
+                    if (fields) return { mdmId: mdm.id, verbId: verb.id, fields };
                 }
             }
         }
@@ -2761,18 +2793,30 @@ const fleet = {
 function sourceById(id) { return MDM_PRESETS.find(m => m.id === id) || null; }
 function sourcesOfKind(kind) { return MDM_PRESETS.filter(m => m.kind === kind); }
 
+/** Source ids that have been renamed, old → new. Saved prefs outlive a
+ *  vendor rebrand, and loadFleetPrefs() drops any id it can't resolve — so
+ *  without this a Kandji shop returns to an unset MDM, no narrowing, and
+ *  `configured: true` suppressing the setup prompt that would fix it. */
+const SOURCE_ID_ALIASES = { kandji: "iru" };
+function canonicalSourceId(id) {
+    return Object.prototype.hasOwnProperty.call(SOURCE_ID_ALIASES, id)
+        ? SOURCE_ID_ALIASES[id] : id;
+}
+
 function loadFleetPrefs() {
     try {
         const raw = prefGet(FLEET_PREFS_KEY);
         if (!raw) return;
         const saved = JSON.parse(raw);
-        const mdm = sourceById(saved.mdm);
+        const mdm = sourceById(canonicalSourceId(saved.mdm));
         if (mdm && mdm.kind === "mdm") fleet.mdm = mdm.id;
         if (Array.isArray(saved.tools)) {
-            fleet.tools = saved.tools.filter(id => {
-                const s = sourceById(id);
-                return s && s.kind === "tool";
-            });
+            fleet.tools = saved.tools
+                .map(canonicalSourceId)
+                .filter(id => {
+                    const s = sourceById(id);
+                    return s && s.kind === "tool";
+                });
         }
         if (typeof saved.org === "string") fleet.org = saved.org;
         if (typeof saved.logo === "string") fleet.logo = saved.logo;
@@ -4304,8 +4348,27 @@ function validateState() {
     if (nonAddon.length > 0 && !state.DefaultPlaybook) {
         issues.push({ scope: "global", message: "No default playbook set (Runtime tab)." });
     }
-    if (state.DefaultPlaybook && !nonAddon.find(p => p.Name === state.DefaultPlaybook)) {
+    // Matched against EVERY playbook, exactly as find_profile_by_name does at
+    // run time — name resolution never consults Addon. A playbook that is both
+    // the default and an add-on is a coherent config: it runs as the main
+    // playbook, and run_addon_profiles then leaves it out of the add-on picker
+    // rather than offering an option whose steps have all already run.
+    // Only a name matching nothing at all is a real error (runtime exit 2).
+    if (state.DefaultPlaybook && !state.Playbooks.find(p => p.Name === state.DefaultPlaybook)) {
         issues.push({ scope: "global", message: `Default playbook "${state.DefaultPlaybook}" not found.` });
+    }
+    // The welcome-screen picker holds names too, resolved the same way.
+    // Renaming through the builder carries them along, but an imported or
+    // hand-edited config can arrive with entries that match nothing —
+    // swiftDialog would offer the name and the run would fail to resolve it.
+    const _pp = state.WelcomeScreen && state.WelcomeScreen.PlaybookPicker;
+    if (_pp && _pp.Enabled && Array.isArray(_pp.Playbooks)) {
+        for (const name of _pp.Playbooks) {
+            if (name && name.trim() && !state.Playbooks.find(p => p.Name === name)) {
+                issues.push({ scope: "global",
+                    message: `Playbook picker lists "${name}", which matches no playbook.` });
+            }
+        }
     }
 
     const seenNames = new Set();
@@ -5527,12 +5590,40 @@ function openProfileEditor(pIdx) {
 }
 
 function renderProfileForm(p) {
+    // Playbooks are referenced by NAME, not by index: DefaultPlaybook and
+    // WelcomeScreen.PlaybookPicker.Playbooks both hold strings the runtime
+    // matches exactly and case-sensitively. A rename that touched only the
+    // playbook left those pointing at a name that no longer existed —
+    // DefaultPlaybook is a fatal config error at enrolment (exit 2), and a
+    // stale picker entry is offered to the user and then fails to resolve.
+    //
+    // The references are bound once, here, when the editor opens, rather than
+    // re-derived from the current name on each edit: textInput fires per
+    // keystroke, so matching by name would drop the link the moment the field
+    // is cleared and retyped.
+    const wasDefault = !!p.Name && state.DefaultPlaybook === p.Name;
+    const pp = state.WelcomeScreen && state.WelcomeScreen.PlaybookPicker;
+    const pickerIdx = (p.Name && pp && Array.isArray(pp.Playbooks))
+        ? pp.Playbooks.indexOf(p.Name) : -1;
+
+    function setPlaybookName(v) {
+        p.Name = v;
+        if (wasDefault) state.DefaultPlaybook = v;
+        if (pickerIdx >= 0) pp.Playbooks[pickerIdx] = v;
+    }
+
     const wrap = h("div");
     wrap.append(
         h("div", { class: "section" },
             h("div", { class: "section-title" }, "Basics"),
             row("Name",
-                textInput(p.Name, v => p.Name = v, "Engineering")),
+                textInput(p.Name, setPlaybookName, "Engineering"),
+                ...(wasDefault || pickerIdx >= 0 ? [
+                    hint(`Renaming updates ${[
+                        wasDefault ? "the default playbook setting" : null,
+                        pickerIdx >= 0 ? "this playbook's entry in the welcome-screen picker" : null
+                    ].filter(Boolean).join(" and ")}.`)
+                ] : [])),
             row("Description",
                 textInput(p.Description, v => p.Description = v)),
             row("Test mode",
@@ -7030,8 +7121,24 @@ function actionFields(a) {
                 hint("Passed to /bin/sh -c.")
             ));
         } else if (a.Command) {
+            // A command that matched its preset but doesn't match what the
+            // preset writes today came in through a legacyTemplate — the
+            // vendor renamed the binary or the verb. Derived rather than
+            // remembered, so editing a field clears it without extra state.
+            const current = activeVerb ? assembleMdmCommand(activeVerb, a._fields || {}) : a.Command;
             rows.push(row("Command",
-                h("div", { class: "command-preview" }, a.Command)
+                h("div", { class: "command-preview" }, a.Command),
+                ...(current !== a.Command ? [
+                    h("div", { class: "source-filter-note" },
+                        h("span", null, `Superseded — ${activeMdm.label} now uses `),
+                        h("code", null, current),
+                        h("button", {
+                            onclick: () => {
+                                a.Command = current;
+                                reopenStep(); updatePreview();
+                            }
+                        }, "Update it"))
+                ] : [])
             ));
         }
 
@@ -9027,41 +9134,45 @@ function showFleetSetup(opts) {
 
     const body = h("div", { class: "setup-body" });
 
-    // ---- MDM choice
-    const mdmGrid = h("div", { class: "mdm-grid" });
-    function paintMdmGrid() {
-        mdmGrid.innerHTML = "";
-        for (const m of sourcesOfKind("mdm")) {
-            mdmGrid.appendChild(h("button", {
-                class: "mdm-card" + (draft.mdm === m.id ? " selected" : ""),
-                "data-tooltip": m.blurb,
-                onclick: () => {
-                    draft.mdm = draft.mdm === m.id ? null : m.id;
-                    paintMdmGrid();
-                }
-            },
-                h("span", { class: "mdm-card-icon" }, m.icon || "▫️"),
-                h("span", { class: "mdm-card-name" }, m.label)
-            ));
-        }
-        // No MDM is advanced mode: every source, every field, no follow-up
-        // questions. It is also the honest answer for a fleet whose MDM isn't
-        // listed, or one driven from a package with no MDM binary at all.
-        mdmGrid.appendChild(h("button", {
-            class: "mdm-card advanced" + (draft.mdm === null ? " selected" : ""),
-            "data-tooltip": "Every source and the full step editor, with no guided questions.",
-            onclick: () => { draft.mdm = null; paintMdmGrid(); }
-        },
-            h("span", { class: "mdm-card-icon" }, "🛠"),
-            h("span", { class: "mdm-card-name" }, "Advanced mode")
-        ));
+    // ---- MDM choice. A dropdown rather than a card per vendor: it is a
+    // single-choice question, and the grid took the weight of the whole sheet
+    // to ask it — worse with every MDM added.
+    const mdmSelect = h("select", {
+        onchange: e => { draft.mdm = e.target.value || null; syncMdmChoice(); }
+    },
+        h("option", { value: "" }, "— Choose an MDM —"),
+        // Names only. The source icons are a colour-coded shorthand that reads
+        // as decoration in a plain option list; 🛠 on the button beside it is
+        // doing different work, marking the one choice that isn't a vendor.
+        ...sourcesOfKind("mdm").map(m => h("option", { value: m.id }, m.label))
+    );
+    // No MDM is advanced mode: every source, every field, no follow-up
+    // questions. It is also the honest answer for a fleet whose MDM isn't
+    // listed, or one driven from a package with no MDM binary at all.
+    const advancedBtn = h("button", {
+        class: "mdm-advanced",
+        "data-tooltip": "Every source and the full step editor, with no guided questions.",
+        onclick: () => { draft.mdm = null; syncMdmChoice(); }
+    }, h("span", null, "🛠"), h("span", null, "Advanced mode"));
+
+    /** Advanced mode is the absence of an MDM, so the button lights up exactly
+     *  when the dropdown is empty. Mutates the two controls in place rather
+     *  than rebuilding them, so changing the select doesn't drop focus. */
+    function syncMdmChoice() {
+        mdmSelect.value = draft.mdm || "";
+        const active = sourceById(draft.mdm);
+        mdmSelect.setAttribute("data-tooltip",
+            active ? active.blurb : "Which MDM manages these Macs.");
+        advancedBtn.classList.toggle("selected", draft.mdm === null);
     }
-    paintMdmGrid();
+    const mdmChoice = h("div", { class: "mdm-choice" }, mdmSelect, advancedBtn);
+    syncMdmChoice();
+
     body.appendChild(h("div", { class: "setup-section" },
         h("div", { class: "setup-label" }, "What manages these Macs?"),
-        mdmGrid,
+        mdmChoice,
         h("p", { class: "setup-hint" },
-            "Picking an MDM turns on guided mode: new steps are built by answering a few questions, and command pickers list that MDM, macOS built-ins and your tooling. Other MDMs' presets are hidden until you click Show all sources, and the full step editor is one click away from every question.")
+            "Picking an MDM turns on guided mode: new steps are built by answering a few questions, and command pickers list that MDM, macOS built-ins and your tooling. Other MDMs' presets are hidden until you click Show all sources, and the full step editor is one click away from every question. Advanced mode leaves everything on and asks nothing.")
     ));
 
     // ---- Extra tooling
@@ -9403,7 +9514,7 @@ const HELP_SECTIONS = [
             <p>Picking <b>Advanced mode</b> instead of an MDM turns all of that off: every source in every picker, the whole catalogue, and recipes that go straight to the full step editor with no questions.</p>
             <p>It's also the right answer when your MDM isn't listed, or when Enrollinator runs from a package with no MDM binary involved. Switch back to an MDM from the header chip whenever you like — it's a setting, not a one-way door.</p>` },
         { h: "Nothing is removed", body: `
-            <div class="help-tip">Narrowing is a default, never a wall. <b>Show all sources</b> under any narrowed picker restores the full list; a step that already uses a source from outside your fleet always keeps it in the dropdown — so importing a Kandji config while set to Jamf never hides the commands that config is built on; and every guided question screen carries <b>Open the full editor</b>.</div>` },
+            <div class="help-tip">Narrowing is a default, never a wall. <b>Show all sources</b> under any narrowed picker restores the full list; a step that already uses a source from outside your fleet always keeps it in the dropdown — so importing an Iru config while set to Jamf never hides the commands that config is built on; and every guided question screen carries <b>Open the full editor</b>.</div>` },
         { h: "Imported configs answer for themselves", body: `
             <p>Import and Load sample read the MDM back out of the commands a config already contains, and adopt it. Tooling is additive: importing a config that uses Installomator adds Installomator to your fleet rather than replacing what was there.</p>` }
     ]
@@ -9419,7 +9530,8 @@ const HELP_SECTIONS = [
               <li>Drag a step row onto a playbook name to move that step across playbooks.</li>
               <li>Click the playbook title in the content header to rename it or edit its description.</li>
               <li>Collapse the sidebar with the <code>‹</code> button when you want more room for steps.</li>
-            </ul>` },
+            </ul>
+            <p>Playbooks are referenced by <b>name</b>, not by position — <b>DefaultPlaybook</b> and the welcome screen's playbook picker both hold name strings. Renaming a playbook here updates both, so the default stays the default; the Name field tells you which references will move.</p>` },
         { h: "How the playbook is chosen", body: `
             <p>Enrollinator resolves exactly one playbook at launch, in this order:</p>
             <ol>
@@ -9505,13 +9617,14 @@ const HELP_SECTIONS = [
               <tr><td>Jamf Pro</td><td>policy by custom event, policy by ID, all scoped policies, recon, manage</td></tr>
               <tr><td>Installomator</td><td>Install by label (<code>googlechromepkg</code>, <code>slack</code>, …)</td></tr>
               <tr><td>Munki / WS1</td><td><code>managedsoftwareupdate</code> — auto, install-cached-only, check-only</td></tr>
-              <tr><td>Kandji</td><td>Run all library items, or one item by display name</td></tr>
+              <tr><td>Iru (formerly Kandji)</td><td>Run all library items, or one item by name or ID</td></tr>
               <tr><td>Mosyle</td><td>Force an agent check-in via enrollment renew</td></tr>
               <tr><td>Addigy</td><td>Run a named policy through the go-agent</td></tr>
               <tr><td>macOS built-ins</td><td>Rosetta 2, Xcode Command Line Tools, Software Update, <code>installer</code></td></tr>
               <tr><td>Custom</td><td>Write the command yourself</td></tr>
             </table>
             <p>Picking a preset only writes text into the Command field — you can edit it afterwards and the builder will still recognise it.</p>
+            <p>When a vendor renames a binary or a verb, the old command is still recognised, so an existing config keeps editing against its own preset. Import never rewrites it: the step shows what the preset writes today with an <b>Update it</b> link, and your timeout is left alone. This covers the Kandji → Iru rebrand — <code>kandji run</code> and <code>kandji library</code> map onto <code>iru library</code>.</p>
             <p>The picker is narrowed to your <i>Deployment target</i> — your MDM, macOS built-ins, your tooling, and Custom. <b>Show all sources</b> beneath it brings back the full table above, and a step already using another MDM's command keeps that source listed regardless.</p>` },
         { h: "Dialog actions", body: `
             <p>A dialog action shows a window and turns the user's click into pass or fail.</p>
