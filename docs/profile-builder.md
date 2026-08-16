@@ -16,7 +16,7 @@ and everything runs locally in the page.
   — [Info tab](#info-tab) · [Action tab](#action-tab) · [Conditions tab](#conditions-tab) · [Behavior tab](#behavior-tab)
 - [Wait window](#wait-window)
 - [Branching](#branching)
-- [Live preview](#live-preview)
+- [Live preview](#live-preview) — [Visual preview](#visual-preview)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Tips](#tips)
 
@@ -155,9 +155,10 @@ Scale and content width are independent on purpose: scale magnifies everything, 
 reclaims horizontal space. On a large display, Auto scale plus Wide content is
 usually the best combination — scale alone just makes a narrow column bigger.
 
-The XML preview pane sizes itself to the window until you drag the divider,
+The preview pane sizes itself to the window until you drag the divider,
 after which it keeps whatever width you set. Below roughly 1000px of effective
-width (viewport width ÷ scale) the layout stacks into a single column.
+width (viewport width ÷ scale) the layout stacks into a single column, and the
+visual preview gives up height so the XML below it stays readable.
 
 ---
 
@@ -450,12 +451,74 @@ Collapse a branch block by clicking ⎇ again.
 
 ## Live preview
 
-The right panel shows the raw XML that will be written into the `.mobileconfig`
-payload. It updates on every field change. A **valid** / **error** badge
-indicates whether the current config serializes cleanly.
+The right panel holds two previews: a **visual preview** of the windows the
+config produces, and below it the raw XML that will be written into the
+`.mobileconfig` payload. Both update on every field change. A **valid** /
+**error** badge on the XML header indicates whether the current config
+serializes cleanly.
 
-Click the **‹** / **›** toggle to collapse or expand the preview panel if you
-need more room.
+The XML half starts folded — click its header to unfold it, and the visual
+preview to fold that instead. Click the **‹** / **›** toggle on the divider to
+collapse the whole panel if you need more room.
+
+### Visual preview
+
+A mock Mac desktop, with the run-time swiftDialog windows drawn on top of it at
+true size against the screen. Two dropdowns and a stepper drive it:
+
+| Control | What it does |
+|---|---|
+| Screen | Jumps to a screen: welcome, playbook picker, run window, add-on picker. The list is built from the config — the welcome screen and its picker appear only when enabled, the add-on picker only once a playbook is marked **Addon**. |
+| Playbook | Which playbook the run window is working through. Follows the playbook you're editing until you pick one here, after which it stays put. |
+| `‹` `›` | Walks the entire run, in order, without touching the dropdowns: welcome screen → each of its slides → playbook picker → every step → finished → add-on picker. The counter shows where you are in that sequence. |
+
+For each step, rows above it read **Done**, the current one **Running…** or
+**Waiting…**, the rest **Pending** — the same status text swiftDialog shows —
+and the progress bar and "Step 3 of 8" track along. Step past the last one for
+the finished window, with the Done button live if `AllowClose` is set.
+
+**Windows that open on top of others are drawn that way.** A step's `dialog`
+action, or a blocking step's wait window, appears offset over the dimmed run
+window; the add-on picker appears over the finished run window. A step with
+both a dialog action and a wait window gets a frame for each, in the order the
+run opens them.
+
+**Slideshows and multi-frame dialogs are stepped through frame by frame.** A
+welcome screen, wait window or dialog action with several slides shows each one
+as its own frame, with the same **Next →  (2 of 3)** and **← Back** buttons the
+user will click, per-frame titles and messages, and the last frame carrying the
+window's real buttons — which is exactly how the runtime hands off from the
+slides to the window itself.
+
+**The screen blurs when the run would blur it.** `BlurScreen`, and the
+per-window `Blur` overrides on the welcome screen, wait windows and dialog
+actions, blur the wallpaper and dock behind the window and mark the screen
+`SCREEN BLURRED`.
+
+The caption below the screen spells out what a drawing can't show: how many
+conditions the step has, its poll interval, and where **On success** /
+**On failure** branch to.
+
+It is a schematic, not a screenshot:
+
+- Logos, banners, slideshow frames and video are labelled placeholders. A
+  browser cannot resolve `/Library/Enrollinator/assets/logo.png` — that file
+  only exists on the enrolled Mac.
+- SF Symbols show their name, not the glyph. SF Symbols is a system font the
+  browser doesn't have.
+- The desktop and its five dock apps are set dressing, there to give the
+  windows a sense of scale.
+- `{token}` placeholders are filled with sample values (`{console_user}` →
+  `astevens`) so you can see the shape of the finished sentence.
+
+What *is* accurate: how big each window is against the screen and against each
+other, which window sits on top of which, which screens appear and in what
+order, step and slide order, status flow, blur, the hardware info panel, the
+help button, progress text, and the buttons on every window.
+
+Click the **Visual preview** header to fold the schematic away, or drag the bar
+beneath it to give it more room (with the XML folded, it simply takes the whole
+pane). Both settings persist in the browser.
 
 ---
 

@@ -48,8 +48,13 @@ configs. It gives you a full visual editor for every key in the schema:
 - **Import / export** — drag in an existing `.mobileconfig` or bare plist to
   continue editing it. Download as a ready-to-upload `.mobileconfig` or as a
   bare `.plist` for use with `--xml`.
-- **Live preview panel** — see the swiftDialog window layout update as you
-  type.
+- **Live preview panel** — the swiftDialog windows drawn on a mock Mac desktop,
+  at true size against the screen, with the generated XML folded away
+  underneath. Step through the entire run — welcome screen, every slideshow
+  frame, every step, the add-on picker — and watch the step list change status,
+  windows open on top of each other, and the screen blur exactly where the
+  config says it will. Media and SF Symbols appear as labelled placeholders
+  rather than being faked.
 - **Light and dark** — the **Display ▾** menu follows the Mac's appearance by
   default, or pins Light / Dark.
 - **Scales to your display** — the same menu sets interface scale
