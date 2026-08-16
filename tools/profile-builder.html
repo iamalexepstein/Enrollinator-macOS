@@ -2132,6 +2132,7 @@ const HARDWARE_FIELDS = [
     ["hostname",       "Host name"],
     ["serial_number",  "Serial number"],
     ["model",          "Model identifier"],
+    ["model_name",     "Model name"],
     ["os_version",     "macOS version"],
     ["ip_address",     "IP address"],
     ["uuid",           "Hardware UUID"]
@@ -3618,7 +3619,8 @@ const TITLE_VARS = [
     { token: "{computer_name}", label: "Computer name" },
     { token: "{hostname}",      label: "Local hostname" },
     { token: "{serial_number}", label: "Hardware serial" },
-    { token: "{model}",         label: "Model identifier" },
+    { token: "{model}",         label: "Model identifier (MacBookPro18,4)" },
+    { token: "{model_name}",    label: "Model name (MacBook Pro)" },
     { token: "{os_version}",    label: "macOS version" },
     { token: "{ip_address}",    label: "Primary IP address" },
 ];
@@ -7125,7 +7127,7 @@ function loadSample() {
 
     // ── Branding — tokens + SF animation + font sizes ─────────────────────────
     s.Branding.Title          = "Welcome to Acme Corp, {console_user}!";
-    s.Branding.Subtitle       = "Setting up your {model}. This usually takes about 10 minutes.";
+    s.Branding.Subtitle       = "Setting up your {model_name}. This usually takes about 10 minutes.";
     s.Branding.Logo           = "SF=sparkles,animation=pulse";
     s.Branding.Banner         = "https://example.com/enrollinator/banner.png";
     s.Branding.AccentColor    = "#0A84FF";
@@ -7141,7 +7143,7 @@ function loadSample() {
     // ── Hardware info panel ───────────────────────────────────────────────────
     s.HardwareInfo = {
         Enabled: true,
-        Fields: ["console_user", "computer_name", "serial_number", "model", "os_version", "ip_address"]
+        Fields: ["console_user", "computer_name", "serial_number", "model_name", "os_version", "ip_address"]
     };
 
     // ── Help button ───────────────────────────────────────────────────────────
@@ -8326,7 +8328,8 @@ const HELP_SECTIONS = [
               <tr><td>{computer_name}</td><td>Computer name</td></tr>
               <tr><td>{hostname}</td><td>Local hostname</td></tr>
               <tr><td>{serial_number}</td><td>Hardware serial</td></tr>
-              <tr><td>{model}</td><td>Model identifier</td></tr>
+              <tr><td>{model}</td><td>Model identifier, e.g. <code>MacBookPro18,4</code></td></tr>
+              <tr><td>{model_name}</td><td>Marketing model name, e.g. <code>MacBook Pro</code></td></tr>
               <tr><td>{os_version}</td><td>macOS version</td></tr>
               <tr><td>{ip_address}</td><td>Primary IP address</td></tr>
             </table>

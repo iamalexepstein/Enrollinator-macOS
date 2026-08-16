@@ -192,7 +192,8 @@ playbook:
 | `{computer_name}` | Computer name |
 | `{hostname}` | Local hostname |
 | `{serial_number}` | Hardware serial |
-| `{model}` | Model identifier |
+| `{model}` | Model identifier, e.g. `MacBookPro18,4` |
+| `{model_name}` | Marketing model name, e.g. `MacBook Pro` |
 | `{os_version}` | macOS version |
 | `{ip_address}` | Primary IP address |
 

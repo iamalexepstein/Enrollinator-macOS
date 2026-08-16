@@ -88,7 +88,7 @@
                     <string>console_user</string>
                     <string>computer_name</string>
                     <string>serial_number</string>
-                    <string>model</string>
+                    <string>model_name</string>
                     <string>os_version</string>
                 </array>
             </dict>

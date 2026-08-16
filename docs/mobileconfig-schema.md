@@ -70,10 +70,12 @@ Enrollinator expands at runtime before passing values to swiftDialog:
 | Token              | Expands to |
 |--------------------|------------|
 | `{console_user}`   | Short username of the logged-in console user. |
+| `{full_name}`      | Display name of the console user (`id -F`). |
 | `{hostname}`       | `scutil --get LocalHostName`. |
 | `{computer_name}`  | `scutil --get ComputerName`. |
 | `{serial_number}`  | Hardware serial number from `system_profiler`. |
-| `{model}`          | Marketing model name (e.g. `MacBook Pro`). |
+| `{model}`          | Model identifier from `hw.model` (e.g. `MacBookPro18,4`). |
+| `{model_name}`     | Marketing model name from `system_profiler` (e.g. `MacBook Pro`). |
 | `{os_version}`     | macOS version string (e.g. `14.4.1`). |
 | `{ip_address}`     | Primary IPv4 address. |
 | `{uuid}`           | Hardware UUID. |
@@ -89,7 +91,7 @@ serial over the phone during onboarding.
 | Key       | Type            | Description |
 |-----------|-----------------|-------------|
 | `Enabled` | bool            | Set `true` to show the panel. |
-| `Fields`  | array of string | Which fields to include, in order. Supported tokens: `console_user`, `hostname`, `computer_name`, `serial_number`, `model`, `os_version`, `ip_address`, `uuid`. |
+| `Fields`  | array of string | Which fields to include, in order. Supported tokens: `console_user`, `full_name`, `hostname`, `computer_name`, `serial_number`, `model`, `model_name`, `os_version`, `ip_address`, `uuid`. |
 
 ### `Help`
 

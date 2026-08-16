@@ -841,6 +841,18 @@ trim_one_line() {
 # Hardware info + help message
 # ----------------------------------------------------------------------------
 
+# Marketing model name ("MacBook Pro") rather than the identifier hw.model
+# reports ("MacBookPro18,4"). system_profiler is the only source that covers
+# both Intel and Apple silicon; falls back to the identifier so a branding
+# string never renders blank.
+hw_marketing_model() {
+    local name
+    name="$(/usr/sbin/system_profiler SPHardwareDataType 2>/dev/null \
+        | /usr/bin/awk -F': ' '/Model Name/ {print $2; exit}')"
+    [ -z "$name" ] && name="$(/usr/sbin/sysctl -n hw.model 2>/dev/null)"
+    printf '%s' "$name"
+}
+
 # Look up a hardware info field by short key. Echoes a single line (or empty).
 hw_info_value() {
     case "$1" in
@@ -863,6 +875,9 @@ hw_info_value() {
             ;;
         model)
             /usr/sbin/sysctl -n hw.model 2>/dev/null
+            ;;
+        model_name)
+            hw_marketing_model
             ;;
         os_version)
             /usr/bin/sw_vers -productVersion 2>/dev/null
@@ -887,7 +902,8 @@ hw_info_label() {
         hostname)      echo "Hostname" ;;
         computer_name) echo "Computer" ;;
         serial_number) echo "Serial" ;;
-        model)         echo "Model" ;;
+        model)         echo "Model ID" ;;
+        model_name)    echo "Model" ;;
         os_version)    echo "macOS" ;;
         ip_address)    echo "IP" ;;
         uuid)          echo "UUID" ;;
@@ -897,13 +913,14 @@ hw_info_label() {
 
 # Expand {token} placeholders in a branding string with live hardware/user
 # values. Tokens match the hw_info_value key names:
-#   {console_user}  {full_name}  {hostname}  {computer_name}
-#   {serial_number} {model}      {os_version} {ip_address}
+#   {console_user}  {full_name}   {hostname}   {computer_name}
+#   {serial_number} {model}       {model_name} {os_version}
+#   {ip_address}    {uuid}
 # Example: "Setting up {full_name}'s Mac!" → "Setting up Jane Smith's Mac!"
 expand_title_vars() {
     local str="$1" key value
     for key in console_user full_name hostname computer_name \
-                serial_number model os_version ip_address; do
+                serial_number model model_name os_version ip_address uuid; do
         [[ "$str" == *"{$key}"* ]] || continue
         value="$(hw_info_value "$key")"
         str="${str//\{$key\}/$value}"
