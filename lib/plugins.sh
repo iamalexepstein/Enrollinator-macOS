@@ -93,13 +93,28 @@ action_shell() {
 
     # Optional: run as the console user. We build an argv rather than
     # re-quoting into a new shell string.
+    #
+    # A requested privilege drop that cannot be honored fails the step. The
+    # alternative is running the admin's user-scoped command as root, which
+    # is what this used to do silently — see _user_exec_prefix.
     local -a argv
-    _user_exec_prefix "$user"
+    if ! _user_exec_prefix "$user"; then
+        echo "shell action: RunAsUser '$user' could not be honored; refusing to run this command as root" >&2
+        return 2
+    fi
     argv=( "${USER_EXEC_ARGV[@]}" /bin/sh -c "$cmd" )
 
     # `timeout(1)` isn't on macOS; use perl's alarm, passing argv through
     # @ARGV (no string interpolation = no quoting pitfalls).
-    /usr/bin/perl -e 'alarm shift; exec @ARGV or die $!' "$timeout" "${argv[@]}" 2>&1
+    #
+    # PATH is widened back to ENROLLINATOR_STEP_PATH for the admin's own
+    # command. Enrollinator itself runs on a hardened PATH that excludes
+    # /usr/local/bin (see the header of enrollinator.sh), but configs in the
+    # wild call `brew`, `jamf` and similar unqualified, and a step command is
+    # arbitrary root code by design — restricting its PATH would break those
+    # configs without changing what the step is already permitted to do.
+    PATH="$ENROLLINATOR_STEP_PATH" \
+        /usr/bin/perl -e 'alarm shift; exec @ARGV or die $!' "$timeout" "${argv[@]}" 2>&1
     local rc=$?
     return $rc
 }
@@ -121,11 +136,14 @@ action_package() {
         echo "Package not found: $path" >&2
         return 2
     fi
-    /usr/bin/perl -e 'alarm shift; exec @ARGV or die $!' "$timeout" \
+    # Widened PATH: pkg pre/postinstall scripts are third-party code that may
+    # expect /usr/local/bin, exactly like a shell action's command.
+    PATH="$ENROLLINATOR_STEP_PATH" \
+        /usr/bin/perl -e 'alarm shift; exec @ARGV or die $!' "$timeout" \
         /usr/sbin/installer -pkg "$path" -target "$target" -verbose 2>&1
     local rc=$?
     if [ $rc -eq 0 ]; then
-        echo "Installed $(basename "$path")"
+        echo "Installed $(/usr/bin/basename "$path")"
     fi
     return $rc
 }
@@ -282,9 +300,17 @@ cond_shell() {
     fi
 
     local -a argv
-    _user_exec_prefix "$user"
+    # rc 2 = malformed/unsatisfiable config, which run_step handles explicitly:
+    # it refuses to BLOCK on such a condition, so a blocking step can't poll
+    # forever waiting for something that can never come true.
+    if ! _user_exec_prefix "$user"; then
+        echo "shell condition: RunAsUser '$user' could not be honored; refusing to evaluate this as root"
+        return 2
+    fi
     argv=( "${USER_EXEC_ARGV[@]}" /bin/sh -c "$cmd" )
-    /usr/bin/perl -e 'alarm shift; exec @ARGV or die $!' "$timeout" \
+    # Same widened PATH as action_shell — see the note there.
+    PATH="$ENROLLINATOR_STEP_PATH" \
+        /usr/bin/perl -e 'alarm shift; exec @ARGV or die $!' "$timeout" \
         "${argv[@]}" >/dev/null 2>&1
     local rc=$?
     if [ $rc -eq 0 ]; then
@@ -370,7 +396,15 @@ cond_default_browser() {
         echo "No console user"
         return 1
     fi
-    _user_exec_prefix '$CONSOLE_USER'
+    # rc 1, not 2: unlike the shell handlers, this condition is normally
+    # polled on a blocking step, and a console user appearing later is the
+    # expected course of events. Failing it as "not satisfied yet" keeps the
+    # step pollable. What must NOT happen is falling through to read ROOT's
+    # LaunchServices domain, which can never observe the user's choice.
+    if ! _user_exec_prefix '$CONSOLE_USER'; then
+        echo "Cannot check as the console user"
+        return 1
+    fi
 
     local handler
     handler="$("${USER_EXEC_ARGV[@]}" /usr/bin/defaults read com.apple.LaunchServices/com.apple.launchservices.secure LSHandlers 2>/dev/null \
@@ -466,9 +500,26 @@ resolve_uid() {
 
 # _user_exec_prefix <user>
 # Populates the global array USER_EXEC_ARGV with the argv prefix that runs a
-# command AS <user> inside that user's GUI session. Empty prefix means "run
-# it right here" (no console user, target is root, or we aren't root and so
-# can't switch anyway).
+# command AS <user> inside that user's GUI session.
+#
+# Returns 0 when the prefix is ready to use — which includes the cases where
+# an empty prefix is the correct answer (nothing was requested, root was
+# explicitly requested, or we are not root and therefore cannot escalate).
+# Returns 2 when a privilege drop WAS requested and cannot be honored.
+#
+# That distinction is the whole point of the return code. This function used
+# to answer every one of those cases with an empty array and `return 0`, so
+# "no drop needed" and "drop impossible" were literally the same value — and
+# an empty prefix means "run it right here", i.e. as root under the daemon.
+# A step asking for LESS privilege got MORE, was reported as succeeded, and
+# said nothing in the log. The case that fired in production is the silent
+# one: during ADE, main() waits five minutes for a console user, logs
+# "continuing anyway", and every RunAsUser step then ran as root, writing
+# into /var/root instead of the user's home.
+#
+# The rule applied below is narrower than "fail on error": fail closed only
+# where the failure would run something with MORE privilege than was asked
+# for. A privilege mismatch is fine; a privilege escalation is not.
 #
 # `launchctl asuser <uid>` alone is NOT a privilege drop. It moves the process
 # into the target user's Mach bootstrap but leaves it running as ROOT, against
@@ -483,15 +534,33 @@ USER_EXEC_ARGV=()
 _user_exec_prefix() {
     local user="$1"
     USER_EXEC_ARGV=()
+
+    # No RunAsUser key at all — nothing was asked for.
+    [ -z "$user" ] && return 0
+    # An explicit request for root is satisfied by running as root. This is
+    # checked on the LITERAL requested value, before resolution, because
+    # resolve_user_name also returns empty when $CONSOLE_USER happens to
+    # resolve to root — which is a failure to find a real user, not a request
+    # for root, and must not be conflated with it.
+    [ "$user" = "root" ] && return 0
+
+    # Only root can change identity. A non-root run (dev, --skip-root-check)
+    # cannot honor the request either, but it also cannot escalate: the
+    # command runs as the unprivileged invoker, never with more authority
+    # than was asked for. Permissive is safe here, so this stays a success.
+    [ "$(/usr/bin/id -u)" -ne 0 ] && return 0
+
     local name uid
     name="$(resolve_user_name "$user")"
-    [ -z "$name" ] && return 0
-    # Only root can switch users; a dev run just executes as whoever it is.
-    [ "$(/usr/bin/id -u)" -ne 0 ] && return 0
+    if [ -z "$name" ]; then
+        log warn "RunAsUser '$user' did not resolve to a real non-root user (no console user yet?) — refusing to run this as root instead"
+        return 2
+    fi
     uid="$(/usr/bin/id -u "$name" 2>/dev/null)"
     if [ -z "$uid" ]; then
-        log warn "RunAsUser '$name' does not resolve to a uid — running as root instead"
-        return 0
+        log warn "RunAsUser '$name' does not resolve to a uid — refusing to run this as root instead"
+        return 2
     fi
     USER_EXEC_ARGV=(/bin/launchctl asuser "$uid" /usr/bin/sudo -H -u "$name" --)
+    return 0
 }

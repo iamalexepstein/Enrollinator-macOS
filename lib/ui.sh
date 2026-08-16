@@ -160,7 +160,7 @@ _ui_list_dialog_pids() {
 _ui_run_blur_keeper_active() {
     [ -f "$RUN_BLUR_KEEPER_PID_FILE" ] || return 1
     local _p
-    _p="$(cat "$RUN_BLUR_KEEPER_PID_FILE" 2>/dev/null)"
+    _p="$(/bin/cat "$RUN_BLUR_KEEPER_PID_FILE" 2>/dev/null)"
     [ -z "$_p" ] && return 1
     /bin/kill -0 "$_p" 2>/dev/null
 }
@@ -239,7 +239,7 @@ ui_run_blur_keeper_stop() {
     if [ -f "$RUN_BLUR_KEEPER_PID_FILE" ]; then
         /bin/sleep 0.1
         local _p
-        _p="$(cat "$RUN_BLUR_KEEPER_PID_FILE" 2>/dev/null)"
+        _p="$(/bin/cat "$RUN_BLUR_KEEPER_PID_FILE" 2>/dev/null)"
         if _ui_valid_dialog_pid "$_p"; then
             /bin/kill "$_p" 2>/dev/null || true
         fi
@@ -373,7 +373,23 @@ _ui_normalize_icon() {
     local spec="$1"
     [ -z "$spec" ] && return 0
     case "$spec" in
-        http://*|https://*)
+        http://*)
+            # Plaintext HTTP is refused outright, not downgraded-with-a-warning.
+            #
+            # These images are not decoration. The wait-window slideshow is the
+            # surface that tells the user what to do — "sign in to ZScaler",
+            # "enter your credentials here" — on a machine that is mid-
+            # enrollment and may not have VPN or EDR up yet. Fetched over
+            # cleartext by root, they are rewritable by anyone on the path,
+            # which makes them a phishing primitive rather than a defacement
+            # risk. There is no legitimate reason to serve them over http://.
+            #
+            # Callers already treat an empty return as "no image" and fall back
+            # to the gradient banner or default icon, so this degrades cleanly.
+            type log >/dev/null 2>&1 && log warn "Refusing to fetch an image over plaintext HTTP: $spec — serve it over https:// (or ship it as a local absolute path). The image is being dropped; the window will fall back to its default."
+            return 0
+            ;;
+        https://*)
             local _hash _cached
             _hash="$(printf '%s' "$spec" | /usr/bin/shasum -a 256 2>/dev/null | /usr/bin/awk '{print $1}')"
             if [ -z "$_hash" ]; then
@@ -396,7 +412,17 @@ _ui_normalize_icon() {
                 fi
             fi
             /bin/mkdir -p "$UI_IMAGE_CACHE_DIR" 2>/dev/null
-            if /usr/bin/curl -fsSL --connect-timeout 3 -m 8 -o "$_cached" "$spec" 2>/dev/null \
+            # --proto/--proto-redir pin BOTH the initial request and every
+            # redirect to https. -L alone would happily follow a 302 down to
+            # http://, which would reintroduce exactly what the http:// branch
+            # above refuses. --max-filesize caps a hostile or misconfigured
+            # host at 10 MB (generous for a retina banner); -m 8 already bounds
+            # the time, so the two together bound the damage a bad URL can do
+            # to a run.
+            if /usr/bin/curl -fsSL \
+                    --proto '=https' --proto-redir '=https' \
+                    --max-filesize 10485760 \
+                    --connect-timeout 3 -m 8 -o "$_cached" "$spec" 2>/dev/null \
                 && [ -s "$_cached" ]; then
                 printf '%s' "$_cached"
             else
@@ -940,7 +966,7 @@ ui_stop() {
     if [ -f "$DIALOG_PID_FILE" ]; then
         /bin/sleep 0.3
         local pid
-        pid="$(cat "$DIALOG_PID_FILE")"
+        pid="$(/bin/cat "$DIALOG_PID_FILE")"
         if _ui_valid_dialog_pid "$pid"; then
             /bin/kill "$pid" 2>/dev/null || true
         fi
@@ -1195,20 +1221,20 @@ ui_wait_open() {
                 # means this watcher has been superseded and must not re-launch
                 # the previous step's persistent window.
                 local _cur_session
-                _cur_session="$(cat "$WAIT_SESSION_FILE" 2>/dev/null)"
+                _cur_session="$(/bin/cat "$WAIT_SESSION_FILE" 2>/dev/null)"
                 [ "$_cur_session" != "$_ww_session" ] && exit 0
 
                 # Poll until the persistent window PID is no longer alive.
                 # Validate the PID is actually a dialog process before polling.
-                _w_pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
+                _w_pid="$(/bin/cat "$WAIT_PID_FILE" 2>/dev/null)"
                 while _ui_valid_dialog_pid "$_w_pid" && /bin/kill -0 "$_w_pid" 2>/dev/null; do
                     /bin/sleep 0.3
                     # Check session on every cycle: if ui_wait_close ran and a new
                     # step has already written a fresh token (or the file is gone),
                     # exit immediately rather than continuing to poll the wrong PID.
-                    _cur_session="$(cat "$WAIT_SESSION_FILE" 2>/dev/null)"
+                    _cur_session="$(/bin/cat "$WAIT_SESSION_FILE" 2>/dev/null)"
                     [ "$_cur_session" != "$_ww_session" ] && exit 0
-                    _w_pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
+                    _w_pid="$(/bin/cat "$WAIT_PID_FILE" 2>/dev/null)"
                 done
 
                 # If WAIT_PID_FILE was removed, ui_wait_close already ran → done.
@@ -1220,16 +1246,16 @@ ui_wait_open() {
                 # WAIT_SESSION_FILE and a new step's ui_wait_open could have
                 # recreated WAIT_PID_FILE (so the file-exists check above passed).
                 # Without this check we would incorrectly conclude "← Back".
-                _cur_session="$(cat "$WAIT_SESSION_FILE" 2>/dev/null)"
+                _cur_session="$(/bin/cat "$WAIT_SESSION_FILE" 2>/dev/null)"
                 [ "$_cur_session" != "$_ww_session" ] && exit 0
 
                 # If WAIT_COMMAND_FILE contains "quit:", condition was met → done.
-                grep -q 'quit:' "$WAIT_COMMAND_FILE" 2>/dev/null && exit 0
+                /usr/bin/grep -q 'quit:' "$WAIT_COMMAND_FILE" 2>/dev/null && exit 0
 
                 # Otherwise the user clicked "← Back".  Re-run interactive
                 # slides starting from the second-to-last frame.
                 # Signal the polling loop to pause its timeout clock.
-                touch "$WAIT_NAVIGATING_FILE" 2>/dev/null || true
+                /usr/bin/touch "$WAIT_NAVIGATING_FILE" 2>/dev/null || true
                 _w_back_i=$(( ww_total - 2 ))
                 while true; do
                     local _wf _wr _wt _wm
@@ -1353,7 +1379,7 @@ ui_wait_close() {
     fi
     if [ -f "$WAIT_SLIDESHOW_PID_FILE" ]; then
         local spid
-        spid="$(cat "$WAIT_SLIDESHOW_PID_FILE" 2>/dev/null)"
+        spid="$(/bin/cat "$WAIT_SLIDESHOW_PID_FILE" 2>/dev/null)"
         # Slideshow PID is Enrollinator's own watcher subshell.  Validate that
         # the process is owned by either root (daemon mode) or the current user
         # (interactive/test mode) before sending SIGTERM, so a local user cannot
@@ -1370,7 +1396,7 @@ ui_wait_close() {
     if [ -f "$WAIT_PID_FILE" ]; then
         /bin/sleep 0.2
         local pid
-        pid="$(cat "$WAIT_PID_FILE" 2>/dev/null)"
+        pid="$(/bin/cat "$WAIT_PID_FILE" 2>/dev/null)"
         if _ui_valid_dialog_pid "$pid"; then
             /bin/kill "$pid" 2>/dev/null || true
         fi
@@ -1385,7 +1411,7 @@ ui_wait_close() {
     # Close the blur keeper (if one was launched for a multi-slide wait window).
     if [ -f "$WAIT_BLUR_KEEPER_PID_FILE" ]; then
         local _bkpid
-        _bkpid="$(cat "$WAIT_BLUR_KEEPER_PID_FILE" 2>/dev/null)"
+        _bkpid="$(/bin/cat "$WAIT_BLUR_KEEPER_PID_FILE" 2>/dev/null)"
         # Write quit: unconditionally — it's a safe command-file write that
         # works regardless of whether we can validate the PID.  The PID in the
         # file may be the launchctl wrapper (already dead) rather than the real

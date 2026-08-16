@@ -43,11 +43,20 @@
     <key>WorkingDirectory</key>
     <string>/</string>
 
-    <!-- Minimal, deterministic PATH for installer, defaults, profiles, etc. -->
+    <!-- Minimal, deterministic PATH for installer, defaults, profiles, etc.
+
+         /usr/local/bin is deliberately ABSENT. It ships empty and root-owned,
+         but it is the one directory in root's default PATH that third-party
+         tooling routinely reparents to an unprivileged user (Homebrew on Intel
+         chowns it to the installing user). Where that has happened, anything
+         this root daemon resolved through PATH became a root code-execution
+         primitive. enrollinator.sh pins the same PATH itself, so this is
+         defence in depth rather than the only control; step commands get
+         /usr/local/bin back via ENROLLINATOR_STEP_PATH. -->
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
 </dict>
 </plist>

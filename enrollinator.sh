@@ -21,11 +21,43 @@
 
 set -o pipefail
 
+# Pin PATH to the system directories, before the first external command runs.
+#
+# The LaunchDaemon used to hand us /usr/local/bin FIRST. That directory ships
+# empty and root-owned, but it is the one location in root's default PATH that
+# third-party tooling routinely reparents to an unprivileged user — Homebrew on
+# Intel chowns it to the installing user, and the sample Engineering playbook
+# installs Homebrew. Wherever that has happened, any command this script
+# resolved through PATH became a root code-execution primitive: plant
+# /usr/local/bin/dirname, wait for the next run, and line 28 below executes it
+# as root before require_root has even been reached — and its stdout becomes
+# ENROLLINATOR_ROOT, which is where the lib/*.sh files get sourced from.
+#
+# Every external command in this script and its libs is now called by absolute
+# path, so this assignment is belt-and-braces for any call added later that
+# forgets the prefix. Nothing Enrollinator itself runs needs /usr/local/bin —
+# DIALOG_BIN is an explicit absolute path.
+#
+# Step commands are deliberately NOT restricted this way: see
+# ENROLLINATOR_STEP_PATH below.
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
+
+# The PATH handed to a step's `shell` action or condition — the admin's own
+# commands, not ours. This keeps /usr/local/bin, because configs in the wild
+# call `brew`, `jamf`, and other locally-installed tooling unqualified, and
+# dropping it would break them for no gain: a `shell` action already runs
+# arbitrary code as root by design, so what it resolves through PATH is not a
+# trust boundary. The hardened PATH above is what protects Enrollinator's own
+# command resolution, which is the part an attacker could otherwise hijack.
+ENROLLINATOR_STEP_PATH="${ENROLLINATOR_STEP_PATH:-/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin}"
+export ENROLLINATOR_STEP_PATH
+
 # ----------------------------------------------------------------------------
 # Paths and constants
 # ----------------------------------------------------------------------------
 
-ENROLLINATOR_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENROLLINATOR_ROOT="$(cd "$(/usr/bin/dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENROLLINATOR_LIB="${ENROLLINATOR_ROOT}/lib"
 ENROLLINATOR_LOG="${ENROLLINATOR_LOG:-/var/log/enrollinator.log}"
 ENROLLINATOR_DOMAIN="${ENROLLINATOR_DOMAIN:-com.enrollinator.app}"
@@ -46,6 +78,19 @@ elif [ "$(/usr/bin/id -u)" -eq 0 ]; then
 else
     ENROLLINATOR_STATE_DIR="${TMPDIR:-/tmp}/enrollinator-$(/usr/bin/id -u)"
 fi
+# Strip trailing slashes before anything reads this value.
+#
+# `test -L` RESOLVES through a trailing slash: for a symlink at /a/link,
+# `[ -L /a/link ]` is true but `[ -L /a/link/ ]` is FALSE, while stat and rm
+# both follow the link either way. And where `rm -rf /a/link` merely unlinks
+# the symlink, `rm -rf /a/link/` recursively deletes the TARGET'S CONTENTS.
+# One stray slash on the override therefore disabled ensure_state_dir's
+# symlink guard and turned its cleanup into a recursive delete of whatever
+# the link pointed at. The shipped defaults never end in a slash; an
+# override typed by hand easily can.
+while [ "${ENROLLINATOR_STATE_DIR%/}" != "$ENROLLINATOR_STATE_DIR" ]; do
+    ENROLLINATOR_STATE_DIR="${ENROLLINATOR_STATE_DIR%/}"
+done
 ENROLLINATOR_PERSIST_DIR="${ENROLLINATOR_PERSIST_DIR:-/var/lib/enrollinator}"
 ENROLLINATOR_COMPLETED_FLAG="${ENROLLINATOR_COMPLETED_FLAG:-${ENROLLINATOR_PERSIST_DIR}/completed}"
 
@@ -108,7 +153,7 @@ log() {
 
 init_logging() {
     local dir
-    dir="$(dirname "$ENROLLINATOR_LOG")"
+    dir="$(/usr/bin/dirname "$ENROLLINATOR_LOG")"
     [ -d "$dir" ] || /bin/mkdir -p "$dir" 2>/dev/null
     # If we can't write there (running as a non-root user), fall back to /tmp.
     if ! /usr/bin/touch "$ENROLLINATOR_LOG" 2>/dev/null; then
@@ -140,33 +185,83 @@ ENROLLINATOR_TMP_ID_MAP=""
 # sit loose in mode-1777 /var/tmp. Because root will `: >` and chown files in
 # here, we refuse to adopt a path we don't control — a symlink, or a directory
 # somebody else created first — and replace it instead.
+# _state_dir_is_sane <dir> <am_root>
+# Verify an EXISTING path is safe to adopt. Every test here inspects the path
+# itself, never a symlink target.
+_state_dir_is_sane() {
+    local dir="$1" am_root="$2"
+    if [ -L "$dir" ]; then
+        log error "State dir $dir is a symlink — refusing to use it"
+        return 1
+    fi
+    if [ ! -d "$dir" ]; then
+        log error "State dir $dir exists but is not a directory — refusing to use it"
+        return 1
+    fi
+    if [ "$am_root" -eq 1 ]; then
+        local owner
+        owner="$(/usr/bin/stat -f '%u' "$dir" 2>/dev/null)"
+        if [ "$owner" != "0" ]; then
+            log error "State dir $dir is owned by uid ${owner:-unknown}, not root — refusing to use it (its contents could have been pre-planted)"
+            return 1
+        fi
+    fi
+    return 0
+}
+
 ensure_state_dir() {
     local dir="$ENROLLINATOR_STATE_DIR"
     local am_root=0
     [ "$(/usr/bin/id -u)" -eq 0 ] && am_root=1
 
-    # A symlink or a non-directory at that path is never ours.
-    if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
-        log warn "State dir $dir is not a directory — replacing it"
-        /bin/rm -f "$dir" 2>/dev/null
+    # Defensive re-strip: the value is normalized at assignment, but this
+    # function is the one that can destroy things, so it does not take that
+    # on trust. See the note at the ENROLLINATOR_STATE_DIR assignment.
+    while [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
+
+    # Floor on the path itself. ENROLLINATOR_STATE_DIR is env-overridable and
+    # everything below creates or chowns it, so a value like "/" or "/var" —
+    # a typo away from a stray override — must never reach those operations.
+    if [ -z "$dir" ] || [ "${dir#/}" = "$dir" ]; then
+        log error "State dir '$dir' is not an absolute path — refusing to use it"
+        return 1
     fi
-    # A real directory owned by anyone but root can have had its contents
-    # pre-planted, so don't inherit it.
-    if [ "$am_root" -eq 1 ] && [ -d "$dir" ]; then
-        local owner
-        owner="$(/usr/bin/stat -f '%u' "$dir" 2>/dev/null)"
-        if [ -n "$owner" ] && [ "$owner" != "0" ]; then
-            log warn "State dir $dir is owned by uid $owner, not root — recreating"
-            /bin/rm -rf "$dir" 2>/dev/null
-        fi
+    case "${dir#/}" in
+        */*) : ;;
+        *)   log error "State dir '$dir' is a top-level directory — refusing to use it"
+             return 1 ;;
+    esac
+
+    # Create the leaf ourselves, exclusively.
+    #
+    # This deliberately does NOT repair a bad directory by removing it. The
+    # old code did `rm -rf "$dir"` and then `mkdir -p "$dir"`, which is two
+    # operations with a window between them: an attacker who recreated the
+    # path as a symlink in that window got root's subsequent `mkdir -p`
+    # (silently succeeds on an existing target), `chmod 0755` and
+    # `chown root:wheel` applied to the link's TARGET, since all three follow
+    # symlinks. `mkdir` without -p is atomic and fails outright if anything
+    # already exists at the path, so there is no window and nothing to race.
+    #
+    # -p is still used for the PARENT, which only ever needs to exist.
+    local parent
+    parent="$(/usr/bin/dirname "$dir")"
+    [ -d "$parent" ] || /bin/mkdir -p "$parent" 2>/dev/null
+
+    if /bin/mkdir "$dir" 2>/dev/null; then
+        # We created it, so nothing can have been pre-planted inside.
+        # mkdir applies the umask, so set the mode explicitly.
+        /bin/chmod 0755 "$dir" 2>/dev/null
+        [ "$am_root" -eq 1 ] && /usr/sbin/chown root:wheel "$dir" 2>/dev/null
+        return 0
     fi
 
-    /bin/mkdir -p "$dir" 2>/dev/null || {
-        log error "Could not create state dir $dir"
-        return 1
-    }
+    # mkdir failed — usually because the directory already exists from an
+    # earlier run, which is the normal case. Verify rather than rebuild, and
+    # fail closed if it isn't ours. A hostile or corrupted state dir is
+    # exactly when a root daemon should stop instead of trying to fix it.
+    _state_dir_is_sane "$dir" "$am_root" || return 1
     /bin/chmod 0755 "$dir" 2>/dev/null
-    [ "$am_root" -eq 1 ] && /usr/sbin/chown root:wheel "$dir" 2>/dev/null
     return 0
 }
 
@@ -195,7 +290,7 @@ CLI_FORCE=0
 CLI_IGNORED_ARGS=""
 
 usage() {
-    cat <<EOF
+    /bin/cat <<EOF
 Usage: enrollinator.sh [options]
 
 Options:
@@ -1087,7 +1182,7 @@ show_welcome_screen() {
     local defer_count=0
     local defer_file="${ENROLLINATOR_PERSIST_DIR}/welcome_deferrals"
     if [ -f "$defer_file" ]; then
-        defer_count="$(cat "$defer_file" 2>/dev/null)"
+        defer_count="$(/bin/cat "$defer_file" 2>/dev/null)"
         [[ "$defer_count" =~ ^[0-9]+$ ]] || defer_count=0
     fi
 
@@ -1289,7 +1384,7 @@ ensure_swiftdialog() {
 
     local _dismiss_osa
     _dismiss_osa() {
-        [ -n "$_osa_pid" ] && kill "$_osa_pid" 2>/dev/null
+        [ -n "$_osa_pid" ] && /bin/kill "$_osa_pid" 2>/dev/null
         wait "$_osa_pid" 2>/dev/null
         # Now the process that actually owns the window. Scoped to the console
         # user and matched on our marker, so it can't hit anything else.
@@ -1530,7 +1625,15 @@ main() {
     init_logging
     log info "Enrollinator starting (root=$ENROLLINATOR_ROOT domain=$ENROLLINATOR_DOMAIN pid=$$)"
 
-    ensure_state_dir
+    # Fatal if this fails. lib/ui.sh derived every command-file and PID-file
+    # path from ENROLLINATOR_STATE_DIR at source time, so there is nowhere
+    # else to put them — continuing would run the whole playbook with a UI
+    # that can never receive a command. Exiting leaves the completion flag
+    # unwritten, so the run is retried on the next boot.
+    if ! ensure_state_dir; then
+        log error "Cannot establish a usable state directory ($ENROLLINATOR_STATE_DIR); aborting. Inspect that path — Enrollinator will not remove or replace it."
+        exit 1
+    fi
     /bin/mkdir -p "$ENROLLINATOR_PERSIST_DIR" 2>/dev/null
 
     # Already-completed gate. --force re-runs. Dry-run and explicit test-mode
@@ -1771,7 +1874,7 @@ main() {
         else
             # Named step ID — look up in the tab-delimited id_map_file.
             local target_idx
-            target_idx="$(awk -F'\t' -v t="$branch_target" '$1==t{print $2;exit}' "$id_map_file")"
+            target_idx="$(/usr/bin/awk -F'\t' -v t="$branch_target" '$1==t{print $2;exit}' "$id_map_file")"
             if [ -z "$target_idx" ]; then
                 log warn "step=$step_id branch target '$branch_target' not found; advancing normally"
                 i=$(( i + 1 ))
@@ -1824,7 +1927,7 @@ main() {
         # oldest process — i.e. the main run window, not a later keeper or
         # popup.
         local pid
-        pid="$(cat "$DIALOG_PID_FILE" 2>/dev/null)"
+        pid="$(/bin/cat "$DIALOG_PID_FILE" 2>/dev/null)"
         if ! [[ "$pid" =~ ^[1-9][0-9]*$ ]] || ! /bin/kill -0 "$pid" 2>/dev/null; then
             local _resolved
             _resolved="$(_ui_list_dialog_pids 2>/dev/null | /usr/bin/sort -n | /usr/bin/head -1)"
