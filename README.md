@@ -45,6 +45,11 @@ configs. It gives you a full visual editor for every key in the schema:
   bounce, rotate, …) and a free-text field that accepts any symbol name.
 - **Token substitution** — `{ }` button next to Title / Subtitle inserts
   live tokens like `{console_user}`, `{serial_number}`, etc.
+- **Hardware info panel builder** — two columns: available blocks on the left,
+  the panel's running order on the right. Drag across to place, drag to
+  reorder, drag back to remove. Besides the live device fields, drop in a
+  **custom text** block (a literal line, `{token}`s expanded) or a **spacer**
+  to group what belongs together.
 - **Import / export** — drag in an existing `.mobileconfig` or bare plist to
   continue editing it. Download as a ready-to-upload `.mobileconfig` or as a
   bare `.plist` for use with `--xml`.
