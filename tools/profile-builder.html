@@ -614,6 +614,8 @@ body.narrow-layout:not(.xml-collapsed) .vis-stage {
     word-break: break-word;
 }
 .vis-infobox .k { font-weight: 700; color: var(--w-text); }
+.vis-infobox .t { color: var(--w-text); }
+.vis-infobox-gap { height: 0.9em; }
 .vis-checks { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 0.4em; }
 .vis-check {
     display: flex; gap: 0.6em; align-items: flex-start;
@@ -1015,6 +1017,67 @@ input[type="color"] { padding: 2px 3px; height: 30px; width: 44px; border: 1px s
     background: var(--pill-bg); color: var(--text-3); padding: 2px 7px;
     font-size: 11px; border-radius: 20px; font-weight: 500;
 }
+
+/* ------------------------------------------- hardware info panel builder */
+/* Two columns: a palette of blocks on the left, the panel's running order on
+   the right. Blocks are dragged left → right to build the layout, dragged
+   within the right column to reorder, and dragged back left to remove. */
+.hw-wrap { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 8px; }
+.hw-wrap .hint { font-size: 11px; color: var(--text-4); line-height: 1.45; }
+.hw-builder { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch; }
+.hw-col { display: flex; flex-direction: column; min-width: 0; }
+.hw-col-title {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--text-4); font-weight: 700; margin: 0 0 5px;
+}
+.hw-pane {
+    background: var(--surface-inset); border: 1px solid var(--hairline);
+    border-radius: 9px; padding: 6px;
+    display: flex; flex-direction: column; gap: 4px;
+    min-height: 150px; flex: 1 1 auto;
+}
+.hw-pane.drop-active { border-color: var(--drop-line); border-style: dashed; }
+.hw-group {
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--text-faint); font-weight: 700; padding: 3px 2px 0;
+}
+.hw-chip, .hw-item {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 7px; padding: 4px 7px;
+    font-size: 12px; color: var(--text);
+}
+.hw-chip { cursor: grab; user-select: none; }
+.hw-chip:hover { background: var(--btn-bg-hover); border-color: var(--border-strong); }
+.hw-chip.used { opacity: 0.4; cursor: default; }
+.hw-chip.used:hover { background: var(--surface); border-color: var(--border); }
+.hw-chip.block {
+    background: var(--tint-blue-bg); color: var(--tint-blue-fg);
+    border-color: var(--accent-line-faint);
+}
+.hw-chip.block:hover { background: var(--tint-blue-bg); border-color: var(--accent-line-strong); }
+.hw-item { cursor: grab; }
+.hw-item.dragging { opacity: 0.4; }
+.hw-item.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.hw-item.drop-after  { box-shadow: 0  3px 0 var(--accent); }
+.hw-grip { color: var(--text-faint); font-size: 11px; flex-shrink: 0; letter-spacing: -1px; }
+.hw-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hw-token {
+    color: var(--text-4); font-size: 10px; flex-shrink: 0;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.hw-item input[type="text"] { padding: 2px 6px; font-size: 11.5px; flex: 1 1 auto; min-width: 0; }
+.hw-rule { flex: 1 1 auto; border-top: 1px dashed var(--border-strong); height: 0; }
+.hw-x {
+    border: none; background: transparent; color: var(--text-4);
+    cursor: pointer; font-size: 14px; line-height: 1; padding: 0 1px; flex-shrink: 0;
+}
+.hw-x:hover { color: var(--tint-red-fg); }
+.hw-empty {
+    margin: auto 0; text-align: center; color: var(--text-4);
+    font-size: 11.5px; padding: 12px 8px; line-height: 1.5;
+}
+@media (max-width: 620px) { .hw-builder { grid-template-columns: 1fr; } }
 
 /* ---------------------------------------------------- settings trigger btn */
 .settings-trigger-row { margin-bottom: 14px; }
@@ -2509,6 +2572,7 @@ function sfSymbolIndex() {
 }
 const HARDWARE_FIELDS = [
     ["console_user",   "Current user"],
+    ["full_name",      "User's full name"],
     ["computer_name",  "Computer name"],
     ["hostname",       "Host name"],
     ["serial_number",  "Serial number"],
@@ -2518,6 +2582,21 @@ const HARDWARE_FIELDS = [
     ["ip_address",     "IP address"],
     ["uuid",           "Hardware UUID"]
 ];
+
+// Besides the live fields above, the panel can carry layout blocks. Both are
+// plain strings in HardwareInfo.Fields so the plist stays an array of strings:
+//   "spacer"      — a blank line
+//   "text:<body>" — a literal line ({token} substitution still applies)
+const HW_SPACER = "spacer";
+const HW_TEXT_PREFIX = "text:";
+const hwIsSpacer = f => f === HW_SPACER;
+const hwIsText   = f => typeof f === "string" && f.startsWith(HW_TEXT_PREFIX);
+const hwTextBody = f => String(f).slice(HW_TEXT_PREFIX.length);
+/** Human label for a Fields entry — the palette's label for known fields. */
+function hwFieldLabel(f) {
+    const hit = HARDWARE_FIELDS.find(([token]) => token === f);
+    return hit ? hit[1] : f;
+}
 const CONDITION_TYPES = [
     "shell", "app_installed", "default_browser",
     "file_exists", "profile_installed", "process_running"
@@ -3468,7 +3547,11 @@ function buildInnerPayload(s) {
 // use these features.
 function buildHardwareInfo(hw) {
     if (!hw || hw.Enabled !== true) return undefined;
-    const fields = (hw.Fields || []).filter(Boolean);
+    // An empty custom text block is a half-finished edit, not a line to emit —
+    // drop it rather than shipping a stray "text:" entry.
+    const fields = (hw.Fields || [])
+        .filter(Boolean)
+        .filter(f => !(hwIsText(f) && !hwTextBody(f).trim()));
     return {
         Enabled: true,
         Fields: fields.length ? fields : undefined
@@ -4993,26 +5076,170 @@ function renderHardwareInfoTile() {
             }, "Show a hardware info panel beside the step list"))
     );
     if (hw.Enabled) {
-        const grid = h("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:4px" });
-        for (const [token, label] of HARDWARE_FIELDS) {
-            const isOn = hw.Fields.includes(token);
-            grid.appendChild(h("label", { class: "check-row",
-                style: "gap:6px;font-size:12px;color:var(--text)" },
-                h("input", { type: "checkbox", checked: isOn,
-                    onchange: e => {
-                        if (e.target.checked) {
-                            if (!hw.Fields.includes(token)) hw.Fields.push(token);
-                        } else {
-                            hw.Fields = hw.Fields.filter(x => x !== token);
-                        }
-                        updatePreview();
-                    } }),
-                h("span", null, label)));
-        }
-        tile.append(row("Fields", grid,
-            hint("Shown in the order checked here. Uncheck all to hide the panel.")));
+        hw.Fields = (hw.Fields || []).filter(f => typeof f === "string");
+        const builder = h("div", { class: "hw-builder" });
+        renderHwBuilder(builder, hw);
+        // Full width rather than in a row() — the two columns need the room.
+        tile.append(h("div", { class: "hw-wrap" },
+            builder,
+            hint("Drag a block from the left into the panel on the right, and drag inside that panel to reorder. Drag a block back to the left (or click ✕) to remove it. Custom text and spacers can be used as many times as you like; custom text expands {tokens}.")));
     }
     return tile;
+}
+
+// Fills the two-column panel builder. Re-renders itself in place rather than
+// through reopenSettings() so a half-typed custom text block keeps its caret.
+// `focusIdx` puts the cursor in the text block at that position — used right
+// after one is dropped in, so the user can just start typing.
+function renderHwBuilder(root, hw, focusIdx) {
+    const MIME = "application/enrollinator-hwblock";
+    const rerender = (idx) => { renderHwBuilder(root, hw, idx); updatePreview(); };
+    const dragged = e => e.dataTransfer.types.includes(MIME);
+    const clearMarks = () => root.querySelectorAll(".hw-item.drop-before, .hw-item.drop-after")
+        .forEach(n => n.classList.remove("drop-before", "drop-after"));
+
+    root.innerHTML = "";
+
+    // ── Left: the palette ────────────────────────────────────────────────────
+    const palette = h("div", { class: "hw-pane" });
+    const addChip = (token, label, kind) => {
+        const used = kind === "field" && hw.Fields.includes(token);
+        const chip = h("div", {
+            class: "hw-chip" + (kind === "block" ? " block" : "") + (used ? " used" : ""),
+            draggable: used ? null : "true",
+            title: used ? "Already in the panel" : "Drag into the panel — or click to append",
+            onclick: () => { if (!used) { hw.Fields.push(token); rerender(hw.Fields.length - 1); } }
+        },
+            h("span", { class: "hw-grip" }, used ? "✓" : "⠿"),
+            h("span", { class: "hw-name" }, label),
+            kind === "field" ? h("span", { class: "hw-token" }, "{" + token + "}") : null);
+        chip.addEventListener("dragstart", e => {
+            e.dataTransfer.setData(MIME, JSON.stringify({ src: "palette", token }));
+            e.dataTransfer.effectAllowed = "copy";
+        });
+        palette.appendChild(chip);
+    };
+    palette.appendChild(h("div", { class: "hw-group" }, "Device fields"));
+    for (const [token, label] of HARDWARE_FIELDS) addChip(token, label, "field");
+    palette.appendChild(h("div", { class: "hw-group" }, "Layout blocks"));
+    addChip(HW_TEXT_PREFIX, "Custom text", "block");
+    addChip(HW_SPACER,      "Spacer",      "block");
+
+    // Dropping a placed block back onto the palette removes it.
+    palette.addEventListener("dragover", e => {
+        if (!dragged(e)) return;
+        e.preventDefault();
+        palette.classList.add("drop-active");
+    });
+    palette.addEventListener("dragleave", () => palette.classList.remove("drop-active"));
+    palette.addEventListener("drop", e => {
+        palette.classList.remove("drop-active");
+        const raw = e.dataTransfer.getData(MIME);
+        if (!raw) return;
+        e.preventDefault();
+        const d = JSON.parse(raw);
+        if (d.src !== "list") return;
+        hw.Fields.splice(d.idx, 1);
+        rerender();
+    });
+
+    // ── Right: the panel's running order ─────────────────────────────────────
+    const listPane = h("div", { class: "hw-pane" });
+
+    // Insert what was dropped at `at`, an index into the pre-drop array.
+    const dropAt = (e, at) => {
+        const raw = e.dataTransfer.getData(MIME);
+        if (!raw) return;
+        e.preventDefault();
+        const d = JSON.parse(raw);
+        if (d.src === "list") {
+            if (d.idx === at || d.idx + 1 === at) return;   // no-op move
+            const [moved] = hw.Fields.splice(d.idx, 1);
+            hw.Fields.splice(d.idx < at ? at - 1 : at, 0, moved);
+            rerender();
+        } else {
+            if (d.token !== HW_SPACER && d.token !== HW_TEXT_PREFIX
+                && hw.Fields.includes(d.token)) return;      // fields stay unique
+            hw.Fields.splice(at, 0, d.token);
+            rerender(at);
+        }
+    };
+
+    if (!hw.Fields.length) {
+        listPane.appendChild(h("div", { class: "hw-empty" },
+            "Drag blocks here to build the panel. Nothing here means no panel is shown."));
+    }
+    hw.Fields.forEach((f, i) => {
+        const isText = hwIsText(f), isSpacer = hwIsSpacer(f);
+        const item = h("div", { class: "hw-item", draggable: "true" },
+            h("span", { class: "hw-grip" }, "⠿"));
+        if (isSpacer) {
+            item.append(h("span", { class: "hw-name", style: "flex:0 0 auto;color:var(--text-4)" }, "Spacer"),
+                        h("span", { class: "hw-rule" }));
+        } else if (isText) {
+            const input = textInput(hwTextBody(f),
+                v => hw.Fields[i] = HW_TEXT_PREFIX + v,
+                "Text shown as its own line…");
+            // A drag started inside the input would fight text selection.
+            input.addEventListener("pointerdown", () => item.draggable = false);
+            input.addEventListener("pointerup",   () => item.draggable = true);
+            input.addEventListener("blur",        () => item.draggable = true);
+            item.appendChild(input);
+            if (focusIdx === i) setTimeout(() => input.focus(), 0);
+        } else {
+            item.appendChild(h("span", { class: "hw-name", title: "{" + f + "}" }, hwFieldLabel(f)));
+        }
+        // Buttons as well as dragging, so the order is reachable without a mouse.
+        item.append(
+            h("button", { class: "hw-x", title: "Move up",
+                onclick: () => { move(hw.Fields, i, -1); renderHwBuilder(root, hw); } }, "↑"),
+            h("button", { class: "hw-x", title: "Move down",
+                onclick: () => { move(hw.Fields, i,  1); renderHwBuilder(root, hw); } }, "↓"),
+            h("button", { class: "hw-x", title: "Remove",
+                onclick: () => { hw.Fields.splice(i, 1); rerender(); } }, "✕"));
+
+        item.addEventListener("dragstart", e => {
+            e.dataTransfer.setData(MIME, JSON.stringify({ src: "list", idx: i }));
+            e.dataTransfer.effectAllowed = "move";
+            item.classList.add("dragging");
+        });
+        item.addEventListener("dragend", () => { item.classList.remove("dragging"); clearMarks(); });
+        item.addEventListener("dragover", e => {
+            if (!dragged(e)) return;
+            e.preventDefault();
+            const r = item.getBoundingClientRect();
+            const after = e.clientY - r.top > r.height / 2;
+            clearMarks();
+            item.classList.add(after ? "drop-after" : "drop-before");
+        });
+        item.addEventListener("drop", e => {
+            const after = item.classList.contains("drop-after");
+            clearMarks();
+            e.stopPropagation();
+            dropAt(e, after ? i + 1 : i);
+        });
+        listPane.appendChild(item);
+    });
+
+    // Bare pane below the last row — append.
+    listPane.addEventListener("dragover", e => {
+        if (!dragged(e)) return;
+        e.preventDefault();
+        listPane.classList.add("drop-active");
+    });
+    listPane.addEventListener("dragleave", () => listPane.classList.remove("drop-active"));
+    listPane.addEventListener("drop", e => {
+        listPane.classList.remove("drop-active");
+        clearMarks();
+        dropAt(e, hw.Fields.length);
+    });
+
+    root.append(
+        h("div", { class: "hw-col" }, h("div", { class: "hw-col-title" }, "Available blocks"), palette),
+        h("div", { class: "hw-col" },
+            h("div", { class: "hw-col-title" }, `Info panel — top to bottom (${hw.Fields.length})`),
+            listPane)
+    );
 }
 
 function renderHelpTile() {
@@ -7740,10 +7967,21 @@ function visMainWindow(playbook, pos) {
     if (hw.Enabled && (hw.Fields || []).length) {
         const box = h("div", { class: "vis-infobox" });
         hw.Fields.forEach(f => {
-            box.appendChild(h("div", null,
-                h("span", { class: "k" }, (VIS_HW_LABELS[f] || f) + ": "),
-                VIS_TOKENS[f] || "—"
-            ));
+            if (hwIsSpacer(f)) {
+                box.appendChild(h("div", { class: "vis-infobox-gap" }));
+            } else if (hwIsText(f)) {
+                // Empty text blocks are dropped on export, so don't draw them
+                // here either. The infobox is markdown at run time, so a
+                // **bold** heading in a text block should look bold here too.
+                if (!hwTextBody(f).trim()) return;
+                box.appendChild(h("div", { class: "t",
+                    html: visInlineMd(visExpand(hwTextBody(f))) }));
+            } else {
+                box.appendChild(h("div", null,
+                    h("span", { class: "k" }, (VIS_HW_LABELS[f] || f) + ": "),
+                    VIS_TOKENS[f] || "—"
+                ));
+            }
         });
         side.appendChild(box);
     }
@@ -8550,7 +8788,13 @@ function loadSample() {
     // ── Hardware info panel ───────────────────────────────────────────────────
     s.HardwareInfo = {
         Enabled: true,
-        Fields: ["console_user", "computer_name", "serial_number", "model_name", "os_version", "ip_address"]
+        Fields: [
+            "console_user", "computer_name",
+            "spacer",
+            "serial_number", "model_name", "os_version", "ip_address",
+            "spacer",
+            "text:Quote the serial when you call IT."
+        ]
     };
 
     // ── Help button ───────────────────────────────────────────────────────────
@@ -9721,7 +9965,8 @@ const HELP_SECTIONS = [
               <tr><td>Font sizes</td><td>Title and body sizes.</td></tr>
             </table>` },
         { h: "Hardware info panel", body: `
-            <p>Turn it on and pick fields to show a live info panel beside the step list: current user, computer name, hostname, serial number, model identifier, macOS version, IP address, hardware UUID.</p>` },
+            <p>A live info panel beside the step list. Turn it on and you get two columns: available blocks on the left, the panel's running order on the right. Drag a block across to place it, drag inside the right column to reorder, and drag it back (or click <b>✕</b>) to remove it — clicking a block appends it, and <b>↑ ↓</b> reorder without dragging.</p>
+            <p>Blocks are the device fields (current user, full name, computer name, hostname, serial number, model identifier, model name, macOS version, IP address, hardware UUID), plus <b>Custom text</b> for a literal line — it expands <code>{token}</code> placeholders — and <b>Spacer</b> for a blank line. Fields can be used once each; text and spacers as often as you like.</p>` },
         { h: "Help contacts", body: `
             <p>Fills the <code>?</code> button <i>inside the Enrollinator run window</i> — not this builder's help. Give it a title, a message, and a list of contacts (label, detail, optional URL) so a stuck user can reach your help desk without leaving the window.</p>` },
         { h: "Runtime flags", body: `

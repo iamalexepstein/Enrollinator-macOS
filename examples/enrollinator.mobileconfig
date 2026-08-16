@@ -78,6 +78,9 @@
             <!-- Hardware info panel                                         -->
             <!-- Shown to the right of the step list. Handy when IT needs    -->
             <!-- the user to read their serial over the phone.               -->
+            <!-- Entries render top to bottom. Besides the field names, an   -->
+            <!-- entry can be "spacer" (a blank line) or "text:..." (a       -->
+            <!-- literal line, with {token} substitution).                   -->
             <!-- =========================================================== -->
             <key>HardwareInfo</key>
             <dict>
@@ -87,9 +90,12 @@
                 <array>
                     <string>console_user</string>
                     <string>computer_name</string>
+                    <string>spacer</string>
                     <string>serial_number</string>
                     <string>model_name</string>
                     <string>os_version</string>
+                    <string>spacer</string>
+                    <string>text:Quote the serial when you call IT.</string>
                 </array>
             </dict>
 

@@ -91,7 +91,29 @@ serial over the phone during onboarding.
 | Key       | Type            | Description |
 |-----------|-----------------|-------------|
 | `Enabled` | bool            | Set `true` to show the panel. |
-| `Fields`  | array of string | Which fields to include, in order. Supported tokens: `console_user`, `full_name`, `hostname`, `computer_name`, `serial_number`, `model`, `model_name`, `os_version`, `ip_address`, `uuid`. |
+| `Fields`  | array of string | What the panel contains, top to bottom. See below. |
+
+Each `Fields` entry is one line of the panel, and is one of:
+
+| Entry            | Renders as |
+|------------------|------------|
+| a field name     | `**Label:** value` — one of `console_user`, `full_name`, `hostname`, `computer_name`, `serial_number`, `model`, `model_name`, `os_version`, `ip_address`, `uuid`. |
+| `text:<body>`    | `<body>` verbatim on its own line, with `{token}` placeholders expanded (same tokens as branding strings). |
+| `spacer`         | A blank line. |
+
+Order is exactly the order of the array, and `text:`/`spacer` entries may
+repeat. Example:
+
+```xml
+<key>Fields</key>
+<array>
+    <string>text:**This Mac**</string>
+    <string>computer_name</string>
+    <string>serial_number</string>
+    <string>spacer</string>
+    <string>text:Questions? Call IT on x4100.</string>
+</array>
+```
 
 ### `Help`
 

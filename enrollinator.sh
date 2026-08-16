@@ -1039,11 +1039,23 @@ build_hw_infobox() {
     for (( i=0; i<count; i++ )); do
         field="$(plist_get "$cfg" ":HardwareInfo:Fields:$i")"
         [ -z "$field" ] && continue
-        value="$(hw_info_value "$field")"
-        [ -z "$value" ] && value="—"
-        label="$(hw_info_label "$field")"
         # swiftDialog infobox honors markdown; double-space == line break.
-        out="${out}**${label}:** ${value}  "$'\n'
+        case "$field" in
+            spacer)
+                # A line of literal spaces collapses in markdown, so park a
+                # non-breaking space there to keep the blank line.
+                out="${out}&nbsp;  "$'\n'
+                ;;
+            text:*)
+                out="${out}$(expand_title_vars "${field#text:}")  "$'\n'
+                ;;
+            *)
+                value="$(hw_info_value "$field")"
+                [ -z "$value" ] && value="—"
+                label="$(hw_info_label "$field")"
+                out="${out}**${label}:** ${value}  "$'\n'
+                ;;
+        esac
     done
     printf '%s' "$out"
 }

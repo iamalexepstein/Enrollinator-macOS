@@ -10,7 +10,7 @@ and everything runs locally in the page.
 
 - [Getting started](#getting-started)
 - [Deployment target](#deployment-target) — [What it changes](#what-it-changes) · [Advanced mode](#advanced-mode) · [Nothing is removed](#nothing-is-removed)
-- [Global settings ⚙](#global-settings-) — [Token substitution](#token-substitution)
+- [Global settings ⚙](#global-settings-) — [Token substitution](#token-substitution) · [Hardware info panel](#hardware-info-panel)
 - [Playbooks](#playbooks) — [Selectors (removed)](#selectors-removed) · [Addon playbooks](#addon-playbooks)
 - [Steps](#steps) — [The step catalogue](#the-step-catalogue) · [The SF Symbol picker](#the-sf-symbol-picker) · [Guided mode](#guided-mode)
   — [Info tab](#info-tab) · [Action tab](#action-tab) · [Conditions tab](#conditions-tab) · [Behavior tab](#behavior-tab)
@@ -200,6 +200,27 @@ playbook:
 
 Click the **{…}** button next to any title/subtitle field to pick a token from
 a dropdown instead of typing it.
+
+### Hardware info panel
+
+The **Hardware Info** tab builds the key–value panel drawn beside the step
+list. Turn it on and you get two columns: the palette of available blocks on
+the left, and the panel's running order on the right.
+
+- **Drag** a block from the left into the right column to place it, drag
+  within the right column to reorder, and drag a block back to the left — or
+  click **✕** — to remove it. The **↑ ↓** buttons do the same without a mouse.
+- **Click** a block in the palette to append it to the end.
+- **Device fields** (current user, computer name, serial number, model, macOS
+  version, IP address, hardware UUID, …) each render one `Label: value` line
+  and can be used once. A field already placed is greyed out in the palette.
+- **Custom text** inserts a literal line — a phone number, a note, a heading.
+  It expands the same `{token}` placeholders as the title, so
+  `Serial {serial_number}` works. Empty text blocks are dropped on export.
+- **Spacer** inserts a blank line, for grouping related fields.
+
+Custom text and spacers can be used as many times as you like. The visual
+preview redraws the panel as you build it.
 
 ---
 
