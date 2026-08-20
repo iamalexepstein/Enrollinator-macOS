@@ -640,18 +640,27 @@ extract_mobileconfig_payload() {
     # The shipped default is still accepted as a fallback, so a config built
     # before --domain was in play keeps working.
     local want="${ENROLLINATOR_DOMAIN:-com.enrollinator.app}"
-    local i=0 type seen="" match=-1 fallback=-1
+    #
+    # Scan every index rather than stopping at the first hit. A profile can
+    # carry more than one payload for the same domain — an editor that
+    # appends instead of replacing produces exactly that — and silently
+    # taking the first means the payload just edited is invisible while the
+    # run reports the file as loaded. Rare, but indistinguishable from "the
+    # config flag is being ignored" when it happens.
+    local i=0 type seen="" match=-1 fallback=-1 dupes=0
     while type="$(/usr/bin/plutil -extract "PayloadContent.$i.PayloadType" raw -o - "$src" 2>/dev/null)"; do
         seen="${seen:+$seen, }$type"
         if [ "$type" = "$want" ]; then
-            match=$i
-            break
-        fi
-        if [ "$type" = "com.enrollinator.app" ] && [ "$fallback" -lt 0 ]; then
+            if [ "$match" -lt 0 ]; then match=$i; else dupes=$((dupes+1)); fi
+        elif [ "$type" = "com.enrollinator.app" ] && [ "$fallback" -lt 0 ]; then
             fallback=$i
         fi
         i=$((i+1))
     done
+    if [ "$dupes" -gt 0 ]; then
+        # Name the file the caller passed, not our temp copy of it.
+        log warn "${CLI_XML:-${CLI_CONFIG:-$src}} contains $((dupes+1)) '$want' payloads. Using the FIRST (PayloadContent.$match) and ignoring $dupes more — if the change you are testing is in a later one, it will not appear. Remove the duplicate payloads and re-export."
+    fi
     if [ "$match" -lt 0 ] && [ "$fallback" -ge 0 ]; then
         match=$fallback
         log info "No '$want' payload in $src; using its 'com.enrollinator.app' payload instead."
@@ -1940,6 +1949,31 @@ main() {
     # is upgraded to also tear down the UI once ui_start has run.
     trap 'cleanup_temp_files' EXIT
     log info "Config loaded: $cfg"
+
+    # Fingerprint what was actually loaded, not just where it came from.
+    #
+    # "It says it is using my --config file but it is clearly not loading it"
+    # is unanswerable from a source path alone: the path proves which branch
+    # ran, not which bytes survived copying, CMS-stripping, stringify repair
+    # and payload extraction. Printing the source digest next to the resolved
+    # digest and the playbook names it yielded makes a content mismatch
+    # self-evident on the first run — including the case where a
+    # .mobileconfig carries more than one com.enrollinator.app payload and
+    # extraction picks the first, which is not necessarily the one just
+    # edited.
+    _src_file="${CLI_XML:-${CLI_CONFIG:-}}"
+    if [ -n "$_src_file" ] && [ -f "$_src_file" ]; then
+        log info "Source file: $_src_file ($(/usr/bin/stat -f '%z bytes, modified %Sm' "$_src_file" 2>/dev/null), sha256 $(/usr/bin/shasum -a 256 "$_src_file" 2>/dev/null | /usr/bin/cut -c1-16))"
+    fi
+    _pb_count="$(plist_array_count "$cfg" ":Playbooks")"
+    _pb_names=""
+    _pb_i=0
+    while [ "$_pb_i" -lt "${_pb_count:-0}" ]; do
+        _pb_names="${_pb_names:+$_pb_names, }$(plist_get "$cfg" ":Playbooks:$_pb_i:Name")"
+        _pb_i=$((_pb_i + 1))
+    done
+    log info "Config contents: sha256 $(/usr/bin/shasum -a 256 "$cfg" 2>/dev/null | /usr/bin/cut -c1-16), ${_pb_count:-0} playbook(s) [${_pb_names:-none}], DefaultPlaybook='$(plist_get "$cfg" ":DefaultPlaybook")'"
+    unset _src_file _pb_count _pb_names _pb_i
 
     # Pick profile.
     local pidx pname pkey
