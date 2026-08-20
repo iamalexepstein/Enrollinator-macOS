@@ -18,6 +18,7 @@
 #   1  fatal runtime error
 #   2  config error (no profile matched, malformed mobileconfig, …)
 #   3  dependency missing (swiftDialog)
+#   5  no console user to display to (non-daemon invocation only)
 
 set -o pipefail
 
@@ -265,6 +266,65 @@ ensure_state_dir() {
     return 0
 }
 
+# ----------------------------------------------------------------------------
+# Single-instance lock
+# ----------------------------------------------------------------------------
+#
+# Every path Enrollinator writes at runtime is FIXED per machine: the state
+# directory (/var/tmp/enrollinator under root), swiftDialog's command and pid
+# files inside it, and the completion flag. Nothing was stopping two instances
+# from using them at once, and on a real deployment two instances is the normal
+# case, not an exotic one:
+#
+#   * The LaunchDaemon runs `/usr/local/enrollinator/enrollinator.sh` with NO
+#     arguments, so it always resolves config from the managed profile.
+#   * An admin testing a change runs the same script by hand with --xml or
+#     --config.
+#
+# Both then write the same dialog.pid and the same dialog command file, so the
+# window on screen belongs to whichever instance launched it — usually the
+# daemon, whose config came from the profile. The flags were parsed and obeyed
+# by the manual run, but the run the user could SEE was the daemon's. That is
+# indistinguishable from "--xml was ignored and it used the profile instead",
+# and it happens only when a profile is installed: without one the daemon's
+# argument-less run exits 2 at config resolution and leaves the field clear.
+#
+# mkdir is the lock primitive because it is atomic on every filesystem macOS
+# ships, needs no external binary, and leaves the holder's pid inspectable.
+ENROLLINATOR_LOCK_DIR="${ENROLLINATOR_STATE_DIR}/run.lock"
+ENROLLINATOR_LOCK_HELD=0
+
+acquire_run_lock() {
+    local holder=""
+    if /bin/mkdir "$ENROLLINATOR_LOCK_DIR" 2>/dev/null; then
+        echo "$$" > "${ENROLLINATOR_LOCK_DIR}/pid"
+        ENROLLINATOR_LOCK_HELD=1
+        return 0
+    fi
+    holder="$(/bin/cat "${ENROLLINATOR_LOCK_DIR}/pid" 2>/dev/null)"
+    # A lock left behind by a killed run must not wedge the machine forever —
+    # this daemon is the only thing standing between a new Mac and its
+    # onboarding, so failing closed on a stale lock would be worse than the
+    # race it prevents.
+    if [ -z "$holder" ] || ! /bin/kill -0 "$holder" 2>/dev/null; then
+        log warn "Removing stale run lock at $ENROLLINATOR_LOCK_DIR (holder pid ${holder:-unknown} is gone)."
+        /bin/rm -rf "$ENROLLINATOR_LOCK_DIR" 2>/dev/null
+        if /bin/mkdir "$ENROLLINATOR_LOCK_DIR" 2>/dev/null; then
+            echo "$$" > "${ENROLLINATOR_LOCK_DIR}/pid"
+            ENROLLINATOR_LOCK_HELD=1
+            return 0
+        fi
+    fi
+    return 1
+}
+
+release_run_lock() {
+    [ "$ENROLLINATOR_LOCK_HELD" -eq 1 ] || return 0
+    /bin/rm -rf "$ENROLLINATOR_LOCK_DIR" 2>/dev/null
+    ENROLLINATOR_LOCK_HELD=0
+    return 0
+}
+
 cleanup_temp_files() {
     local f
     for f in "$ENROLLINATOR_TMP_CFG" "$ENROLLINATOR_TMP_STEPS" \
@@ -273,6 +333,7 @@ cleanup_temp_files() {
     done
     # ui.sh's replay cache is a mktemp -d that nothing else removes.
     [ -n "${UI_STATE_DIR:-}" ] && /bin/rm -rf "$UI_STATE_DIR" 2>/dev/null
+    release_run_lock
     return 0
 }
 
@@ -315,6 +376,7 @@ Exit codes:
   2  config error
   3  dependency missing (swiftDialog)
   4  must be root
+  5  no console user to display to (non-daemon invocation only)
 EOF
 }
 
@@ -358,19 +420,66 @@ require_root() {
     fi
 }
 
-# When Enrollinator starts from its LaunchDaemon at boot, there's usually no
-# console user yet. Wait (bounded) for the loginwindow to hand over.
+# When Enrollinator starts from its LaunchDaemon there is usually no console
+# user yet. Wait for the loginwindow to hand /dev/console over.
+#
+# Pass 0 (the default) to wait indefinitely. That is the correct behaviour for
+# the daemon, and the whole reason the daemon exists: under PreStage the pkg
+# installs during Setup Assistant, so postinstall bootstraps this job while
+# `_mbsetupuser` still owns the console. There is no reboot between that
+# install and the user's first login, so this process IS the mechanism that
+# carries the run across Setup Assistant. It must not give up partway.
+#
+# It used to time out after five minutes and let the caller proceed anyway,
+# which drew nothing (there is no GUI session to place a window in) while
+# still installing packages and running shell steps. Setup Assistant routinely
+# outlasts five minutes, so that fired on ordinary hardware.
+#
+# Waiting forever is cheap and cannot accumulate: launchd runs one process per
+# job label, a daemon still waiting at reboot is terminated, and RunAtLoad
+# starts exactly one fresh instance on the way back up.
 wait_for_console_user() {
-    local timeout="${1:-300}" elapsed=0 user
-    while [ "$elapsed" -lt "$timeout" ]; do
+    local timeout="${1:-0}" elapsed=0 user
+    while [ "$timeout" -le 0 ] || [ "$elapsed" -lt "$timeout" ]; do
         user="$(/usr/bin/stat -f '%Su' /dev/console 2>/dev/null)"
         case "$user" in
             ""|root|_*|loginwindow) : ;;   # keep waiting
             *) ENROLLINATOR_CONSOLE_USER="$user"; return 0 ;;
         esac
+        # Heartbeat once a minute. Without it the log jumps straight from
+        # "Enrollinator starting" to the run, and a wait that is working
+        # correctly is indistinguishable from a hung daemon.
+        if [ $((elapsed % 60)) -eq 0 ] && [ "$elapsed" -gt 0 ]; then
+            log info "Waiting for a console user (${elapsed}s; console currently '${user:-none}')"
+        fi
         /bin/sleep 2
         elapsed=$((elapsed + 2))
     done
+    return 1
+}
+
+# A console user exists the moment loginwindow hands over, which is a beat
+# before the session is usable — the Dock and Finder are still coming up.
+# swiftDialog launched into that gap stalls on a cold LaunchServices cache
+# (the same "Getting ready…" freeze lib/ui.sh describes for the root-context
+# case), so let the session settle first.
+#
+# Bounded, and non-fatal on expiry: unlike a missing console user, a missing
+# Dock does not stop `launchctl asuser` from placing a window. A session that
+# never grows a Dock should still get its onboarding.
+wait_for_session_ready() {
+    local timeout="${1:-60}" elapsed=0 uid
+    uid="$(/usr/bin/id -u "${ENROLLINATOR_CONSOLE_USER:-}" 2>/dev/null)"
+    [ -n "$uid" ] || return 0
+    while [ "$elapsed" -lt "$timeout" ]; do
+        if /usr/bin/pgrep -u "$uid" -x Dock >/dev/null 2>&1; then
+            [ "$elapsed" -gt 0 ] && log info "Desktop session ready after ${elapsed}s"
+            return 0
+        fi
+        /bin/sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    log warn "Dock never appeared for '$ENROLLINATOR_CONSOLE_USER' after ${timeout}s; continuing anyway."
     return 1
 }
 
@@ -400,9 +509,18 @@ load_config() {
     local managed_path="${ENROLLINATOR_MANAGED_PREFS_DIR:-/Library/Managed Preferences}/${ENROLLINATOR_DOMAIN}.plist"
     if [ -n "$CLI_XML" ]; then
         ENROLLINATOR_CONFIG_SOURCE="--xml $CLI_XML"
+        log info "Using --xml config: $CLI_XML"
+        # Say out loud that the flag beat an installed profile. The precedence
+        # is deliberate, so this is info rather than a warning — but without
+        # it, a run driven by a flag and a run driven by a profile produce
+        # identical logs ("Config loaded: /var/folders/…/enrollinator-cfg.X"),
+        # and there is no way to tell from the log which config actually won.
+        [ -f "$managed_path" ] && log info "A managed profile for '$ENROLLINATOR_DOMAIN' is also installed at $managed_path; --xml takes precedence over it."
         raw="$(load_bare_xml "$CLI_XML")" || exit $?
     elif [ -n "$CLI_CONFIG" ]; then
         ENROLLINATOR_CONFIG_SOURCE="--config $CLI_CONFIG"
+        log info "Using --config config: $CLI_CONFIG"
+        [ -f "$managed_path" ] && log info "A managed profile for '$ENROLLINATOR_DOMAIN' is also installed at $managed_path; --config takes precedence over it."
         raw="$(load_bare_xml "$CLI_CONFIG")" || exit $?
     elif [ -f "$ENROLLINATOR_BUNDLED_XML" ]; then
         ENROLLINATOR_CONFIG_SOURCE="bundled $ENROLLINATOR_BUNDLED_XML"
@@ -508,20 +626,47 @@ extract_mobileconfig_payload() {
         return 0
     fi
 
-    # Iterate PayloadContent indices looking for com.enrollinator.app.
-    local i=0 type
+    # Iterate PayloadContent indices looking for Enrollinator's payload.
+    #
+    # Which PayloadType counts follows $ENROLLINATOR_DOMAIN (--domain), the
+    # same value plist_export_managed uses to find the installed profile.
+    # This used to match only the shipped default, so under --domain the two
+    # halves disagreed: the managed-prefs branch read the custom domain
+    # happily while --config/--xml could not extract a payload carrying it,
+    # and the run died at exit 2. The effect on the machine was that passing
+    # a config flag accomplished nothing and the installed profile stayed the
+    # only config that loaded.
+    #
+    # The shipped default is still accepted as a fallback, so a config built
+    # before --domain was in play keeps working.
+    local want="${ENROLLINATOR_DOMAIN:-com.enrollinator.app}"
+    local i=0 type seen="" match=-1 fallback=-1
     while type="$(/usr/bin/plutil -extract "PayloadContent.$i.PayloadType" raw -o - "$src" 2>/dev/null)"; do
-        if [ "$type" = "com.enrollinator.app" ]; then
-            # Pull the whole sub-dict into its own xml plist. The PayloadUUID
-            # etc. keys ride along — harmless, Enrollinator never reads them.
-            /usr/bin/plutil -extract "PayloadContent.$i" xml1 -o "$out" "$src" 2>/dev/null
-            echo "$out"
-            return 0
+        seen="${seen:+$seen, }$type"
+        if [ "$type" = "$want" ]; then
+            match=$i
+            break
+        fi
+        if [ "$type" = "com.enrollinator.app" ] && [ "$fallback" -lt 0 ]; then
+            fallback=$i
         fi
         i=$((i+1))
     done
+    if [ "$match" -lt 0 ] && [ "$fallback" -ge 0 ]; then
+        match=$fallback
+        log info "No '$want' payload in $src; using its 'com.enrollinator.app' payload instead."
+    fi
+    if [ "$match" -ge 0 ]; then
+        # Pull the whole sub-dict into its own xml plist. The PayloadUUID
+        # etc. keys ride along — harmless, Enrollinator never reads them.
+        /usr/bin/plutil -extract "PayloadContent.$match" xml1 -o "$out" "$src" 2>/dev/null
+        echo "$out"
+        return 0
+    fi
 
-    log error "No com.enrollinator.app payload found in $src"
+    # Name what the file actually contains. "No payload found" alone sends
+    # you looking at the flag or the path, when the answer is in the file.
+    log error "No '$want' payload found in $src. PayloadTypes present: ${seen:-none}. If this profile was built for a different preference domain, pass --domain <that domain>."
     exit 2
 }
 
@@ -1650,6 +1795,34 @@ main() {
     init_logging
     log info "Enrollinator starting (root=$ENROLLINATOR_ROOT domain=$ENROLLINATOR_DOMAIN pid=$$)"
 
+    # Warn when another instance is already live.
+    #
+    # There is no lock, and every root instance derives the same swiftDialog
+    # command and PID files from ENROLLINATOR_STATE_DIR (lib/ui.sh). So a
+    # hand-run `enrollinator.sh --xml test.plist` started while the daemon's
+    # own flagless run is up does not get its own window — the two fight over
+    # one, and the window already on screen belongs to the daemon, driven by
+    # whatever config IT resolved (the installed profile). The flags were
+    # honoured; the run they configured is not the run being displayed.
+    #
+    # Warn rather than lock: a lock would change daemon behaviour, and a false
+    # positive must never stop a real enrollment from running.
+    # Filter by process GROUP, not just pid. Every command substitution in
+    # this script forks a subshell that inherits our command line, so matching
+    # on the name alone makes a lone run report itself. Our own subshells and
+    # children share our pgid; a separate invocation does not.
+    _pgid="$(/bin/ps -o pgid= -p $$ 2>/dev/null | /usr/bin/tr -d ' ')"
+    _other=""
+    for _p in $(/usr/bin/pgrep -f '[e]nrollinator\.sh' 2>/dev/null); do
+        [ "$_p" = "$$" ] && continue
+        [ "$(/bin/ps -o pgid= -p "$_p" 2>/dev/null | /usr/bin/tr -d ' ')" = "$_pgid" ] && continue
+        _other="${_other:+$_other }$_p"
+    done
+    if [ -n "$_other" ]; then
+        log warn "Another Enrollinator process is already running (pid(s): $_other). Instances share $ENROLLINATOR_STATE_DIR and one swiftDialog window, so the window on screen may belong to that run and reflect ITS config, not this one's. If that is the LaunchDaemon, stop it first: launchctl bootout system/com.enrollinator.app"
+    fi
+    unset _other _pgid _p
+
     # Fatal if this fails. lib/ui.sh derived every command-file and PID-file
     # path from ENROLLINATOR_STATE_DIR at source time, so there is nowhere
     # else to put them — continuing would run the whole playbook with a UI
@@ -1661,27 +1834,76 @@ main() {
     fi
     /bin/mkdir -p "$ENROLLINATOR_PERSIST_DIR" 2>/dev/null
 
+    # Take the single-instance lock before anything that writes shared state.
+    # --dry-run is exempt: it draws nothing, writes no state, and inspecting a
+    # config while the daemon is mid-run is exactly when you want to.
+    if [ "$CLI_DRY_RUN" -eq 0 ]; then
+        if ! acquire_run_lock; then
+            local _holder
+            _holder="$(/bin/cat "${ENROLLINATOR_LOCK_DIR}/pid" 2>/dev/null)"
+            if [ -n "$CLI_XML" ] || [ -n "$CLI_CONFIG" ] || [ -n "$CLI_PROFILE" ]; then
+                # Name the trap precisely. Starting anyway would parse the
+                # flags correctly and then fight the running instance for one
+                # dialog command file, which reads as "my flags were ignored
+                # and it used the profile".
+                log error "Another Enrollinator run (pid ${_holder:-unknown}) is already in progress and owns the setup window. It was started without config flags — under the LaunchDaemon that means it is running the MANAGED PROFILE's config, not the ${CLI_XML:+--xml }${CLI_CONFIG:+--config }${CLI_PROFILE:+--profile }you just passed. Refusing to start a second instance. To test your config instead: sudo /bin/launchctl bootout system/com.enrollinator.app, then re-run this command with --force."
+            else
+                log error "Another Enrollinator run (pid ${_holder:-unknown}) is already in progress; refusing to start a second instance."
+            fi
+            exit 1
+        fi
+        trap 'release_run_lock' EXIT
+    fi
+
     # Already-completed gate. --force re-runs. Dry-run and explicit test-mode
     # bypass the gate too — those are developer workflows.
     if [ -f "$ENROLLINATOR_COMPLETED_FLAG" ] \
         && [ "$CLI_FORCE" -eq 0 ] \
         && [ "$CLI_DRY_RUN" -eq 0 ] \
         && [ "$CLI_TEST" -eq 0 ]; then
-        log info "Completion flag present ($ENROLLINATOR_COMPLETED_FLAG); skipping. Use --force to re-run."
+        # Flags that name a config or playbook are a strong signal that
+        # someone is at a keyboard trying to test a change. Skipping the run
+        # makes those flags do nothing, and at info level that message is not
+        # echoed to a non-tty caller at all — so over SSH or from a script the
+        # command produced no output and exit 0, which reads as "--xml was
+        # ignored" rather than "the whole run was skipped". Warn instead, and
+        # name the flags that had no effect.
+        if [ -n "$CLI_XML" ] || [ -n "$CLI_CONFIG" ] || [ -n "$CLI_PROFILE" ]; then
+            log warn "Completion flag present ($ENROLLINATOR_COMPLETED_FLAG); skipping this run — so ${CLI_XML:+--xml }${CLI_CONFIG:+--config }${CLI_PROFILE:+--profile }had no effect. This machine has already been onboarded. Re-run with --force to use the config you passed, or --dry-run to inspect it without running."
+        else
+            log info "Completion flag present ($ENROLLINATOR_COMPLETED_FLAG); skipping. Use --force to re-run."
+        fi
         exit 0
     fi
 
-    # When we're a LaunchDaemon at boot, the console user may not exist yet.
-    # Skip the wait if we're obviously interactive or there's already a user
-    # logged in.
-    if ! [ -t 1 ]; then
-        if ! wait_for_console_user 300; then
-            log warn "No console user after 5min; continuing anyway."
-        else
-            log info "Console user: $ENROLLINATOR_CONSOLE_USER"
-        fi
-    else
+    # Resolve the console user. How long we're willing to wait depends on who
+    # started us, because "wait forever" is right for exactly one caller.
+    if [ -t 1 ]; then
+        # A human at a terminal. Nothing to wait for.
         ENROLLINATOR_CONSOLE_USER="$(/usr/bin/stat -f '%Su' /dev/console 2>/dev/null)"
+    elif [ "$PPID" -eq 1 ]; then
+        # Parented by launchd: this is the LaunchDaemon. Nothing upstream is
+        # blocked on us, so wait as long as it takes. Under PreStage this
+        # process is bootstrapped mid-Setup-Assistant and its whole job is to
+        # carry the run across to the desktop session.
+        wait_for_console_user 0
+        log info "Console user: $ENROLLINATOR_CONSOLE_USER"
+        wait_for_session_ready 60
+    else
+        # Non-interactive, but not the daemon — a Jamf script policy, an SSH
+        # session, CI. Something upstream is holding a connection open on us,
+        # so blocking indefinitely would wedge it (a Jamf policy would sit
+        # open and stall the queue behind it). Wait a bounded while, then fail
+        # loudly. Failing is the point: the old behaviour was to continue and
+        # run every step with nowhere to draw, which installed software
+        # invisibly and left the user with no onboarding.
+        if wait_for_console_user 300; then
+            log info "Console user: $ENROLLINATOR_CONSOLE_USER"
+            wait_for_session_ready 60
+        else
+            log error "No console user after 5min, and not running under launchd. There is no GUI session to place the setup window in, so this run would be invisible — refusing to continue. Deploy via the LaunchDaemon (which waits indefinitely for the desktop session), or invoke this once a user is logged in."
+            exit 5
+        fi
     fi
     export ENROLLINATOR_CONSOLE_USER
 
@@ -1981,10 +2203,11 @@ main() {
     # Neither does a run the user never saw. Two ways that happened, both of
     # which used to write the flag and permanently suppress onboarding:
     #
-    #   * No console user. wait_for_console_user gives up after 5 minutes and
-    #     logs "continuing anyway" — routine during ADE when Setup Assistant is
-    #     still on screen. With no console user, _ui_user_exec cannot place a
-    #     window in any GUI session, so every step ran headlessly.
+    #   * No console user. Under the LaunchDaemon this no longer occurs —
+    #     wait_for_console_user blocks until a session exists rather than
+    #     timing out and running headlessly. The guard stays because the
+    #     interactive path can still reach it: a `sudo enrollinator.sh --force`
+    #     over SSH has no GUI session to place a window in.
     #   * The dialog died during startup (ENROLLINATOR_UI_FAILED), which
     #     ui_start already detects and warns about.
     #
