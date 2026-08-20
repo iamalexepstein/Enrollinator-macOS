@@ -1795,6 +1795,18 @@ main() {
     init_logging
     log info "Enrollinator starting (root=$ENROLLINATOR_ROOT domain=$ENROLLINATOR_DOMAIN pid=$$)"
 
+    # Echo the invocation verbatim, then the flags as parse_args resolved them.
+    #
+    # Without this, "my --xml was ignored" cannot be told apart from "--xml
+    # never arrived": both produce a run with empty CLI_XML, and the only
+    # other evidence is a temp path that looks identical whatever the source.
+    # The two have completely different causes — one is a precedence bug in
+    # here, the other is a caller (LaunchDaemon ProgramArguments, a wrapper
+    # script, an MDM policy) dropping the arguments before this process sees
+    # them — so the log has to distinguish them on the first run.
+    log info "Invoked as: $0 ${*:-<no arguments>}"
+    log info "Resolved flags: xml='${CLI_XML}' config='${CLI_CONFIG}' profile='${CLI_PROFILE}' domain='${ENROLLINATOR_DOMAIN}' force=${CLI_FORCE} dry_run=${CLI_DRY_RUN} test=${CLI_TEST}${CLI_IGNORED_ARGS:+ ignored_positional='$CLI_IGNORED_ARGS'}"
+
     # Warn when another instance is already live.
     #
     # There is no lock, and every root instance derives the same swiftDialog
