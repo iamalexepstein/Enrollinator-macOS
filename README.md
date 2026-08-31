@@ -292,6 +292,7 @@ Enrollinator/
 - [Mobileconfig schema](docs/mobileconfig-schema.md) — every key, every handler.
 - [Deployment](docs/deployment.md) — pkg, LaunchDaemon, MDM, Jamf reporting.
 - [Recipes](docs/recipes.md) — copy-pasteable gates for VPNs, EDRs, etc.
+- [AI conversion guide](docs/ai-conversion-guide.md) — paste into an LLM to convert an existing DEPNotify / Setup Your Mac / SplashBuddy / Liftoff / bash setup flow into an Enrollinator config.
 
 ## License
 
