@@ -396,8 +396,11 @@ Wrap in the `.mobileconfig` skeleton (§6), then run the checklist in §8.
 
 ## 5. Source-specific mapping
 
-These describe how each tool *typically* looks. Read the real artifact; where
-it differs, the artifact wins.
+Key names and command spellings below were checked against each tool's own
+documentation (sources in §11). They are still only the *stock* shape of each
+tool: DEPNotify and Setup Your Mac in particular are forked and hand-edited at
+almost every site that runs them. Read the real artifact; where it differs from
+this section, the artifact wins.
 
 ### 5.1 DEPNotify
 
@@ -413,7 +416,9 @@ only draws.
 | `Status: <text>` before each unit of work | The `Name` of the step doing that work |
 | The command that follows each `Status:` | That step's `Action` |
 | `Command: MainText:` mid-run asking the user to act | A `Blocking` step with a `WaitWindow` |
-| `Command: ContinueButton:` / `ContinueButtonRegex:` | A `dialog` action with an `ExpectedButton` |
+| `Command: ContinueButton:` | A final acknowledgement — a `dialog` action, or `AllowClose: true` if it is the last thing in the run |
+| `Command: ContinueButtonEULA:` | A `dialog` action whose `ExpectedButton` is the accept button — this is the read-and-accept gate |
+| `ContinueButtonRegister:` / `Web:` / `Logout:` / `Restart:` | Not converted — registration forms, logout, and restart have no equivalent (§7) |
 | `Command: Alert:` | A `dialog` action |
 | `Command: Quit:` / `Command: Restart:` | End of run; a reboot is a caveat (§7) |
 | The registration/plist-reading plumbing | Not converted — flag it |
@@ -430,12 +435,14 @@ rule.
 | Source field (typical name) | Enrollinator |
 |---|---|
 | `listitem` / step name | `Name` |
-| `icon` (an ID or URL) | `Icon` — an ID from a Jamf icon store cannot be resolved; substitute an SF Symbol and flag it |
+| `icon` (a hash of a Jamf-hosted icon) | `Icon` — the hash is meaningless outside Jamf's icon server; substitute an SF Symbol or a reachable `https://` URL and flag it |
 | `progresstext` | Fold into `Name`, or use it as the `WaitWindow.Message` when the step blocks |
-| `trigger` / `trigger_list` (a Jamf custom event) | `shell` action: `/usr/local/bin/jamf policy -event <trigger>` |
+| `trigger_list` entry's `trigger` (a Jamf custom event) | `shell` action: `/usr/local/bin/jamf policy -event <trigger>` |
+| A `trigger_list` with **several** entries | `trigger_list` is an array, so one `listitem` can fire several policies. Either chain them with `&amp;&amp;` in one `shell` action, or split into one step per trigger — splitting gives the user better progress detail |
 | `validation` = a path | `file_exists`, or `app_installed` with `Path` |
 | `validation` = `None` | No conditions; consider `ContinueOnFailure: true` |
-| `validation` = `Local`/`Remote` variants | A `shell` condition that reproduces the check explicitly |
+| `validation` = `Local` or `Remote` | A `shell` condition that reproduces the check explicitly. `Remote` runs a separate Jamf policy to validate; you must find that policy's script and inline its logic |
+| `validation` = `Recon` | Nothing — Enrollinator runs `jamf recon` automatically after a successful run (`JamfRecon`, default `true`). Drop the step |
 | Configuration/branding block at the top | `Branding` + `WelcomeScreen` |
 
 Note in the caveats that `jamf policy -event` keeps a Jamf dependency: the
@@ -457,11 +464,24 @@ follow-up that makes it portable.
 </dict>
 ```
 
-Raise the `TimeoutSeconds` — Installomator downloads, and the default is 300s.
-Pair each one with an `app_installed` condition so a silent download failure
-surfaces as a failed step. Installomator's own dialog/notification options
-should be turned off (`NOTIFY=silent`) so it does not fight the Enrollinator
-window. Installomator must be on disk before the run; that is a caveat.
+Notes:
+
+- **The path is not standardised.** `/usr/local/Installomator/Installomator.sh`
+  is the common deployment location, not a documented default. Copy whatever
+  path the source actually uses, and list it in the caveats as a prerequisite.
+- **Raise `TimeoutSeconds`.** Installomator downloads before it installs; the
+  `shell` default of 300s is not enough for a large app on a slow first-boot
+  network. 900s is a reasonable floor.
+- **Silence its UI.** `NOTIFY=silent` stops Installomator's own notifications
+  fighting the Enrollinator window. Valid `NOTIFY` values are `success`
+  (default), `silent`, and `all`.
+- **Mind `BLOCKING_PROCESS_ACTION`.** The default is `tell_user`, which prompts
+  and waits — during unattended first-boot provisioning that stalls the step
+  until its timeout. `ignore` is the right choice on a fresh Mac where nothing
+  is open yet. Other valid values: `silent_fail`, `prompt_user`,
+  `prompt_user_then_kill`, `prompt_user_loop`, `tell_user_then_kill`, `kill`.
+- **Always pair with a condition.** Installomator can fail quietly; an
+  `app_installed` condition turns that into a visibly failed step.
 
 ### 5.4 Iru (formerly Kandji) — Liftoff, blueprints, custom scripts
 
@@ -479,14 +499,19 @@ user-action gates.
 
 ### 5.5 SplashBuddy
 
-SplashBuddy watches an install log and shows a list of applications.
+SplashBuddy watches an install log and shows a list of applications. Its
+preferences live in the `io.fti.SplashBuddy` domain (commonly
+`/Library/Preferences/io.fti.SplashBuddy.plist`), and its assets under
+`/Library/Application Support/SplashBuddy/`.
 
 | Source | Enrollinator |
 |---|---|
 | `applicationsArray` entry (`displayName`, `description`, `iconRelativePath`) | One step: `Name`, `Icon` |
-| `packageName` / `CanContinue` | An `app_installed` or `file_exists` condition |
+| `packageName` | An `app_installed` or `file_exists` condition — note this is a *package* name, not a bundle ID, so you must map it to the app it installs |
+| `canContinue: false` | The step is required: make it `Blocking`, or leave `ContinueOnFailure` unset so a failure stops the run |
+| `canContinue: true` | `ContinueOnFailure: true` |
 | The install mechanism (Jamf policies triggered elsewhere) | A `package` or `shell` action, or a verify-only step if the MDM still installs it |
-| `postInstallAssetPath` / final screen | `AllowClose: true`, or a final `dialog` action |
+| The final "all done" screen | `AllowClose: true`, or a final `dialog` action |
 
 SplashBuddy is *passive* — it watches installs someone else started. If the
 installs are still MDM-driven, convert each entry into a verify-only step
@@ -829,3 +854,25 @@ If the human has the repo available, these go deeper than this file:
 - [`docs/deployment.md`](deployment.md) — pkg, LaunchDaemon, MDM delivery, Jamf reporting.
 - [`docs/profile-builder.md`](profile-builder.md) — the visual editor, which imports and previews whatever you generate.
 - [`examples/enrollinator.mobileconfig`](../examples/enrollinator.mobileconfig) — a full, commented reference config.
+
+---
+
+## 11. Sources for §5
+
+The source-tool key names, command spellings, and valid values in §5 were
+checked against these, August 2026:
+
+- DEPNotify commands and the `/var/tmp/depnotify.log` control file —
+  [jamf/DEPNotify wiki](https://github.com/jamf/DEPNotify/wiki)
+- Setup Your Mac `policyJSON` (`steps`, `listitem`, `icon`, `progresstext`,
+  `trigger_list`, `trigger`, `validation`) —
+  [Setup Your Mac: Under-the-hood](https://snelson.us/2023/11/sym-under-the-hood/)
+  and [dan-snelson/dialog-scripts](https://github.com/dan-snelson/dialog-scripts/blob/main/Setup%20Your%20Mac/Setup-Your-Mac-via-Dialog.bash)
+- SplashBuddy `applicationsArray` keys —
+  [macadmins/SplashBuddy wiki](https://github.com/macadmins/SplashBuddy/wiki/30---kickstart-guide)
+- Installomator `NOTIFY` and `BLOCKING_PROCESS_ACTION` values —
+  [Installomator wiki: Configuration and Variables](https://github.com/Installomator/Installomator/wiki/Configuration-and-Variables)
+
+The Iru/Liftoff and Octory sections in §5 are shape-level guidance about how
+those tools are structured, not transcribed key names, and were not verified
+against vendor documentation. Treat them as weaker than the rest of §5.
