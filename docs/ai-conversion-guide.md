@@ -9,9 +9,12 @@ swiftDialog wrapper, or a plain bash provisioning script — into an Enrollinato
 `.mobileconfig`.
 
 **How to use it:** paste this whole file into the model, then paste (or attach)
-the artifact to be converted, and ask for the conversion. Everything the model
-needs about Enrollinator's schema is below; it does not need the rest of the
-repo, and it must not invent keys that are not listed here.
+the artifact to be converted — a real script or profile, whole, not a tidied
+excerpt — and ask for the conversion. The model returns a `.mobileconfig` you
+can save and load straight into the Profile Builder
+(`tools/profile-builder.html`) to view and edit. Everything the model needs
+about Enrollinator's schema is below; it does not need the rest of the repo, and
+it must not invent keys that are not listed here.
 
 ---
 
@@ -325,6 +328,22 @@ be the exact process name), `MinimumCount` (default `1`).
 
 Work in this order. Do not start writing XML until step 4.
 
+### Step 0 — Ask, only for what the source cannot tell you
+
+You are in a conversation, so ask before guessing the few things a source file
+genuinely does not contain — but ask once, briefly, and only for these:
+
+- the org's reverse-DNS identifier (for the `Payload*` fields);
+- branding the source lacks — logo/banner path or URL, accent colour — if you
+  want more than the defaults;
+- whether app installs the source delegated to an MDM should **stay** with the
+  MDM (verify-only steps) or become `package` actions you point at shipped pkgs.
+
+Everything else — bundle IDs, process names, icons, timeouts — you assume with a
+sensible default and flag in the caveats (rule 10). Do not hold up the whole
+conversion waiting on those; a complete draft the human corrects beats a
+questionnaire.
+
 ### Step 1 — Inventory
 
 Read the source top to bottom and list every discrete unit of work. One line
@@ -422,9 +441,24 @@ one step, and the command between two `Status:` lines is that step's action.
 
 ### 5.2 Jamf "Setup Your Mac" style policy JSON
 
-These configs typically carry a JSON array of steps, each with a display name,
-an icon, progress text, one or more Jamf policy triggers, and a validation
-rule.
+**The input is almost always the whole `Setup-Your-Mac-via-Dialog.bash`
+script — thousands of lines — not a tidy JSON file.** The JSON you want is
+embedded in it as single-quoted heredoc-style variables. Find these first
+(names confirmed against the stock script; forks rename freely, so search, don't
+assume a line number):
+
+| In the script | Holds | Converts to |
+|---|---|---|
+| `policyJSON='…'` | the `steps` array (each step's `listitem`, `icon`, `progresstext`, `trigger_list`) | the playbook's `Steps` — see the field table below |
+| `welcomeJSON='…'` | the welcome dialog: title, message, an `infobox`, and a `selectItems` list of dropdowns | `WelcomeScreen` (title/message), `HardwareInfo` (the `infobox`), and `PlaybookPicker` (see the `Configuration` selector below) |
+| `symConfiguration=…` fed by a `Configuration` dropdown in `welcomeJSON` | which named preset runs (stock values: `Required`, `Recommended`, `Complete` — forks differ) | **one playbook per preset**, wired to `WelcomeScreen.PlaybookPicker` so the user picks the same way. This is the single biggest structural mapping in a SYM conversion. |
+| `completionActionOption` (script param `$7`, default `"Restart Attended"`; values include `Restart*`, `Shut Down*`, `Log Out*`, `Sleep`, `Quit`, `wait`) | what happens when the run ends | a reboot/logout is a §7 caveat; `Quit`/`wait` ≈ `AllowClose: true` |
+| `welcomeDialog` (script param `$6`: `userInput` / `video` / `messageOnly` / `false`) | whether and how the welcome screen shows | `WelcomeScreen.Enabled`, and `Video` when it is `video` |
+| `overlayicon`, `bannerImage`, `welcomeBannerImage` | branding art (often a Jamf Self Service URL or a hosted URL) | `Branding.Logo` / `Branding.Banner` — a Jamf-hosted URL may not be reachable at enrollment; flag it |
+| The `helpmessage` / `welcomeMessage` text | support contacts, hardcoded **inside the strings** — stock SYM has no `supportTeam*` variables | `Help` (pull the phone/email/KB out of the prose into `Contacts`) |
+| Other Jamf params (`$4` scriptLog, `$5` debugMode, `$8` requiredMinimumBuild, `$9` outdatedOsAction) | operational knobs, not onboarding steps | mostly **not converted**; `requiredMinimumBuild`/`outdatedOsAction` are OS-gate logic you'd reproduce as a `shell` condition only if you actually want the gate |
+
+Once you have `policyJSON`, each step maps like this:
 
 | Source field (typical name) | Enrollinator |
 |---|---|
@@ -541,6 +575,31 @@ Same shape as SplashBuddy: the tool watches, something else installs. Convert
 each watched item into a verify-only step, and decide per item whether it
 should block.
 
+### 5.9 When the source is itself a configuration profile
+
+Sometimes the input is not a script but another `.mobileconfig` / `.plist`.
+Decide which of two kinds it is before converting:
+
+- **Another onboarding tool's config** — an Octory `.plist`, an Iru/Kandji
+  export, a swiftDialog wrapper's plist. Treat it as that tool (§5.4–5.8): read
+  the payload, pull out the steps and branding, and rebuild them as an
+  Enrollinator playbook.
+- **A generic app/settings profile** — payloads like `com.apple.ManagedClient`,
+  a `defaults` domain, a Wi-Fi/VPN/certificate payload. **This is not an
+  onboarding flow at all**, and it is not Enrollinator's job to re-deliver it.
+  Say so plainly, then offer the two things Enrollinator *can* do with it:
+  - **Verify it landed** — a `profile_installed` condition keyed on the
+    profile's `PayloadIdentifier`, so the run confirms the MDM delivered it.
+  - **Reproduce a specific setting** — only if the source is a plain preferences
+    payload and the user wants Enrollinator to set it: a `shell` action running
+    `defaults write` (with `RunAsUser: $CONSOLE_USER` for a per-user domain).
+    Do not try to reproduce Wi-Fi, VPN, certificate, or FileVault payloads this
+    way — those must stay with the MDM.
+
+  Do not wrap a whole app profile's keys into the `com.enrollinator.app`
+  schema; the schema in §3 is the only thing Enrollinator reads, and unrelated
+  payload keys mean nothing to it.
+
 ---
 
 ## 6. Output contract
@@ -654,6 +713,34 @@ A bullet list. Write one bullet for each of:
 Each bullet names the specific thing and states what the human must do before
 deploying. A caveats list that just says "verify everything" is not acceptable —
 be concrete, as the §9 example is.
+
+### Loading your output into the Profile Builder
+
+The human's next move is almost always to open your `.mobileconfig` in the
+Profile Builder (`tools/profile-builder.html`) to view and edit it. Produce
+output that imports cleanly, and tell them how:
+
+- **The importer needs a `com.enrollinator.app` payload.** A full
+  `.mobileconfig` must carry it inside `PayloadContent` (the §6 skeleton does);
+  a bare plist must have `Playbooks` at the top level. Anything else is rejected
+  with "Unrecognized file". This is why you must not bury the config in some
+  other payload type.
+- **The builder silently drops what it does not recognise.** It rebuilds each
+  step from its own template, so a step key that is not in §3 vanishes on
+  import — no error, just missing data. An unknown `Action`/condition `Type`
+  survives but cannot be edited in the UI. Both are invisible failures. Sticking
+  to §3 is what makes the round-trip lossless; this is a second, stronger reason
+  behind hard rule 1.
+- **`JamfRecon` is the one documented key the builder cannot see.** It is a real
+  runtime key (§3.1) but the builder neither imports nor re-exports it — a human
+  who round-trips the file through the builder will lose it. If you set
+  `JamfRecon: false`, call that out in the caveats so they re-add it (or manage
+  recon another way).
+- **Deliver it as a file, not a wall of text.** Emit the `.mobileconfig` as one
+  fenced block the human can copy, tell them to save it as e.g.
+  `enrollinator.mobileconfig`, and then either drag it onto the builder or use
+  its **Import** control. Icons you left as `SF=` guesses can be swapped with
+  the builder's **SF** picker; say so when you guessed one.
 
 ---
 
