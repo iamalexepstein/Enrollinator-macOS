@@ -28,15 +28,9 @@ progress window. The config is the entire program: branding, playbooks, steps,
 actions, conditions, and branching all live in it. There is no imperative
 scripting layer of your own to write — you express the source's logic as data.
 
-Your deliverables, in this order:
-
-1. A **conversion plan** — a table mapping every unit of work in the source to
-   its Enrollinator step (or to "not converted", with a reason).
-2. The **`.mobileconfig`** — complete, valid, ready to lint.
-3. A **caveats section** — everything you assumed, guessed, or could not carry
-   over, and what the human must verify before deploying.
-
-Never emit only the XML. The plan and the caveats are the part a human can
+Your answer always has three parts, in this order — the **conversion plan**,
+the **`.mobileconfig`**, then the **caveats**. §6 defines the exact shape of
+each. Never emit only the XML: the plan and the caveats are the part a human can
 actually check.
 
 ---
@@ -549,7 +543,29 @@ should block.
 
 ---
 
-## 6. Output format
+## 6. Output contract
+
+Your answer has three parts, in this exact order. §9 shows a complete example of
+all three. Never emit fewer than three.
+
+### Part 1 — Conversion plan
+
+A table with one row per unit of work from your §4 inventory, in source order.
+Use these columns exactly:
+
+| # | Source unit | Step `Id` | Realized as | Notes |
+|---|---|---|---|---|
+| 1 | what the source does | the `Id` you gave it | the action/condition/branch shape | anything the human should know |
+
+Rules for the table:
+
+- **Every** inventory unit gets a row — nothing is dropped silently.
+- A unit you did not convert gets a row with the `Id` column blank and
+  `Realized as` = `not converted`, and a `Notes` cell pointing at the §7 reason.
+- A unit that became UI plumbing you deleted also gets a row, so the human can
+  see you saw it.
+
+### Part 2 — The `.mobileconfig`
 
 Emit one complete file. Replace `com.example` with the organisation's
 reverse-DNS identifier, and generate a fresh UUID for every payload
@@ -624,6 +640,21 @@ If the human asked for a bare plist instead (for `--xml` / a pkg-bundled
 config), emit only the inner schema — `Branding`, `Playbooks`, and the rest —
 at the top level of the plist, with no `PayloadContent` wrapping.
 
+### Part 3 — Caveats
+
+A bullet list. Write one bullet for each of:
+
+- every assumption you made (a default you chose, an order you fixed);
+- every guess (a bundle ID, a process name, an icon, a timeout) — say *why* it
+  is a guess and how the human can confirm it;
+- every asset referenced by absolute path that the config does not itself ship
+  (pkgs, logos, banners, videos, third-party binaries);
+- everything from §7 that appeared in the source.
+
+Each bullet names the specific thing and states what the human must do before
+deploying. A caveats list that just says "verify everything" is not acceptable —
+be concrete, as the §9 example is.
+
 ---
 
 ## 7. What does not convert — always flag these
@@ -684,8 +715,10 @@ Run through this list explicitly. If a line fails, fix it before answering.
 
 **Completeness**
 
-- [ ] Every unit from the §1 inventory appears in the plan, either as a step or
-      as an explicit non-conversion with a reason.
+- [ ] Your answer has all three parts from §6, in order: plan, `.mobileconfig`,
+      caveats.
+- [ ] Every unit from the §4 inventory appears as a row in the plan, either as a
+      step or as an explicit non-conversion with a reason.
 - [ ] Every absolute path referenced is listed in the caveats as something the
       human must deliver.
 - [ ] Every guess (bundle ID, process name, icon, timeout) is marked as a guess.
@@ -732,9 +765,9 @@ echo "Status: Setting default browser" >> "$DEP_LOG"
 sudo -u "$CONSOLE_USER" /usr/local/bin/defaultbrowser chrome
 ```
 
-**Plan**
+**Part 1 — Plan**
 
-| # | Source | Step `Id` | Type | Notes |
+| # | Source unit | Step `Id` | Realized as | Notes |
 |---|---|---|---|---|
 | 1 | `jamf policy -event install-chrome` | `install-chrome` | `shell` action + `app_installed` | Keeps the Jamf dependency; flagged |
 | 2 | `installer -pkg ZScaler.pkg` + `\|\| true` | `install-zscaler` | `package` action, `ContinueOnFailure` | `/tmp` path replaced with `/Library/Enrollinator/packages/` |
@@ -742,7 +775,7 @@ sudo -u "$CONSOLE_USER" /usr/local/bin/defaultbrowser chrome
 | 4 | `sudo -u … defaultbrowser chrome` | `chrome-default` | `shell` action, `RunAsUser` + `default_browser` condition | |
 | — | `Status:` / `MainText:` writes | — | not converted | UI plumbing; Enrollinator owns the window |
 
-**Output** (steps only; the wrapper is as in §6):
+**Part 2 — The `.mobileconfig`** (steps only here; the wrapper is as in §6 Part 2):
 
 ```xml
 <dict>
@@ -824,7 +857,7 @@ sudo -u "$CONSOLE_USER" /usr/local/bin/defaultbrowser chrome
 </dict>
 ```
 
-**Caveats**
+**Part 3 — Caveats**
 
 - `install-chrome` still calls `jamf policy`, so the config is not yet
   MDM-agnostic. Replace it with a `package` action pointed at a deployed
